@@ -19,8 +19,11 @@ final class LaunchAgentManager {
         // 用运行时实际路径，此前硬编码 /Applications/随手迁.app，
         // 应用不在该位置时守护指向空路径（曾导致插盘唤醒功能实际失效）
         let appPath = Bundle.main.bundlePath
-        // 已在运行则不重复唤起
-        let shell = "pgrep -f '随手迁.app/Contents/MacOS' >/dev/null 2>&1 || open '\(appPath)'"
+        // 已在运行则不重复唤起；路径进入 shell 单引号串需转义
+        let escAppPath = appPath.replacingOccurrences(of: "'", with: "'\\''")
+        let shell = "pgrep -f '随手迁.app/Contents/MacOS' >/dev/null 2>&1 || open '\(escAppPath)'"
+        // 卷名可能含 & < > 等 XML 特殊字符，未转义会生成非法 plist
+        let escapedWatch = xmlEscape(watchPath)
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -36,7 +39,7 @@ final class LaunchAgentManager {
             </array>
             <key>WatchPaths</key>
             <array>
-                <string>\(watchPath)</string>
+                <string>\(escapedWatch)</string>
             </array>
             <key>RunAtLoad</key>
             <false/>
@@ -47,6 +50,14 @@ final class LaunchAgentManager {
         """
     }
     
+    /// XML 特殊字符转义（卷名含 & < > 时防 plist 非法）
+    private static func xmlEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
     /// 是否已安装
     static var isInstalled: Bool {
         FileManager.default.fileExists(atPath: plistPath)

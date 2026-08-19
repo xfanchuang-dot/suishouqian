@@ -68,7 +68,7 @@ class AppState: ObservableObject {
     
     func scanApps() async {
         isScanning = true
-        apps = []
+        // 稳定性：不先清空列表，扫描完成原子替换，避免每次扫描整页闪空白
         let scanned = await scanner.scanApplications()
         apps = scanned.sorted { $0.size > $1.size }
         isScanning = false

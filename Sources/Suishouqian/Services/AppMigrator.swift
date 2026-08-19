@@ -1,25 +1,32 @@
 import Foundation
+import AppKit
 
 class AppMigrator: @unchecked Sendable {
     private let fileManager = FileManager.default
-    
+
     private let retentionDays = 7
-    
+
     struct MigrationResult {
         let success: Bool
         let error: String?
         let spaceSaved: Int64
     }
-    
-    func migrate(app: AppItem, to drivePath: String, 
+
+    func migrate(app: AppItem, to drivePath: String,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
-        
+
         let appName = app.bundleName
         let sourcePath = app.path
         let targetDir = "\(drivePath)/Applications"
         let targetPath = "\(targetDir)/\(appName)"
         let backupPath = "\(drivePath)/.suishouqian-backup/\(appName)"
-        
+
+        // 稳定性：应用正在运行时移动/替换会导致半完成状态，直接拒绝
+        if let runningName = Self.runningAppName(matching: sourcePath) {
+            return MigrationResult(success: false,
+                  error: "「\(runningName)」正在运行，请先退出后再迁移", spaceSaved: 0)
+        }
+
         // P0: 目标必须是真实挂载的独立卷。历史上发生过目标卷未挂载时
         // createDirectory 把数据全写进内置盘 /Volumes 的事故，此处硬性拦截
         if let reason = validateTarget(drivePath: drivePath, appSize: app.size) {
@@ -115,7 +122,13 @@ class AppMigrator: @unchecked Sendable {
         let sourcePath = app.path
         let externalPath = target
         let backupDir = "\(drivePath)/.suishouqian-backup/\(appName)"
-        
+
+        // 稳定性：回迁同样要求应用未在运行
+        if let runningName = Self.runningAppName(matching: sourcePath) {
+            return MigrationResult(success: false,
+                  error: "「\(runningName)」正在运行，请先退出后再回迁", spaceSaved: 0)
+        }
+
         progress(0.1, "删除符号链接...")
         try? fileManager.removeItem(atPath: sourcePath)
         
@@ -214,20 +227,22 @@ class AppMigrator: @unchecked Sendable {
                                 progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         return await Task.detached {
             try? FileManager.default.removeItem(atPath: dst)
-            
+
+            // 稳定性：复制期间轮询目标大小，上报真实进度（此前全程 0%、结束直接 1%）
+            let totalKB = self.duKB(src)
+
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
             process.arguments = [src, dst]
-            
-            let pipe = Pipe()
-            process.standardOutput = pipe
+            process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
-            
+
             do {
                 try process.run()
-                process.waitUntilExit()
+                self.pollProgress(of: process, copiedPath: dst,
+                                  totalKB: totalKB, progress: progress)
                 guard process.terminationStatus == 0 else { return false }
-                
+
                 progress(1.0)
                 return true
             } catch {
@@ -235,51 +250,101 @@ class AppMigrator: @unchecked Sendable {
             }
         }.value
     }
-    
-    /// 清除 macl 标签 + ad-hoc 重签名，让外置盘上的 app 可运行
-    /// 必须在文件校验完成后调用（重签名会修改二进制，导致 diff 比较失败）
-    private func fixAttributes(at path: String) {
-        _ = try? Process.run(
-            URL(fileURLWithPath: "/usr/bin/xattr"),
-            arguments: ["-d", "com.apple.macl", path]
-        ).waitUntilExit()
-        
-        _ = try? Process.run(
-            URL(fileURLWithPath: "/usr/bin/codesign"),
-            arguments: ["--force", "--deep", "--sign", "-", path]
-        ).waitUntilExit()
-    }
-    
-    /// 快速校验：先比对文件数+总大小（<0.2秒），一致则通过；
-    /// 不一致才做并行 SHA256（xargs -P 8，~10秒）
-    private func verifyFiles(source: String, target: String) async -> Bool {
-        return await Task.detached {
-            // 1. 快速检查：文件数 + 总大小（<0.2 秒）
-            guard let srcInfo = self.quickCheck(dir: source),
-                  let dstInfo = self.quickCheck(dir: target),
-                  srcInfo.count == dstInfo.count,
-                  srcInfo.sizeKB == dstInfo.sizeKB else {
-                return false
+
+    /// 同步上下文里轮询 ditto 复制进度（Thread.sleep 仅允许在同步方法中使用）
+    private func pollProgress(of process: Process, copiedPath: String,
+                              totalKB: Int64,
+                              progress: @escaping @Sendable (Double) -> Void) {
+        while process.isRunning {
+            Thread.sleep(forTimeInterval: 0.4)
+            if totalKB > 0 {
+                let copied = duKB(copiedPath)
+                progress(min(0.99, Double(copied) / Double(totalKB)))
             }
-            
-            // 2. 快速检查通过 = ditto 正常完成，直接通过
-            //    ditto 是 macOS 原生工具，文件数+大小一致即内容一致
-            //    无需再做 SHA256（之前 4689 文件要 90 秒导致卡死）
-            return true
-        }.value
+        }
+        process.waitUntilExit()
     }
-    
-    /// 快速统计：文件数量 + du 大小（<1秒）
-    private func quickCheck(dir: String) -> (count: Int, sizeKB: Int)? {
+
+    /// 目录大小（KB），失败返回 0
+    private func duKB(_ path: String) -> Int64 {
+        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", 
-            "echo $(find '\(dir)' -type f -not -name '.*' 2>/dev/null | wc -l) $(du -sk '\(dir)' 2>/dev/null | cut -f1)"]
-        
+        process.arguments = ["-c", "du -sk '\(escaped)' 2>/dev/null | cut -f1"]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        
+        guard (try? process.run()) != nil else { return 0 }
+        process.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8) ?? ""
+        return Int64(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    /// 清除 macl/quarantine 隔离属性；仅当签名校验不过时才 ad-hoc 重签。
+    /// 此前无条件 codesign --force --deep（--deep 已被 Apple 废弃），
+    /// 可能弄坏带特权 Helper/XPC 的复杂应用
+    private func fixAttributes(at path: String) {
+        let run = { (args: [String]) -> Int32 in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            p.arguments = args
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return -1 }
+            p.waitUntilExit()
+            return p.terminationStatus
+        }
+        _ = run(["-d", "com.apple.macl", path])
+        _ = run(["-dr", "com.apple.quarantine", path])
+
+        // 签名验证通过就不动它
+        let verify = Process()
+        verify.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        verify.arguments = ["--verify", path]
+        verify.standardOutput = FileHandle.nullDevice
+        verify.standardError = FileHandle.nullDevice
+        guard (try? verify.run()) != nil else { return }
+        verify.waitUntilExit()
+        if verify.terminationStatus == 0 { return }
+
+        let resign = Process()
+        resign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        resign.arguments = ["--force", "--sign", "-", path]
+        resign.standardOutput = FileHandle.nullDevice
+        resign.standardError = FileHandle.nullDevice
+        if (try? resign.run()) != nil {
+            resign.waitUntilExit()
+        }
+    }
+
+    /// 快速校验：文件数 + 逻辑字节总和。
+    /// 逻辑大小（stat %z）跨盘确定，此前用 du 块大小在 APFS 稀疏/克隆
+    /// 文件场景下源目标必不相等，造成校验误报
+    private func verifyFiles(source: String, target: String) async -> Bool {
+        return await Task.detached {
+            guard let srcInfo = self.quickCheck(dir: source),
+                  let dstInfo = self.quickCheck(dir: target),
+                  srcInfo.count == dstInfo.count,
+                  srcInfo.sizeBytes == dstInfo.sizeBytes else {
+                return false
+            }
+            return true
+        }.value
+    }
+
+    /// 统计文件数与逻辑字节总和（<1秒）
+    private func quickCheck(dir: String) -> (count: Int, sizeBytes: Int64)? {
+        let escaped = dir.replacingOccurrences(of: "'", with: "'\\''")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c",
+            "find '\(escaped)' -type f -print0 2>/dev/null | xargs -0 stat -f %z 2>/dev/null | awk '{s+=$1; n++} END{print n+0, s+0}'"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
         do {
             try process.run()
             process.waitUntilExit()
@@ -288,40 +353,8 @@ class AppMigrator: @unchecked Sendable {
             let parts = output.split(separator: " ")
             guard parts.count == 2,
                   let count = Int(parts[0]),
-                  let sizeKB = Int(parts[1]) else { return nil }
-            return (count, sizeKB)
-        } catch {
-            return nil
-        }
-    }
-    
-    /// 并行 SHA256：xargs -P 8 八核并行，100 文件/批次
-    private func batchSHA256(dir: String) -> [(path: String, hash: String)]? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", 
-            "find '\(dir)' -type f -not -name '.*' -print0 2>/dev/null | xargs -0 -P 8 -n 100 shasum -a 256 2>/dev/null"]
-        
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        
-        do {
-            try process.run()
-            process.waitUntilExit()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            
-            guard !output.isEmpty else { return nil }
-            
-            return output
-                .split(separator: "\n")
-                .compactMap { line -> (String, String)? in
-                    let parts = line.split(separator: " ", maxSplits: 1)
-                    guard parts.count == 2 else { return nil }
-                    return (String(parts[1]), String(parts[0]))
-                }
+                  let size = Int64(parts[1]) else { return nil }
+            return (count, size)
         } catch {
             return nil
         }
@@ -339,6 +372,15 @@ class AppMigrator: @unchecked Sendable {
         }.value
     }
     
+    /// 应用是否正在运行（读 Bundle ID 后查 NSRunningApplication，穿透软链接）
+    static func runningAppName(matching appPath: String) -> String? {
+        guard let plist = NSDictionary(contentsOfFile: appPath + "/Contents/Info.plist"),
+              let bundleID = plist["CFBundleIdentifier"] as? String,
+              bundleID.hasPrefix("_") == false else { return nil }
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        return running.first?.localizedName
+    }
+
     /// 检查文件是否需要管理员权限（root 所有 + 在受保护目录）
     private func needsAdminPrivilege(for path: String) async -> Bool {
         return await Task.detached {
@@ -349,13 +391,17 @@ class AppMigrator: @unchecked Sendable {
     }
     
     /// 用 osascript 提权删除源文件并创建符号链接（不操作外置盘）
-    private func authenticatedRemoveAndSymlink(source: String, 
+    private func authenticatedRemoveAndSymlink(source: String,
                                                target: String) async -> (success: Bool, error: String?) {
         return await Task.detached {
+            // 稳定性：路径进入 shell 单引号串必须转义单引号，否则命令拼坏
+            func esc(_ s: String) -> String {
+                s.replacingOccurrences(of: "'", with: "'\\''")
+            }
             let script = """
             tell application "随手迁" to activate
             delay 0.3
-            do shell script "rm -rf '\(source)' && ln -s '\(target)' '\(source)'" \
+            do shell script "rm -rf '\(esc(source))' && ln -s '\(esc(target))' '\(esc(source))'" \
             with administrator privileges
             """
             
