@@ -318,9 +318,12 @@ class AppMigrator: @unchecked Sendable {
         }
     }
 
-    /// 快速校验：文件数 + 逻辑字节总和。
+    /// 快速校验：文件数 + 逻辑字节总和一致后，再做随机抽样 SHA256。
     /// 逻辑大小（stat %z）跨盘确定，此前用 du 块大小在 APFS 稀疏/克隆
-    /// 文件场景下源目标必不相等，造成校验误报
+    /// 文件场景下源目标必不相等，造成校验误报。
+    /// 抽样哈希把"大小一致"升级为"抽样内容一致"，防位腐烂/静默写坏；
+    /// 文件总数 ≤ 抽样上限时自动全量哈希。抽样失败（如个别文件无读权限）
+    /// 不降级整体结果——以字节对比为准，避免误报。
     private func verifyFiles(source: String, target: String) async -> Bool {
         return await Task.detached {
             guard let srcInfo = self.quickCheck(dir: source),
@@ -329,8 +332,80 @@ class AppMigrator: @unchecked Sendable {
                   srcInfo.sizeBytes == dstInfo.sizeBytes else {
                 return false
             }
-            return true
+            return self.sampleHashesMatch(source: source, target: target,
+                                          totalCount: srcInfo.count)
         }.value
+    }
+
+    /// 随机抽样哈希对比；返回 false 仅当两侧均成功读出且内容确有差异
+    private func sampleHashesMatch(source: String, target: String, totalCount: Int) -> Bool {
+        let sampleLimit = 32
+        guard totalCount > 0 else { return true }
+
+        guard let files = self.listFiles(under: source), !files.isEmpty else { return true }
+        let sample = files.count <= sampleLimit
+            ? files
+            : Array(files.shuffled().prefix(sampleLimit))
+
+        // 以相对路径为键，分别对源/目标批量哈希
+        let srcRoot = source.hasSuffix("/") ? String(source.dropLast()) : source
+        let dstRoot = target.hasSuffix("/") ? String(target.dropLast()) : target
+        let relSample = sample.map { String($0.dropFirst(srcRoot.count + 1)) }
+        let srcArgs = relSample.map { "\(srcRoot)/\($0)" }
+        let dstArgs = relSample.map { "\(dstRoot)/\($0)" }
+
+        guard let srcMap = self.shasum(files: srcArgs, relativeTo: srcRoot), !srcMap.isEmpty,
+              let dstMap = self.shasum(files: dstArgs, relativeTo: dstRoot), !dstMap.isEmpty else {
+            return true    // 读不出（权限等）→ 信任字节对比，不误报
+        }
+
+        return relSample.allSatisfy { rel in
+            guard let a = srcMap[rel], let b = dstMap[rel] else { return true }
+            return a == b
+        }
+    }
+
+    /// 批量 shasum，返回 相对路径(去根前缀) → 哈希；进程失败返回 nil
+    private func shasum(files: [String], relativeTo root: String) -> [String: String]? {        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/shasum")
+        process.arguments = ["-a", "256"] + files
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8) ?? ""
+        var map: [String: String] = [:]
+        let prefix = root + "/"
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let hash = String(parts[0])
+            let path = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "* "))
+            guard path.hasPrefix(prefix) else { continue }
+            let rel = String(path.dropFirst(prefix.count))
+            map[rel] = hash
+        }
+        return map.isEmpty ? nil : map
+    }
+
+    private func listFiles(under dir: String) -> [String]? {
+        let escaped = dir.replacingOccurrences(of: "'", with: "'\\''")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", "find '\(escaped)' -type f -print0 2>/dev/null"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        process.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8) ?? ""
+        let files = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        return files.isEmpty ? nil : files
     }
 
     /// 统计文件数与逻辑字节总和（<1秒）
