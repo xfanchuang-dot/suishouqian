@@ -28,7 +28,10 @@ struct SuishouqianApp: App {
                     if LaunchAgentManager.isInstalled {
                         _ = LaunchAgentManager.uninstall()
                     } else {
-                        _ = LaunchAgentManager.install()
+                        // 只监听当前外置盘挂载点，避免 Time Machine/dmg 等
+                        // 其他挂载事件误触发唤醒
+                        _ = LaunchAgentManager.install(
+                            watchPath: appState.externalDrive?.mountPoint ?? "/Volumes")
                     }
                 }
             }

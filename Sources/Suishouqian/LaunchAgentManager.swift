@@ -15,10 +15,12 @@ final class LaunchAgentManager {
         "\(agentsDir)/\(plistName)"
     }
     
-    private static var plistContent: String {
-        // P0: 用运行时实际路径，此前硬编码 /Applications/随手迁.app，
+    private static func plistContent(watchPath: String) -> String {
+        // 用运行时实际路径，此前硬编码 /Applications/随手迁.app，
         // 应用不在该位置时守护指向空路径（曾导致插盘唤醒功能实际失效）
         let appPath = Bundle.main.bundlePath
+        // 已在运行则不重复唤起
+        let shell = "pgrep -f '随手迁.app/Contents/MacOS' >/dev/null 2>&1 || open '\(appPath)'"
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28,17 +30,18 @@ final class LaunchAgentManager {
             <string>\(label)</string>
             <key>ProgramArguments</key>
             <array>
-                <string>/usr/bin/open</string>
-                <string>\(appPath)</string>
+                <string>/bin/sh</string>
+                <string>-c</string>
+                <string>\(shell)</string>
             </array>
             <key>WatchPaths</key>
             <array>
-                <string>/Volumes</string>
+                <string>\(watchPath)</string>
             </array>
             <key>RunAtLoad</key>
             <false/>
             <key>ThrottleInterval</key>
-            <integer>10</integer>
+            <integer>30</integer>
         </dict>
         </plist>
         """
@@ -50,14 +53,16 @@ final class LaunchAgentManager {
     }
     
     /// 安装 LaunchAgent（开机自启）
-    static func install() -> Bool {
+    /// watchPath：只监听该挂载点（盘插上/拔出才触发）；传 "/Volumes" 为旧行为，
+    /// 但会导致 Time Machine 每小时备份挂载快照卷等事件误唤醒本应用
+    static func install(watchPath: String = "/Volumes") -> Bool {
         do {
             try FileManager.default.createDirectory(
                 atPath: agentsDir,
                 withIntermediateDirectories: true
             )
-            
-            try plistContent.write(
+
+            try plistContent(watchPath: watchPath).write(
                 toFile: plistPath,
                 atomically: true,
                 encoding: .utf8
