@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// 单条软链接的健康状态
 struct LinkHealth: Identifiable {
@@ -31,6 +32,19 @@ struct BackupIssue: Identifiable {
     let sizeBytes: Int64
     let ageDays: Int
     let isOrphan: Bool
+
+    var sizeFormatted: String {
+        ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+    }
+}
+
+/// 已卸载应用在 ~/Library 里的残留数据
+struct ResidueItem: Identifiable {
+    let id = UUID()
+    let name: String
+    let path: String
+    let sizeBytes: Int64
+    let location: String    // Application Support / Caches
 
     var sizeFormatted: String {
         ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
@@ -123,6 +137,94 @@ class HealthChecker: @unchecked Sendable {
     func deleteBackup(_ issue: BackupIssue) {
         try? fileManager.removeItem(atPath: issue.path)
         AuditLog.append("删除备份 \(issue.appName)（\(issue.isOrphan ? "孤儿" : "超龄 \(issue.ageDays) 天")，\(issue.sizeFormatted)）")
+    }
+
+    // MARK: - 已卸载应用残留扫描（省空间）
+
+    /// 扫描 ~/Library/Application Support 与 ~/Library/Caches：
+    /// 找出没有任何在装应用可认领、且 ≥100MB 的目录
+    func checkResidues(drivePath: String?) -> [ResidueItem] {
+        let signatures = installedAppSignatures(drivePath: drivePath)
+        guard !signatures.isEmpty else { return [] }
+
+        let home = NSHomeDirectory()
+        var results: [ResidueItem] = []
+
+        for (location, base) in [
+            ("Application Support", "\(home)/Library/Application Support"),
+            ("Caches", "\(home)/Library/Caches")
+        ] {
+            let items = (try? fileManager.contentsOfDirectory(atPath: base)) ?? []
+            for item in items {
+                // 系统自有目录与工具自身目录不参与
+                if item.lowercased().hasPrefix("com.apple.") || item == "随手迁" { continue }
+
+                let full = "\(base)/\(item)"
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: full, isDirectory: &isDir),
+                      isDir.boolValue else { continue }
+
+                let size = duSize(full)
+                guard size >= 100 * 1_048_576 else { continue }   // 只报 ≥100MB
+
+                if !residueMatches(item, signatures: signatures) {
+                    results.append(ResidueItem(name: item, path: full,
+                                               sizeBytes: size, location: location))
+                }
+            }
+        }
+        return results.sorted { $0.sizeBytes > $1.sizeBytes }
+    }
+
+    /// 残留移入废纸篓（可恢复，不做永久删除）
+    @discardableResult
+    func recycleResidue(_ item: ResidueItem) -> Bool {
+        var didRecycle = false
+        NSWorkspace.shared.recycle([URL(fileURLWithPath: item.path)]) { _, _ in }
+        didRecycle = !fileManager.fileExists(atPath: item.path)
+        if didRecycle {
+            AuditLog.append("清理应用残留 \(item.name)（\(item.location)，\(item.sizeFormatted)，已入废纸篓）")
+        }
+        return didRecycle
+    }
+
+    /// 在装应用特征集：应用名（含去空格/去尾数字变体）+ BundleID + 其前两段
+    private func installedAppSignatures(drivePath: String?) -> Set<String> {
+        var dirs = ["/Applications", "\(NSHomeDirectory())/Applications"]
+        if let drivePath { dirs.append("\(drivePath)/Applications") }
+
+        var signatures = Set<String>()
+        for dir in dirs {
+            for item in (try? fileManager.contentsOfDirectory(atPath: dir)) ?? []
+            where item.hasSuffix(".app") {
+                let name = String(item.dropLast(4)).lowercased()
+                signatures.insert(name)
+                signatures.insert(name.replacingOccurrences(of: " ", with: ""))
+                if let plist = NSDictionary(contentsOfFile: "\(dir)/\(item)/Contents/Info.plist"),
+                   let bid = plist["CFBundleIdentifier"] as? String {
+                    signatures.insert(bid.lowercased())
+                    let parts = bid.lowercased().split(separator: ".")
+                    if parts.count >= 2 {
+                        signatures.insert("\(parts[0]).\(parts[1])")
+                    }
+                }
+            }
+        }
+        return signatures
+    }
+
+    /// 目录名是否可被在装应用认领（前缀互含，长度 ≥4 防误匹配）
+    private func residueMatches(_ dirName: String, signatures: Set<String>) -> Bool {
+        var key = dirName.lowercased()
+        while let last = key.last, last.isNumber { key.removeLast() }
+        if key.count < 2 { return true }   // 太短的目录名一律不报，防误删
+
+        if signatures.contains(key) { return true }
+        if signatures.contains(dirName.lowercased()) { return true }
+        for s in signatures where s.count >= 4 {
+            if key.hasPrefix(s) || s.hasPrefix(key) { return true }
+        }
+        return false
     }
 
     // MARK: - Private

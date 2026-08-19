@@ -58,6 +58,19 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
         )
     }
     
+    /// 内置盘空间告警（空间守卫）
+    func notifyLowDisk(free: Int64, movableCount: Int, totalSavable: Int64) {
+        let freeText = ByteCountFormatter.string(fromByteCount: free, countStyle: .file)
+        let body: String
+        if movableCount > 0 {
+            let savable = ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file)
+            body = "仅剩 \(freeText)。\(movableCount) 个应用可迁移到外置硬盘，预计腾出 \(savable)"
+        } else {
+            body = "仅剩 \(freeText)，建议清理大文件或检查废纸篓"
+        }
+        send(title: "内置盘空间不足", body: body, sound: .default)
+    }
+
     private func send(title: String, body: String, sound: UNNotificationSound?) {
         let content = UNMutableNotificationContent()
         content.title = title

@@ -6,6 +6,7 @@ struct HealthCheckView: View {
 
     @State private var links: [LinkHealth] = []
     @State private var backups: [BackupIssue] = []
+    @State private var residues: [ResidueItem] = []
     @State private var isChecking = false
     @State private var repairedCount = 0
 
@@ -18,7 +19,8 @@ struct HealthCheckView: View {
 
                 linkSection
                 if !backups.isEmpty { backupSection }
-                if links.isEmpty && backups.isEmpty && !isChecking { emptyState }
+                if !residues.isEmpty { residueSection }
+                if links.isEmpty && backups.isEmpty && residues.isEmpty && !isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
@@ -134,6 +136,50 @@ struct HealthCheckView: View {
         .cardStyle()
     }
 
+    /// 已卸载应用的 Library 残留（省空间）
+    private var residueSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "已卸载应用残留", systemImage: "trash.slash")
+                Spacer()
+                Text("移入废纸篓，可恢复")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(residues) { item in
+                HStack {
+                    Image(systemName: "internaldrive")
+                        .foregroundColor(.purple)
+                        .font(.system(size: 11))
+                    Text(item.name)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                    Text("\(item.sizeFormatted) · \(item.location)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("清理") { recycleResidue(item) }
+                        .controlSize(.small)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
+    }
+
+    private func recycleResidue(_ item: ResidueItem) {
+        let alert = NSAlert()
+        alert.messageText = "清理应用残留"
+        alert.informativeText = "将把「\(item.name)」（\(item.sizeFormatted)）移入废纸篓。它不隶属于任何已安装的应用，如无异常可放心清理。"
+        alert.addButton(withTitle: "移入废纸篓")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if checker.recycleResidue(item) {
+            residues.removeAll { $0.id == item.id }
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.seal.fill")
@@ -158,9 +204,11 @@ struct HealthCheckView: View {
             let l = checker.checkLinks()
             var b: [BackupIssue] = []
             if let drive { b = checker.checkBackups(drivePath: drive) }
+            let r = checker.checkResidues(drivePath: drive)
             await MainActor.run {
                 links = l
                 backups = b
+                residues = r
                 isChecking = false
             }
         }

@@ -191,7 +191,8 @@ class AppMigrator: @unchecked Sendable {
             guard let attrs = try? fileManager.attributesOfItem(atPath: fullPath),
                   let modDate = attrs[.modificationDate] as? Date,
                   modDate < cutoff else { continue }
-            if fileManager.removeItem(atPath: fullPath) == nil || !fileManager.fileExists(atPath: fullPath) {
+            try? fileManager.removeItem(atPath: fullPath)
+            if !fileManager.fileExists(atPath: fullPath) {
                 AuditLog.append("清理过期备份：\(item)（超过 \(retentionDays) 天）")
             }
         }

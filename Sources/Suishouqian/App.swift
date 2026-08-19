@@ -84,8 +84,36 @@ class AppState: ObservableObject {
         return !task.status.isTerminal
     }
 
+    // MARK: - 空间守卫
+
+    private var lowDiskNotified = false
+    private let lowDiskThreshold: Int64 = 40 * 1_073_741_824   // 40GB 警戒线
+
+    private func startSpaceGuard() {
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.diskMonitor.refresh()
+                self.refreshDrives()
+                guard let free = self.builtinDrive?.freeSize else { return }
+
+                if free < self.lowDiskThreshold && !self.lowDiskNotified {
+                    let movable = self.apps.filter { $0.status == .normal }
+                    let savable = movable.reduce(0) { $0 + $1.size }
+                    self.notificationManager.notifyLowDisk(
+                        free: free, movableCount: movable.count, totalSavable: savable)
+                    AuditLog.append("空间告警：内置盘仅剩 \(free / 1_073_741_824)GB")
+                    self.lowDiskNotified = true
+                } else if free > self.lowDiskThreshold * 11 / 10 {
+                    self.lowDiskNotified = false   // 恢复到 44GB 以上才允许下次告警
+                }
+            }
+        }
+    }
+
     init() {
         AppDelegate.appState = self
+        startSpaceGuard()
         diskMonitor.onMountChange = { [weak self] drive in
             guard let self else { return }
             self.externalDrive = drive
