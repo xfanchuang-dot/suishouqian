@@ -1,0 +1,15 @@
+# 构建产物
+.build/
+dist/
+
+# Xcode / SwiftPM
+xcuserdata/
+*.xcodeproj.bak
+Package.resolved.lock
+
+# 系统文件
+.DS_Store
+
+# 备份副本（有 git 后不再需要）
+*.bak
+*~
