@@ -1,8 +1,34 @@
 import SwiftUI
 
+/// 应用委托：迁移进行中拦截退出，杜绝半完成状态的最后一个人为入口
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    // 仅主线程读写（applicationShouldTerminate 与 AppState.init 均在主线程）
+    nonisolated(unsafe) static weak var appState: AppState?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let state = Self.appState, state.isMigrationActive else {
+            return .terminateNow
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "迁移正在进行中"
+        alert.informativeText = """
+        「\(state.migrationTask?.app.name ?? "")」正在\(state.migrationTask?.operation == .migrate ? "迁移" : "回迁")，\
+        现在强制退出可能留下半完成状态（原件和备份都在，可通过体检页恢复）。
+        建议等待完成，通常只需几十秒。
+        """
+        alert.addButton(withTitle: "等待完成（推荐）")
+        alert.addButton(withTitle: "强制退出")
+        alert.alertStyle = .warning
+
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateCancel : .terminateNow
+    }
+}
+
 @main
 struct SuishouqianApp: App {
     @StateObject private var appState = AppState()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let updateManager = UpdateManager()
     
     var body: some Scene {
@@ -51,8 +77,15 @@ class AppState: ObservableObject {
     let migrator = AppMigrator()
     let diskMonitor = DiskMonitor()
     let notificationManager = NotificationManager()
-    
+
+    /// 是否有迁移/回迁任务正在进行（强退保护依据）
+    var isMigrationActive: Bool {
+        guard let task = migrationTask else { return false }
+        return !task.status.isTerminal
+    }
+
     init() {
+        AppDelegate.appState = self
         diskMonitor.onMountChange = { [weak self] drive in
             guard let self else { return }
             self.externalDrive = drive
