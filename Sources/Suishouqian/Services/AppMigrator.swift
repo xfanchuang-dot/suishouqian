@@ -23,6 +23,7 @@ class AppMigrator: @unchecked Sendable {
 
         // 稳定性：应用正在运行时移动/替换会导致半完成状态，直接拒绝
         if let runningName = Self.runningAppName(matching: sourcePath) {
+            AuditLog.append("拒绝迁移 \(appName)：应用正在运行")
             return MigrationResult(success: false,
                   error: "「\(runningName)」正在运行，请先退出后再迁移", spaceSaved: 0)
         }
@@ -30,6 +31,7 @@ class AppMigrator: @unchecked Sendable {
         // P0: 目标必须是真实挂载的独立卷。历史上发生过目标卷未挂载时
         // createDirectory 把数据全写进内置盘 /Volumes 的事故，此处硬性拦截
         if let reason = validateTarget(drivePath: drivePath, appSize: app.size) {
+            AuditLog.append("拒绝迁移 \(appName)：\(reason)")
             return MigrationResult(success: false, error: reason, spaceSaved: 0)
         }
         
@@ -51,8 +53,9 @@ class AppMigrator: @unchecked Sendable {
         progress(0.7, "正在校验完整性...")
         let verified = await verifyFiles(source: sourcePath, target: targetPath)
         guard verified else {
+            AuditLog.append("迁移失败 \(appName)：校验未通过，已回滚目标副本")
             try? fileManager.removeItem(atPath: targetPath)
-            return MigrationResult(success: false, 
+            return MigrationResult(success: false,
                   error: "文件校验失败，请重试", spaceSaved: 0)
         }
         
@@ -108,6 +111,7 @@ class AppMigrator: @unchecked Sendable {
         }
         
         progress(1.0, "完成")
+        AuditLog.append("迁移成功 \(appName)：\(app.size) 字节 → \(targetPath)")
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
     }
     
@@ -147,18 +151,21 @@ class AppMigrator: @unchecked Sendable {
         if verified {
             try? fileManager.removeItem(atPath: externalPath)
             try? fileManager.removeItem(atPath: backupDir)
+            AuditLog.append("回迁成功 \(appName)：已恢复到内置盘并清理外置副本")
         } else {
             // P0: 校验失败也要恢复软链接，否则应用失去启动入口（半完成状态）
             try? fileManager.removeItem(atPath: sourcePath)
             try? fileManager.createSymbolicLink(atPath: sourcePath, withDestinationPath: externalPath)
+            AuditLog.append("回迁校验失败 \(appName)：已恢复软链接，外置副本保留")
         }
-        
+
         progress(1.0, "完成")
-        return MigrationResult(success: verified, error: verified ? nil : "校验失败", 
+        return MigrationResult(success: verified, error: verified ? nil : "校验失败",
                                spaceSaved: -app.size)
     }
-    
+
     func uninstall(app: AppItem, drivePath: String? = nil) -> MigrationResult {
+        AuditLog.append("卸载 \(app.bundleName)（链接+\(app.symlinkTarget ?? "无外置副本")）")
         try? fileManager.removeItem(atPath: app.path)
         
         if let target = app.symlinkTarget {
@@ -184,7 +191,9 @@ class AppMigrator: @unchecked Sendable {
             guard let attrs = try? fileManager.attributesOfItem(atPath: fullPath),
                   let modDate = attrs[.modificationDate] as? Date,
                   modDate < cutoff else { continue }
-            try? fileManager.removeItem(atPath: fullPath)
+            if fileManager.removeItem(atPath: fullPath) == nil || !fileManager.fileExists(atPath: fullPath) {
+                AuditLog.append("清理过期备份：\(item)（超过 \(retentionDays) 天）")
+            }
         }
     }
     

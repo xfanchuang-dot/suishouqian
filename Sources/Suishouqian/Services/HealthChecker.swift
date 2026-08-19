@@ -110,6 +110,7 @@ class HealthChecker: @unchecked Sendable {
                 do {
                     try fileManager.createSymbolicLink(
                         atPath: link.linkPath, withDestinationPath: candidate)
+                    AuditLog.append("修复断链 \(link.appName) → \(candidate)")
                     return true
                 } catch {
                     return false
@@ -121,6 +122,7 @@ class HealthChecker: @unchecked Sendable {
 
     func deleteBackup(_ issue: BackupIssue) {
         try? fileManager.removeItem(atPath: issue.path)
+        AuditLog.append("删除备份 \(issue.appName)（\(issue.isOrphan ? "孤儿" : "超龄 \(issue.ageDays) 天")，\(issue.sizeFormatted)）")
     }
 
     // MARK: - Private
