@@ -27,9 +27,7 @@ struct HealthCheckView: View {
 
     private var header: some View {
         HStack {
-            Text("体检")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.secondary)
+            SectionHeader(title: "体检", systemImage: "stethoscope")
             Spacer()
             if isChecking {
                 ProgressView()
@@ -54,29 +52,27 @@ struct HealthCheckView: View {
     private var linkSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             let s = summary
-            HStack(spacing: 12) {
-                Label("\(s.healthy) 正常", systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                Label("\(s.offline) 硬盘未连接", systemImage: "externaldrive.badge.exclamationmark")
-                    .foregroundColor(s.offline > 0 ? .orange : .secondary)
-                Label("\(s.broken) 断链", systemImage: "link.badge.plus")
-                    .foregroundColor(s.broken > 0 ? .red : .secondary)
+            HStack(spacing: 8) {
+                StatusPill("\(s.healthy) 正常", systemImage: "checkmark.circle.fill", color: .green)
+                StatusPill("\(s.offline) 硬盘未连接", systemImage: "externaldrive.badge.exclamationmark", color: s.offline > 0 ? .orange : .secondary)
+                StatusPill("\(s.broken) 断链", systemImage: "link.badge.plus", color: s.broken > 0 ? .red : .secondary)
             }
-            .font(.system(size: 12))
 
             if s.broken > 0 {
-                Button("一键修复断链") { repairAll() }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
+                Button {
+                    repairAll()
+                } label: {
+                    Label("一键修复断链", systemImage: "wand.and.stars")
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
             }
 
             ForEach(links) { link in
                 linkRow(link)
             }
         }
-        .padding(16)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(8)
+        .cardStyle()
     }
 
     private func linkRow(_ link: LinkHealth) -> some View {
@@ -135,18 +131,18 @@ struct HealthCheckView: View {
                 .padding(.vertical, 2)
             }
         }
-        .padding(16)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(8)
+        .cardStyle()
     }
 
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 32))
-                .foregroundColor(.green)
-            Text("一切正常，没有发现断链或可清理的备份")
-                .font(.system(size: 12))
+                .foregroundStyle(Theme.accent)
+            Text("一切正常")
+                .font(.system(size: 13, weight: .semibold))
+            Text("没有发现断链或可清理的备份")
+                .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)

@@ -6,28 +6,18 @@ struct AppRowView: View {
     
     var body: some View {
         HStack(spacing: 10) {
-            Group {
-                if let icon = app.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 28, height: 28)
-                } else {
-                    Image(systemName: "app.fill")
-                        .font(.system(size: 20))
-                        .frame(width: 28, height: 28)
-                }
-            }
-            
+            IconContainer(icon: app.icon)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(app.name)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
-                
+
                 HStack(spacing: 4) {
                     Text(app.sizeFormatted)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
-                    
+
                     if let version = app.version {
                         Text("·")
                         Text("v\(version)")
@@ -36,12 +26,11 @@ struct AppRowView: View {
                     }
                 }
             }
-            
+
             Spacer()
-            
+
             statusBadge
-                .font(.system(size: 11))
-            
+
             if app.status == .normal && appState.externalDrive != nil {
                 Button("迁移") {
                     migrateApp()
@@ -57,7 +46,7 @@ struct AppRowView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .font(.system(size: 11))
-                    
+
                     Button("卸载") {
                         uninstallApp()
                     }
@@ -70,42 +59,24 @@ struct AppRowView: View {
         .padding(.vertical, 4)
         .opacity(statusOpacity)
     }
-    
+
     var statusBadge: some View {
         Group {
             switch app.status {
             case .normal:
                 EmptyView()
             case .migrated:
-                HStack(spacing: 3) {
-                    Image(systemName: "externaldrive.fill")
-                    Text("已迁移")
-                }
-                .foregroundColor(appState.externalDrive != nil ? .green : .gray)
+                StatusPill("已迁移",
+                           systemImage: "externaldrive.fill",
+                           color: appState.externalDrive != nil ? .green : .gray)
             case .migrating:
-                HStack(spacing: 3) {
-                    ProgressView().scaleEffect(0.5)
-                    Text("迁移中")
-                }
-                .foregroundColor(.blue)
+                StatusPill("迁移中", color: .blue)
             case .restoring:
-                HStack(spacing: 3) {
-                    ProgressView().scaleEffect(0.5)
-                    Text("回迁中")
-                }
-                .foregroundColor(.orange)
+                StatusPill("回迁中", color: .orange)
             case .needsSync:
-                HStack(spacing: 3) {
-                    Circle().fill(.yellow).frame(width: 6, height: 6)
-                    Text("待同步")
-                }
-                .foregroundColor(.orange)
+                StatusPill("待同步", systemImage: "clock.fill", color: .orange)
             case .systemApp:
-                HStack(spacing: 3) {
-                    Image(systemName: "lock.fill")
-                    Text("系统")
-                }
-                .foregroundColor(.secondary)
+                StatusPill("系统", systemImage: "lock.fill", color: .secondary)
             }
         }
     }

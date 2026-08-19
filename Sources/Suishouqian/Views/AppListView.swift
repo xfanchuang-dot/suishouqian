@@ -108,24 +108,31 @@ struct AppListView: View {
             }
             
             // 底部统计
-            HStack {
+            HStack(spacing: 12) {
+                let migrated = appState.apps.filter { $0.status == .migrated }
                 let movable = appState.apps.filter { $0.status == .normal }
                 let totalSavable = movable.reduce(0) { $0 + $1.size }
-                
-                Text("\(appState.apps.count) 个应用")
+
+                Label("\(appState.apps.count) 个应用", systemImage: "square.grid.2x2")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
-                
+
+                Label("\(migrated.count) 已迁移", systemImage: "externaldrive.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(migrated.isEmpty ? .secondary : .green)
+
                 Spacer()
-                
+
                 if totalSavable > 0 {
-                    Text("可省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))")
-                        .font(.system(size: 11))
-                        .foregroundColor(.green)
+                    Label("可省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))",
+                          systemImage: "arrow.down.circle.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.blue)
                 }
             }
+            .labelStyle(.titleAndIcon)
             .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             .background(Color(NSColor.controlBackgroundColor))
         }
     }

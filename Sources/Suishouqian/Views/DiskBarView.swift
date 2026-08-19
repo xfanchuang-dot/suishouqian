@@ -2,71 +2,106 @@ import SwiftUI
 
 struct DiskBarView: View {
     @EnvironmentObject var appState: AppState
-    
+
     var body: some View {
-        HStack(spacing: 24) {
-            // 内置硬盘
+        HStack(spacing: 12) {
             if let builtin = appState.builtinDrive {
-                driveCard(drive: builtin, label: "内置硬盘")
+                driveCard(drive: builtin, label: "内置硬盘",
+                          icon: "internaldrive.fill", color: .blue)
             }
-            
-            // 外置硬盘
+
             if let external = appState.externalDrive {
-                driveCard(drive: external, label: "外置硬盘")
+                driveCard(drive: external, label: "外置硬盘",
+                          icon: "externaldrive.fill", color: .green)
             } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("外置硬盘")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    HStack(spacing: 4) {
-                        Image(systemName: "externaldrive.badge.xmark")
-                            .foregroundColor(.secondary)
-                        Text("未连接")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                offlineCard
             }
         }
     }
-    
-    func driveCard(drive: DriveInfo, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                Image(systemName: drive.isExternal ? "externaldrive.fill" : "internaldrive.fill")
-                    .font(.system(size: 11))
-                Text(label)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
+
+    // MARK: - 在线磁盘卡片
+
+    private func driveCard(drive: DriveInfo, label: String,
+                           icon: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                DriveIconBox(systemImage: icon, color: color)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(label)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("可用 \(drive.freeFormatted) / 共 \(drive.totalFormatted)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Text("\(Int(drive.usageRatio * 100))%")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(usageColor(drive.usageRatio))
             }
-            
-            // 空间条
+
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(height: 8)
-                    
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(usageColor(drive.usageRatio))
-                        .frame(width: geo.size.width * drive.usageRatio, height: 8)
+                    Capsule()
+                        .fill(Color.primary.opacity(0.07))
+                        .frame(height: 6)
+
+                    Capsule()
+                        .fill(barGradient(usageColor(drive.usageRatio)))
+                        .frame(width: max(6, geo.size.width * drive.usageRatio),
+                               height: 6)
                 }
             }
-            .frame(height: 8)
-            
-            HStack {
-                Text("可用 \(drive.freeFormatted)")
-                    .font(.system(size: 11, weight: .medium))
-                Text("/ \(drive.totalFormatted)")
-                    .font(.system(size: 11))
+            .frame(height: 6)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06))
+        )
+    }
+
+    // MARK: - 外置盘未连接
+
+    private var offlineCard: some View {
+        HStack(spacing: 8) {
+            DriveIconBox(systemImage: "externaldrive.badge.xmark", color: .orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("外置硬盘")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("未连接 · 插入后将自动识别")
+                    .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.orange.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.18))
+        )
     }
-    
-    func usageColor(_ ratio: Double) -> Color {
+
+    // MARK: -
+
+    private func barGradient(_ color: Color) -> LinearGradient {
+        LinearGradient(colors: [color.opacity(0.65), color],
+                       startPoint: .leading, endPoint: .trailing)
+    }
+
+    private func usageColor(_ ratio: Double) -> Color {
         switch ratio {
         case ..<0.5: return .green
         case ..<0.8: return .orange

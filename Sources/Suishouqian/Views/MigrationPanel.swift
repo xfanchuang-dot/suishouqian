@@ -5,10 +5,8 @@ struct MigrationPanel: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("操作")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.secondary)
-            
+            SectionHeader(title: "操作", systemImage: "arrow.left.arrow.right")
+
             if let task = appState.migrationTask {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -22,83 +20,91 @@ struct MigrationPanel: View {
                                 .foregroundColor(.green)
                         }
                     }
-                    
+
                     if !task.status.isTerminal {
                         ProgressView(value: task.progress)
                             .progressViewStyle(.linear)
                             .tint(.blue)
-                        
+
                         Text(task.currentFile)
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     }
-                    
+
                     if case .failed(let msg) = task.status {
                         Text(msg)
                             .font(.system(size: 12))
                             .foregroundColor(.red)
                     }
                 }
-                .padding(16)
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(8)
+                .cardStyle()
             } else {
-                VStack(spacing: 20) {
-                    Image(systemName: "arrow.right.circle")
-                        .font(.system(size: 36))
-                        .foregroundColor(.secondary.opacity(0.5))
-                    
-                    Text("选择左侧应用开始迁移")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                    
-                    if appState.externalDrive == nil {
-                        HStack(spacing: 6) {
-                            Image(systemName: "externaldrive.badge.questionmark")
-                                .foregroundColor(.orange)
-                            Text("未检测到外置硬盘")
-                                .font(.system(size: 12))
-                                .foregroundColor(.orange)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.orange.opacity(0.1))
-                        .cornerRadius(6)
-                    } else {
-                        Text("外置盘已连接，可以开始迁移")
-                            .font(.system(size: 12))
-                            .foregroundColor(.green)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+                emptyState
             }
-            
+
             if !appState.apps.isEmpty && appState.externalDrive != nil {
                 VStack(spacing: 8) {
                     let movableApps = appState.apps.filter { $0.status == .normal }
                     let migratedApps = appState.apps.filter { $0.status == .migrated }
-                    
+
                     if !movableApps.isEmpty {
-                        Button("一键迁移全部 (\(movableApps.count) 个应用)") {
+                        Button {
                             migrateAll()
+                        } label: {
+                            Label("一键迁移全部 (\(movableApps.count) 个应用)",
+                                  systemImage: "arrow.right.circle.fill")
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(appState.migrationTask != nil)
                     }
-                    
+
                     if !migratedApps.isEmpty {
-                        Button("全部回迁 (\(migratedApps.count) 个应用)") {
+                        Button {
                             restoreAll()
+                        } label: {
+                            Label("全部回迁 (\(migratedApps.count) 个应用)",
+                                  systemImage: "arrow.uturn.backward.circle")
                         }
                         .buttonStyle(.bordered)
                         .disabled(appState.migrationTask != nil)
                     }
                 }
-                .controlSize(.regular)
             }
         }
+    }
+
+    /// 空状态：大图标 + 主副文案 + 硬盘状态提示
+    private var emptyState: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Theme.accent.opacity(0.12))
+                    .frame(width: 76, height: 76)
+                Image(systemName: "externaldrive.badge.plus")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+            }
+
+            Text("把大应用搬到外置硬盘")
+                .font(.system(size: 14, weight: .semibold))
+
+            Text("在左侧选择应用，点击「迁移」释放内置盘空间")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            if appState.externalDrive == nil {
+                StatusPill("未检测到外置硬盘，插入后自动识别",
+                           systemImage: "questionmark.circle",
+                           color: .orange)
+            } else {
+                StatusPill("外置硬盘已连接，可以开始迁移",
+                           systemImage: "checkmark.circle.fill",
+                           color: .green)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
     }
     
     var taskIcon: String {
