@@ -69,6 +69,12 @@ class AppState: ObservableObject {
         let scanned = await scanner.scanApplications()
         apps = scanned.sorted { $0.size > $1.size }
         isScanning = false
+        
+        // P0: 每次扫描顺带清理过期备份（此前 cleanOldBackups 从未被调用，
+        // 外置盘上积累了 4 个月前的 1GB 陈旧备份）
+        if let mountPoint = externalDrive?.mountPoint {
+            migrator.cleanOldBackups(at: mountPoint)
+        }
     }
     
     func refreshDrives() {

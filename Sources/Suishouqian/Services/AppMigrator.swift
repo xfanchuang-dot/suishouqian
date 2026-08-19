@@ -20,6 +20,12 @@ class AppMigrator: @unchecked Sendable {
         let targetPath = "\(targetDir)/\(appName)"
         let backupPath = "\(drivePath)/.suishouqian-backup/\(appName)"
         
+        // P0: 目标必须是真实挂载的独立卷。历史上发生过目标卷未挂载时
+        // createDirectory 把数据全写进内置盘 /Volumes 的事故，此处硬性拦截
+        if let reason = validateTarget(drivePath: drivePath, appSize: app.size) {
+            return MigrationResult(success: false, error: reason, spaceSaved: 0)
+        }
+        
         do { try fileManager.createDirectory(atPath: targetDir, 
               withIntermediateDirectories: true) } catch {
             return MigrationResult(success: false, 
@@ -128,6 +134,10 @@ class AppMigrator: @unchecked Sendable {
         if verified {
             try? fileManager.removeItem(atPath: externalPath)
             try? fileManager.removeItem(atPath: backupDir)
+        } else {
+            // P0: 校验失败也要恢复软链接，否则应用失去启动入口（半完成状态）
+            try? fileManager.removeItem(atPath: sourcePath)
+            try? fileManager.createSymbolicLink(atPath: sourcePath, withDestinationPath: externalPath)
         }
         
         progress(1.0, "完成")
@@ -135,11 +145,16 @@ class AppMigrator: @unchecked Sendable {
                                spaceSaved: -app.size)
     }
     
-    func uninstall(app: AppItem) -> MigrationResult {
+    func uninstall(app: AppItem, drivePath: String? = nil) -> MigrationResult {
         try? fileManager.removeItem(atPath: app.path)
         
         if let target = app.symlinkTarget {
             try? fileManager.removeItem(atPath: target)
+        }
+        
+        // P0: 顺带清掉对应备份，否则卸载后备份成为孤儿（如 4 个月前的豆包备份）
+        if let drivePath {
+            try? fileManager.removeItem(atPath: "\(drivePath)/.suishouqian-backup/\(app.bundleName)")
         }
         
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
@@ -157,6 +172,41 @@ class AppMigrator: @unchecked Sendable {
                   let modDate = attrs[.modificationDate] as? Date,
                   modDate < cutoff else { continue }
             try? fileManager.removeItem(atPath: fullPath)
+        }
+    }
+    
+    /// P0: 校验目标是真实挂载的独立卷，且剩余空间足够
+    /// 返回 nil 表示通过；返回 String 为拒绝原因
+    private func validateTarget(drivePath: String, appSize: Int64) -> String? {
+        var st = statfs()
+        guard drivePath.withCString({ statfs($0, &st) }) == 0 else {
+            return "目标路径无法访问（硬盘未插入？），已阻止迁移以免误写内置盘"
+        }
+        
+        // 与根卷比较挂载设备：相同说明"目标盘"其实落在了内置盘上
+        var root = statfs()
+        _ = "/".withCString({ statfs($0, &root) })
+        let targetDev = deviceName(of: st.f_mntfromname)
+        let rootDev = deviceName(of: root.f_mntfromname)
+        if targetDev == rootDev {
+            return "目标路径不是已挂载的外置硬盘（卷名可能已变更），已阻止迁移以免数据写入内置盘"
+        }
+        
+        // 空间检查：需要 app 大小 + 5% 余量
+        let freeBytes = Int64(st.f_bavail) * Int64(st.f_bsize)
+        if freeBytes < appSize + appSize / 20 {
+            let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+            let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+            return "目标盘空间不足：需要约 \(need)，仅剩 \(free)"
+        }
+        
+        return nil
+    }
+    
+    private func deviceName<T>(of tuple: T) -> String {
+        withUnsafeBytes(of: tuple) { buffer in
+            guard let base = buffer.baseAddress else { return "" }
+            return String(cString: base.assumingMemoryBound(to: CChar.self))
         }
     }
     

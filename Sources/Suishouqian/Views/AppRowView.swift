@@ -189,7 +189,8 @@ struct AppRowView: View {
         alert.alertStyle = .warning
         
         if alert.runModal() == .alertFirstButtonReturn {
-            let result = appState.migrator.uninstall(app: app)
+            let result = appState.migrator.uninstall(
+                app: app, drivePath: appState.externalDrive?.mountPoint)
             if result.success {
                 Task { @MainActor [weak appState] in
                     await appState?.scanApps()
