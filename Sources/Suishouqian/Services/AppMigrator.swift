@@ -257,11 +257,12 @@ class AppMigrator: @unchecked Sendable {
     
     private func copyWithDitto(from src: String, to dst: String,
                                 progress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        return await Task.detached {
+        // 阻塞型 ditto+轮询走 GCD（OffPool），不占协作线程池
+        return await OffPool.run { [self] in
             try? FileManager.default.removeItem(atPath: dst)
 
             // 稳定性：复制期间轮询目标大小，上报真实进度（此前全程 0%、结束直接 1%）
-            let totalKB = self.duKB(src)
+            let totalKB = duKB(src)
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
@@ -271,8 +272,8 @@ class AppMigrator: @unchecked Sendable {
 
             do {
                 try process.run()
-                self.pollProgress(of: process, copiedPath: dst,
-                                  totalKB: totalKB, progress: progress)
+                pollProgress(of: process, copiedPath: dst,
+                             totalKB: totalKB, progress: progress)
                 guard process.terminationStatus == 0 else { return false }
 
                 progress(1.0)
@@ -280,7 +281,7 @@ class AppMigrator: @unchecked Sendable {
             } catch {
                 return false
             }
-        }.value
+        }
     }
 
     /// 同步上下文里轮询 ditto 复制进度（Thread.sleep 仅允许在同步方法中使用）
@@ -357,16 +358,17 @@ class AppMigrator: @unchecked Sendable {
     /// 文件总数 ≤ 抽样上限时自动全量哈希。抽样失败（如个别文件无读权限）
     /// 不降级整体结果——以字节对比为准，避免误报。
     private func verifyFiles(source: String, target: String) async -> Bool {
-        return await Task.detached {
-            guard let srcInfo = self.quickCheck(dir: source),
-                  let dstInfo = self.quickCheck(dir: target),
+        // 阻塞型 find/stat/shasum 走 GCD（OffPool）
+        return await OffPool.run { [self] in
+            guard let srcInfo = quickCheck(dir: source),
+                  let dstInfo = quickCheck(dir: target),
                   srcInfo.count == dstInfo.count,
                   srcInfo.sizeBytes == dstInfo.sizeBytes else {
                 return false
             }
-            return self.sampleHashesMatch(source: source, target: target,
-                                          totalCount: srcInfo.count)
-        }.value
+            return sampleHashesMatch(source: source, target: target,
+                                     totalCount: srcInfo.count)
+        }
     }
 
     /// 随机抽样哈希对比；返回 false 仅当两侧均成功读出且内容确有差异

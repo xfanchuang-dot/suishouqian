@@ -19,17 +19,28 @@ class AppScanner: @unchecked Sendable {
             urls.append(contentsOf: contents.filter { $0.pathExtension == "app" })
         }
 
-        // 体验：并行扫描（此前逐个 du 串行，70 个应用要 5~8 秒）
-        return await withTaskGroup(of: AppItem?.self) { group in
-            for url in urls {
-                group.addTask { await self.scanApp(at: url) }
+        // 体验：并行扫描（此前逐个 du 串行，70 个应用要 5~8 秒）。
+        // 并发限 8 且 du 走 OffPool：无界并发 + 协作池内阻塞等待
+        // 曾把线程池占死，导致迁移任务冻结（2026-08-26 事故根因）
+        var items: [AppItem] = []
+        let chunkSize = 8
+        var index = 0
+        while index < urls.count {
+            let chunk = urls[index..<min(index + chunkSize, urls.count)]
+            let part = await withTaskGroup(of: AppItem?.self) { group in
+                for url in chunk {
+                    group.addTask { await self.scanApp(at: url) }
+                }
+                var arr: [AppItem] = []
+                for await item in group {
+                    if let item { arr.append(item) }
+                }
+                return arr
             }
-            var items: [AppItem] = []
-            for await item in group {
-                if let item { items.append(item) }
-            }
-            return items
+            items += part
+            index += chunkSize
         }
+        return items
     }
 
     /// 轻量清单：/Applications 下的 .app 名单（新应用入住提醒用，不做 du）
@@ -94,15 +105,16 @@ class AppScanner: @unchecked Sendable {
     }
     
     private func calculateSize(at url: URL) async -> Int64 {
-        return await Task.detached {
+        let path = url.path
+        return await OffPool.run {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-            process.arguments = ["-sk", url.path]
-            
+            process.arguments = ["-sk", path]
+
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
-            
+
             do {
                 try process.run()
                 process.waitUntilExit()
@@ -114,6 +126,6 @@ class AppScanner: @unchecked Sendable {
                 }
             } catch {}
             return 0
-        }.value
+        }
     }
 }
