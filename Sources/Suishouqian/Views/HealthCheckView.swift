@@ -7,6 +7,7 @@ struct HealthCheckView: View {
     @State private var links: [LinkHealth] = []
     @State private var backups: [BackupIssue] = []
     @State private var residues: [ResidueItem] = []
+    @State private var bigFiles: [BigFileItem] = []
     @State private var isChecking = false
     @State private var repairedCount = 0
 
@@ -20,7 +21,9 @@ struct HealthCheckView: View {
                 linkSection
                 if !backups.isEmpty { backupSection }
                 if !residues.isEmpty { residueSection }
-                if links.isEmpty && backups.isEmpty && residues.isEmpty && !isChecking { emptyState }
+                if !bigFiles.isEmpty { bigFileSection }
+                if links.isEmpty && backups.isEmpty && residues.isEmpty
+                    && bigFiles.isEmpty && !isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
@@ -180,6 +183,59 @@ struct HealthCheckView: View {
         }
     }
 
+    /// 内置盘大文件（省空间线索）
+    private var bigFileSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let total = bigFiles.reduce(0) { $0 + $1.sizeBytes }
+            HStack {
+                SectionHeader(title: "大文件 TOP\(bigFiles.count)", systemImage: "doc.fill")
+                Spacer()
+                Text("共 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.blue)
+            }
+
+            ForEach(bigFiles) { file in
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 11))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(file.name)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Text(file.directory)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    Text(file.sizeFormatted)
+                        .font(.system(size: 11, weight: .semibold))
+                    Button("显示") { checker.revealInFinder(file.path) }
+                        .controlSize(.small)
+                    Button("清理") { recycleBigFile(file) }
+                        .controlSize(.small)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
+    }
+
+    private func recycleBigFile(_ file: BigFileItem) {
+        let alert = NSAlert()
+        alert.messageText = "清理大文件"
+        alert.informativeText = "将把「\(file.name)」（\(file.sizeFormatted)）移入废纸篓，可随时恢复。请确认它不再需要。"
+        alert.addButton(withTitle: "移入废纸篓")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if checker.recycleBigFile(file) {
+            bigFiles.removeAll { $0.id == file.id }
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.seal.fill")
@@ -205,10 +261,12 @@ struct HealthCheckView: View {
             var b: [BackupIssue] = []
             if let drive { b = checker.checkBackups(drivePath: drive) }
             let r = checker.checkResidues(drivePath: drive)
+            let f = checker.scanBigFiles()
             await MainActor.run {
                 links = l
                 backups = b
                 residues = r
+                bigFiles = f
                 isChecking = false
             }
         }

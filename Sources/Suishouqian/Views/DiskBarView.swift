@@ -37,6 +37,12 @@ struct DiskBarView: View {
 
                 Spacer()
 
+                if !drive.isExternal && drive.freeSize < 40 * 1_073_741_824 {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .help("内置盘剩余空间低于 40GB 警戒线")
+                }
                 Text("\(Int(drive.usageRatio * 100))%")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundColor(usageColor(drive.usageRatio))

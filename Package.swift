@@ -19,6 +19,11 @@ let package = Package(
             resources: [
                 .process("Assets.xcassets")
             ]
+        ),
+        .testTarget(
+            name: "SuishouqianTests",
+            dependencies: [.target(name: "随手迁")],
+            path: "Tests/SuishouqianTests"
         )
     ]
 )

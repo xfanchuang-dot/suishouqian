@@ -51,6 +51,22 @@ struct ResidueItem: Identifiable {
     }
 }
 
+/// 内置盘上的大文件（省空间线索）
+struct BigFileItem: Identifiable {
+    let id = UUID()
+    let name: String
+    let path: String
+    let sizeBytes: Int64
+
+    var sizeFormatted: String {
+        ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+    }
+
+    var directory: String {
+        (path as NSString).deletingLastPathComponent
+    }
+}
+
 /// 链接体检：扫描 /Applications 软链接 + 审计 .suishouqian-backup
 class HealthChecker: @unchecked Sendable {
     private let fileManager = FileManager.default
@@ -139,6 +155,58 @@ class HealthChecker: @unchecked Sendable {
         AuditLog.append("删除备份 \(issue.appName)（\(issue.isOrphan ? "孤儿" : "超龄 \(issue.ageDays) 天")，\(issue.sizeFormatted)）")
     }
 
+    // MARK: - 大文件扫描（省空间）
+
+    /// 内置盘用户目录下 ≥500MB 的大文件（排除废纸篓与应用包内部文件），按大小取前 N
+    func scanBigFiles(minBytes: Int64 = 500 * 1_048_576, limit: Int = 20) -> [BigFileItem] {
+        let home = NSHomeDirectory()
+        let escaped = home.replacingOccurrences(of: "'", with: "'\\''")
+        let minKB = minBytes / 1024
+        let script = """
+        find '\(escaped)' -type f -size +\(minKB)k \
+          -not -path '*/.Trash/*' -not -path '*/.app/*' -print0 2>/dev/null | head -200
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", script]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return [] }
+        process.waitUntilExit()
+
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8) ?? ""
+        let paths = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        guard !paths.isEmpty else { return [] }
+
+        var items: [BigFileItem] = []
+        for path in paths {
+            guard let attrs = try? fileManager.attributesOfItem(atPath: path),
+                  let size = attrs[.size] as? Int64, size >= minBytes else { continue }
+            items.append(BigFileItem(name: (path as NSString).lastPathComponent,
+                                     path: path, sizeBytes: size))
+        }
+        return Array(items.sorted { $0.sizeBytes > $1.sizeBytes }.prefix(limit))
+    }
+
+    /// 大文件移入废纸篓（可恢复）
+    @discardableResult
+    func recycleBigFile(_ item: BigFileItem) -> Bool {
+        NSWorkspace.shared.recycle([URL(fileURLWithPath: item.path)]) { _, _ in }
+        let gone = !fileManager.fileExists(atPath: item.path)
+        if gone {
+            AuditLog.append("清理大文件 \(item.name)（\(item.sizeFormatted)，已入废纸篓）")
+        }
+        return gone
+    }
+
+    /// 在 Finder 中显示
+    func revealInFinder(_ path: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
     // MARK: - 已卸载应用残留扫描（省空间）
 
     /// 扫描 ~/Library/Application Support 与 ~/Library/Caches：
@@ -213,23 +281,25 @@ class HealthChecker: @unchecked Sendable {
         return signatures
     }
 
-    /// 目录名是否可被在装应用认领（前缀互含，长度 ≥4 防误匹配）
-    private func residueMatches(_ dirName: String, signatures: Set<String>) -> Bool {
+    /// 目录名是否可被在装应用认领：精确匹配不限长度；前缀互含仅对 ≥4 字符的键（防误匹配）
+    func residueMatches(_ dirName: String, signatures: Set<String>) -> Bool {
         var key = dirName.lowercased()
         while let last = key.last, last.isNumber { key.removeLast() }
-        if key.count < 2 { return true }   // 太短的目录名一律不报，防误删
 
         if signatures.contains(key) { return true }
         if signatures.contains(dirName.lowercased()) { return true }
-        for s in signatures where s.count >= 4 {
-            if key.hasPrefix(s) || s.hasPrefix(key) { return true }
+
+        if key.count >= 4 {
+            for s in signatures where s.count >= 4 {
+                if key.hasPrefix(s) || s.hasPrefix(key) { return true }
+            }
         }
         return false
     }
 
     // MARK: - Private
 
-    private func classify(target: String) -> LinkHealth.LinkState {
+    func classify(target: String) -> LinkHealth.LinkState {
         if fileManager.fileExists(atPath: target) { return .healthy }
 
         // 提取目标所在卷挂载点 /Volumes/<卷名>

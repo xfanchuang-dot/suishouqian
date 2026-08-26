@@ -6,10 +6,18 @@ import Foundation
 enum AuditLog {
     private static let queue = DispatchQueue(label: "com.suishouqian.auditlog")
 
+    /// 测试注入：重定向日志目录（单元测试用，业务代码勿动）
+    nonisolated(unsafe) static var directoryOverride: URL?
+
     private static var logURL: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
+        let dir: URL
+        if let directoryOverride {
+            dir = directoryOverride
+        } else {
+            dir = FileManager.default.urls(for: .applicationSupportDirectory,
                                            in: .userDomainMask)[0]
-            .appendingPathComponent("随手迁", isDirectory: true)
+                .appendingPathComponent("随手迁", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("migration.log")
     }
