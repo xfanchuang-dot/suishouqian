@@ -133,6 +133,13 @@ class AppMigrator: @unchecked Sendable {
                   error: "「\(runningName)」正在运行，请先退出后再回迁", spaceSaved: 0)
         }
 
+        // 安全：回迁写回内置盘——迁移的初衷就是内置盘紧张，
+        // 空间不足时中途失败会留下半截副本，先预检（需 5% 余量）
+        if let reason = validateInternalFreeSpace(needBytes: app.size) {
+            AuditLog.append("拒绝回迁 \(appName)：\(reason)")
+            return MigrationResult(success: false, error: reason, spaceSaved: 0)
+        }
+
         progress(0.1, "删除符号链接...")
         try? fileManager.removeItem(atPath: sourcePath)
         
@@ -226,6 +233,21 @@ class AppMigrator: @unchecked Sendable {
         return nil
     }
     
+    /// 回迁预检：内置盘（根卷）剩余空间是否足够
+    private func validateInternalFreeSpace(needBytes: Int64) -> String? {
+        var st = statfs()
+        guard "/".withCString({ statfs($0, &st) }) == 0 else {
+            return "无法读取内置盘空间信息"
+        }
+        let free = Int64(st.f_bavail) * Int64(st.f_bsize)
+        if free < needBytes + needBytes / 20 {
+            let need = ByteCountFormatter.string(fromByteCount: needBytes, countStyle: .file)
+            let have = ByteCountFormatter.string(fromByteCount: free, countStyle: .file)
+            return "内置盘空间不足：回迁需要约 \(need)，仅剩 \(have)。请先清理空间或保持外置盘使用"
+        }
+        return nil
+    }
+
     private func deviceName<T>(of tuple: T) -> String {
         withUnsafeBytes(of: tuple) { buffer in
             guard let base = buffer.baseAddress else { return "" }

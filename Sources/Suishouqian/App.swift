@@ -90,25 +90,54 @@ class AppState: ObservableObject {
     private let lowDiskThreshold: Int64 = 40 * 1_073_741_824   // 40GB 警戒线
 
     private func startSpaceGuard() {
+        // 首次运行只记录基线，不弹提醒（避免装完就被打扰）
+        if UserDefaults.standard.stringArray(forKey: "knownAppNames") == nil {
+            UserDefaults.standard.set(AppScanner.quickAppNames(), forKey: "knownAppNames")
+        }
+
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.diskMonitor.refresh()
                 self.refreshDrives()
-                guard let free = self.builtinDrive?.freeSize else { return }
-
-                if free < self.lowDiskThreshold && !self.lowDiskNotified {
-                    let movable = self.apps.filter { $0.status == .normal }
-                    let savable = movable.reduce(0) { $0 + $1.size }
-                    self.notificationManager.notifyLowDisk(
-                        free: free, movableCount: movable.count, totalSavable: savable)
-                    AuditLog.append("空间告警：内置盘仅剩 \(free / 1_073_741_824)GB")
-                    self.lowDiskNotified = true
-                } else if free > self.lowDiskThreshold * 11 / 10 {
-                    self.lowDiskNotified = false   // 恢复到 44GB 以上才允许下次告警
-                }
+                self.checkLowDisk()
+                self.checkNewLargeApps()
             }
         }
+    }
+
+    private func checkLowDisk() {
+        guard let free = builtinDrive?.freeSize else { return }
+        if free < lowDiskThreshold && !lowDiskNotified {
+            let movable = apps.filter { $0.status == .normal }
+            let savable = movable.reduce(0) { $0 + $1.size }
+            notificationManager.notifyLowDisk(
+                free: free, movableCount: movable.count, totalSavable: savable)
+            AuditLog.append("空间告警：内置盘仅剩 \(free / 1_073_741_824)GB")
+            lowDiskNotified = true
+        } else if free > lowDiskThreshold * 11 / 10 {
+            lowDiskNotified = false   // 恢复到 44GB 以上才允许下次告警
+        }
+    }
+
+    /// 新应用入住提醒：发现 /Applications 里新出现 ≥500MB 的应用就问要不要搬
+    private func checkNewLargeApps() {
+        let defaults = UserDefaults.standard
+        var known = Set(defaults.stringArray(forKey: "knownAppNames") ?? [])
+        let current = AppScanner.quickAppNames()
+        let fresh = current.filter { !known.contains($0) }
+        guard !fresh.isEmpty else { return }
+
+        for name in fresh {
+            let path = "/Applications/\(name)"
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                  let size = attrs[.size] as? Int64, size >= 500 * 1_048_576 else { continue }
+            let display = String(name.dropLast(4))
+            notificationManager.notifyNewLargeAppInstalled(name: display, size: size)
+            AuditLog.append("新应用提醒：\(display)（\(size / 1_048_576)MB）")
+        }
+        known.formUnion(current)
+        defaults.set(Array(known), forKey: "knownAppNames")
     }
 
     init() {
@@ -120,10 +149,23 @@ class AppState: ObservableObject {
             self.refreshDrives()
             self.onDriveChanged(drive)
         }
-        
+
         diskMonitor.onUnmount = { [weak self] driveName in
             guard let self else { return }
-            self.notificationManager.notifyExternalDriveDisconnected(driveName: driveName)
+            // 安全：拔盘时若有已迁移应用仍在外置盘上运行，点名提醒
+            let stillRunning = NSWorkspace.shared.runningApplications
+                .filter { app in
+                    guard let exec = app.executableURL?.path else { return false }
+                    return exec.hasPrefix("/Volumes/") && app.activationPolicy == .regular
+                }
+                .compactMap(\.localizedName)
+            if stillRunning.isEmpty {
+                self.notificationManager.notifyExternalDriveDisconnected(driveName: driveName)
+            } else {
+                self.notificationManager.notifyUnmountWithRunningApps(
+                    driveName: driveName, appNames: stillRunning)
+                AuditLog.append("拔盘提醒：\(stillRunning.joined(separator: "、")) 仍在运行")
+            }
         }
     }
     

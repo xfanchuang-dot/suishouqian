@@ -57,6 +57,26 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
             sound: nil
         )
     }
+
+    /// 拔盘时仍有已迁移应用在运行的提醒
+    func notifyUnmountWithRunningApps(driveName: String, appNames: [String]) {
+        let list = appNames.prefix(5).joined(separator: "、")
+        let more = appNames.count > 5 ? " 等 \(appNames.count) 个" : ""
+        send(
+            title: "外置硬盘已拔出，仍有应用在运行",
+            body: "\(list)\(more) 正在外置盘上运行，强制使用可能异常，建议尽快保存并退出",
+            sound: .default
+        )
+    }
+
+    /// 新装大应用提醒（防复发：新住户主动问要不要搬）
+    func notifyNewLargeAppInstalled(name: String, size: Int64) {
+        send(
+            title: "检测到新安装的大应用",
+            body: "「\(name)」占用 \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))，要迁移到外置硬盘吗？",
+            sound: nil
+        )
+    }
     
     /// 内置盘空间告警（空间守卫）
     func notifyLowDisk(free: Int64, movableCount: Int, totalSavable: Int64) {

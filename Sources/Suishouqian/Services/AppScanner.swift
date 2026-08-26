@@ -8,24 +8,34 @@ class AppScanner: @unchecked Sendable {
             "/Applications",
             "/System/Applications"
         ]
-        
-        var items: [AppItem] = []
-        
+
+        var urls: [URL] = []
         for dir in dirs {
             guard let contents = try? FileManager.default.contentsOfDirectory(
                 at: URL(fileURLWithPath: dir),
                 includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .totalFileSizeKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
-            
-            for url in contents where url.pathExtension == "app" {
-                if let item = await scanApp(at: url) {
-                    items.append(item)
-                }
-            }
+            urls.append(contentsOf: contents.filter { $0.pathExtension == "app" })
         }
-        
-        return items
+
+        // 体验：并行扫描（此前逐个 du 串行，70 个应用要 5~8 秒）
+        return await withTaskGroup(of: AppItem?.self) { group in
+            for url in urls {
+                group.addTask { await self.scanApp(at: url) }
+            }
+            var items: [AppItem] = []
+            for await item in group {
+                if let item { items.append(item) }
+            }
+            return items
+        }
+    }
+
+    /// 轻量清单：/Applications 下的 .app 名单（新应用入住提醒用，不做 du）
+    static func quickAppNames() -> [String] {
+        return ((try? FileManager.default.contentsOfDirectory(atPath: "/Applications")) ?? [])
+            .filter { $0.hasSuffix(".app") }
     }
     
     private func scanApp(at url: URL) async -> AppItem? {

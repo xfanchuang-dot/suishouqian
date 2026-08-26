@@ -73,6 +73,12 @@ struct HealthCheckView: View {
                 .buttonStyle(.borderedProminent)
             }
 
+            if repairedCount > 0 {
+                Text("上次修复：\(repairedCount) 条")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
             ForEach(links) { link in
                 linkRow(link)
             }

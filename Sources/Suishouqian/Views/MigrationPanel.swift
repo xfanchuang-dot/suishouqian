@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MigrationPanel: View {
     @EnvironmentObject var appState: AppState
+    @State private var batchSummary: String?
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -41,6 +42,12 @@ struct MigrationPanel: View {
                 .cardStyle()
             } else {
                 emptyState
+            }
+
+            if let summary = batchSummary {
+                Text(summary)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
 
             if !appState.apps.isEmpty && appState.externalDrive != nil {
@@ -142,11 +149,12 @@ struct MigrationPanel: View {
     private func migrateAll() {
         guard let drive = appState.externalDrive else { return }
         let movableApps = appState.apps.filter { $0.status == .normal }
-        
+
         Task { @MainActor in
+            var okCount = 0, failCount = 0
             for app in movableApps {
                 appState.migrationTask = MigrationTask(app: app, operation: .migrate)
-                
+
                 let appState = self.appState  // 值类型捕获
                 let result = await appState.migrator.migrate(
                     app: app, to: drive.mountPoint
@@ -158,16 +166,21 @@ struct MigrationPanel: View {
                         appState.migrationTask = t
                     }
                 }
-                
+
                 if result.success {
+                    okCount += 1
                     appState.notificationManager.notifyMigrationComplete(
                         appName: app.name, spaceSaved: result.spaceSaved)
                 } else {
+                    failCount += 1
                     appState.notificationManager.notifyMigrationFailed(
                         appName: app.name, error: result.error ?? "未知错误")
                 }
             }
-            
+
+            batchSummary = failCount == 0
+                ? "批量迁移完成：\(okCount) 个全部成功"
+                : "批量迁移结束：\(okCount) 成功 / \(failCount) 失败"
             appState.migrationTask = nil
             await appState.scanApps()
         }
