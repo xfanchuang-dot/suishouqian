@@ -77,6 +77,8 @@ final class LogicTests: XCTestCase {
 
     // MARK: - 审计日志（目录注入隔离）
 
+    // MARK: - 审计日志（目录注入隔离）
+
     func testAuditLogAppendAndRead() {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("audit-\(UUID().uuidString)", isDirectory: true)
@@ -88,5 +90,30 @@ final class LogicTests: XCTestCase {
 
         let content = AuditLog.readAll()
         XCTAssertTrue(content.contains(marker), "日志应包含刚写入的事件")
+    }
+
+    // MARK: - 管道死锁回归（CodeBuddy CN 事故）
+
+    func testListFilesNoPipeDeadlock() {
+        // 3000 个长名文件 ≈ 130KB 输出，强制越过 64KB 管道缓冲——
+        // 修复前此调用会永久阻塞（find 写满管道等读取，代码等退出）
+        let dir = NSTemporaryDirectory() + "many-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for i in 0..<3000 {
+            FileManager.default.createFile(
+                atPath: "\(dir)/quite-long-file-name-\(i).bin", contents: nil)
+        }
+
+        let migrator = AppMigrator()
+        let expect = expectation(description: "listFiles must complete, not deadlock")
+        DispatchQueue.global().async {
+            let files = migrator.listFiles(under: dir)
+            XCTAssertNotNil(files)
+            XCTAssertEqual(files?.count, 3000)
+            expect.fulfill()
+        }
+        wait(for: [expect], timeout: 20)
+
+        try? FileManager.default.removeItem(atPath: dir)
     }
 }

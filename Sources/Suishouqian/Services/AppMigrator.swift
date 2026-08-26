@@ -426,7 +426,7 @@ class AppMigrator: @unchecked Sendable {
         return map.isEmpty ? nil : map
     }
 
-    private func listFiles(under dir: String) -> [String]? {
+    func listFiles(under dir: String) -> [String]? {
         let escaped = dir.replacingOccurrences(of: "'", with: "'\\''")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -435,9 +435,14 @@ class AppMigrator: @unchecked Sendable {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
+
+        // 管道死锁修复：大应用文件清单可达数 MB，远超管道缓冲(64KB)。
+        // 必须"边跑边读"——先读完(阻塞至EOF)再 waitUntilExit；
+        // 若先等退出，find 会在写满管道后永久阻塞（CodeBuddy CN 事故根因）
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8) ?? ""
+
+        let output = String(data: data, encoding: .utf8) ?? ""
         let files = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
         return files.isEmpty ? nil : files
     }
