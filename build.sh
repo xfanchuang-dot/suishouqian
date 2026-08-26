@@ -99,3 +99,7 @@ fi
 # 覆盖安装
 cp -R "$BUNDLE" "/Applications/"
 echo "已安装到 /Applications/"
+
+# 9. 清理 dist 副本并启动正式版（避免启动台出现"双胞胎"应用）
+rm -rf "$BUNDLE"
+open "/Applications/$APP_NAME.app"
