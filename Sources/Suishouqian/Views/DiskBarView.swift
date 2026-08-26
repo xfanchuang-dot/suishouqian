@@ -44,7 +44,8 @@ struct DiskBarView: View {
                         .help("内置盘剩余空间低于 40GB 警戒线")
                 }
                 Text("\(Int(drive.usageRatio * 100))%")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.system(size: 19, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
                     .foregroundColor(usageColor(drive.usageRatio))
             }
 

@@ -54,8 +54,10 @@ struct MigrationPanel: View {
                         } label: {
                             Label("一键迁移全部 (\(movableApps.count) 个应用)",
                                   systemImage: "arrow.right.circle.fill")
+                                .font(.system(size: 13, weight: .semibold))
                         }
                         .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                         .disabled(appState.migrationTask != nil)
                     }
 
@@ -64,9 +66,11 @@ struct MigrationPanel: View {
                             restoreAll()
                         } label: {
                             Label("全部回迁 (\(migratedApps.count) 个应用)",
-                                  systemImage: "arrow.uturn.backward.circle")
+                                  systemImage: "arrow.uturn.backward.circle.fill")
+                                .font(.system(size: 12, weight: .medium))
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.large)
                         .disabled(appState.migrationTask != nil)
                     }
                 }
