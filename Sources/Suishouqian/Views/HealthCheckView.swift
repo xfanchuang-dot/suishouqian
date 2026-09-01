@@ -201,6 +201,13 @@ struct HealthCheckView: View {
                     .foregroundColor(.blue)
             }
 
+            if !checker.hasFullDiskAccess {
+                Text("为避免反复弹权限框，桌面/文稿/下载等受保护位置已自动跳过，当前只扫描「资源库」；如需覆盖全部位置，在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 中允许随手迁。")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             ForEach(bigFiles) { file in
                 HStack(spacing: 8) {
                     Image(systemName: "doc.fill")

@@ -157,14 +157,39 @@ class HealthChecker: @unchecked Sendable {
 
     // MARK: - 大文件扫描（省空间）
 
+    /// 是否已授予完全磁盘访问权限。
+    /// 探测 Safari / Messages 目录：这两处未授权时被系统**静默拒绝**（不会弹窗），
+    /// 授权后可读——用它们探测不会触发任何 TCC 弹窗。
+    var hasFullDiskAccess: Bool {
+        let home = NSHomeDirectory()
+        for probe in ["\(home)/Library/Safari", "\(home)/Library/Messages"] {
+            if (try? fileManager.contentsOfDirectory(atPath: probe)) != nil { return true }
+        }
+        return false
+    }
+
+    /// 大文件扫描范围。桌面/文稿/下载受 TCC 保护，未授权时触碰即弹权限框，
+    /// 而本应用 ad-hoc 签名系统存不住授权——未授予 FDA 时一律跳过，保证体检零弹窗。
+    var bigFileRoots: [String] {
+        let home = NSHomeDirectory()
+        var roots = ["\(home)/Library"]
+        if hasFullDiskAccess {
+            roots.append(contentsOf: ["\(home)/Desktop", "\(home)/Documents", "\(home)/Downloads"])
+        }
+        return roots
+    }
+
     /// 内置盘用户目录下 ≥500MB 的大文件（排除废纸篓与应用包内部文件），按大小取前 N
     func scanBigFiles(minBytes: Int64 = 500 * 1_048_576, limit: Int = 20) -> [BigFileItem] {
-        let home = NSHomeDirectory()
-        let escaped = home.replacingOccurrences(of: "'", with: "'\\''")
+        let rootArgs = bigFileRoots
+            .map { $0.replacingOccurrences(of: "'", with: "'\\''") }
+            .map { "'\($0)'" }
+            .joined(separator: " ")
         let minKB = minBytes / 1024
+        // *.app/*：应用包内部文件不报（那是应用列表的职责）
         let script = """
-        find '\(escaped)' -type f -size +\(minKB)k \
-          -not -path '*/.Trash/*' -not -path '*/.app/*' -print0 2>/dev/null | head -200
+        find \(rootArgs) -type f -size +\(minKB)k \
+          -not -path '*/.Trash/*' -not -path '*.app/*' -print0 2>/dev/null | head -200
         """
 
         let process = Process()
@@ -174,10 +199,11 @@ class HealthChecker: @unchecked Sendable {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return [] }
-        process.waitUntilExit()
 
+        // 铁律：先读至 EOF 再等待退出（先等后读会在管道写满时死锁）
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
                             encoding: .utf8) ?? ""
+        process.waitUntilExit()
         let paths = output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
         guard !paths.isEmpty else { return [] }
 
