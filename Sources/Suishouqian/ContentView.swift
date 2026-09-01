@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
-    @State private var activePanel = 0
 
     var body: some View {
         HSplitView {
@@ -17,7 +16,7 @@ struct ContentView: View {
                 Divider()
                     .padding(.vertical, 12)
 
-                Picker("", selection: $activePanel) {
+                Picker("", selection: $appState.activePanel) {
                     Text("迁移").tag(0)
                     Text("体检").tag(1)
                 }
@@ -25,7 +24,7 @@ struct ContentView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
 
-                if activePanel == 0 {
+                if appState.activePanel == 0 {
                     MigrationPanel()
                         .padding(.horizontal, 20)
                 } else {

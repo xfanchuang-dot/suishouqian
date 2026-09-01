@@ -92,6 +92,9 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     }
 
     private func send(title: String, body: String, sound: UNNotificationSound?) {
+        // 设置页「系统通知」总开关（默认开）
+        guard UserDefaults.standard.bool(forKey: "notificationsEnabled") else { return }
+
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

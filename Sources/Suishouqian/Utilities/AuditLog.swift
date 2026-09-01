@@ -22,6 +22,9 @@ enum AuditLog {
         return dir.appendingPathComponent("migration.log")
     }
 
+    /// 当前日志文件位置（设置页「打开审计日志」用，测试注入时跟随重定向）
+    static var currentLogURL: URL { logURL }
+
     static func append(_ event: String) {
         queue.sync {
             let df = DateFormatter()

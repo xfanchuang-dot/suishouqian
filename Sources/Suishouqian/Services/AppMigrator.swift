@@ -4,7 +4,11 @@ import AppKit
 class AppMigrator: @unchecked Sendable {
     private let fileManager = FileManager.default
 
-    private let retentionDays = 7
+    /// 备份保留天数（设置页可调，默认 7 天）
+    private var retentionDays: Int {
+        let days = UserDefaults.standard.integer(forKey: "backupRetentionDays")
+        return days > 0 ? days : 7
+    }
 
     struct MigrationResult {
         let success: Bool

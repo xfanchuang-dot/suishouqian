@@ -41,6 +41,20 @@ struct SuishouqianApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandMenu("操作") {
+                Button("重新扫描应用") {
+                    Task { @MainActor in await appState.scanApps() }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(appState.isScanning)
+
+                Divider()
+
+                Button("迁移面板") { appState.activePanel = 0 }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("体检面板") { appState.activePanel = 1 }
+                    .keyboardShortcut("2", modifiers: .command)
+            }
             CommandGroup(replacing: .help) {
                 Button("关于随手迁") {
                     NSApplication.shared.orderFrontStandardAboutPanel()
@@ -49,18 +63,10 @@ struct SuishouqianApp: App {
                     updateManager.checkForUpdates()
                 }
             }
-            CommandMenu("守护") {
-                Button(LaunchAgentManager.isInstalled ? "关闭外置盘守护" : "开启外置盘守护") {
-                    if LaunchAgentManager.isInstalled {
-                        _ = LaunchAgentManager.uninstall()
-                    } else {
-                        // 只监听当前外置盘挂载点，避免 Time Machine/dmg 等
-                        // 其他挂载事件误触发唤醒
-                        _ = LaunchAgentManager.install(
-                            watchPath: appState.externalDrive?.mountPoint ?? "/Volumes")
-                    }
-                }
-            }
+        }
+        Settings {
+            SettingsView()
+                .environmentObject(appState)
         }
     }
 }
@@ -72,6 +78,8 @@ class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var migrationTask: MigrationTask?
     @Published var builtinDrive: DriveInfo?
+    /// 右侧面板 0 迁移 / 1 体检（⌘1/⌘2 菜单可切，ContentView 绑定）
+    @Published var activePanel = 0
     
     let scanner = AppScanner()
     let migrator = AppMigrator()
@@ -107,6 +115,8 @@ class AppState: ObservableObject {
     }
 
     private func checkLowDisk() {
+        // 设置页可关（每次 tick 读取，关闭即时生效于下一轮）
+        guard UserDefaults.standard.bool(forKey: "spaceGuardEnabled") else { return }
         guard let free = builtinDrive?.freeSize else { return }
         if free < lowDiskThreshold && !lowDiskNotified {
             let movable = apps.filter { $0.status == .normal }
@@ -122,6 +132,7 @@ class AppState: ObservableObject {
 
     /// 新应用入住提醒：发现 /Applications 里新出现 ≥500MB 的应用就问要不要搬
     private func checkNewLargeApps() {
+        guard UserDefaults.standard.bool(forKey: "newAppReminderEnabled") else { return }
         let defaults = UserDefaults.standard
         var known = Set(defaults.stringArray(forKey: "knownAppNames") ?? [])
         let current = AppScanner.quickAppNames()
@@ -142,6 +153,13 @@ class AppState: ObservableObject {
 
     init() {
         AppDelegate.appState = self
+        // 设置页各开关的默认值（注册一次，@AppStorage 与 bool 读取共用）
+        UserDefaults.standard.register(defaults: [
+            "spaceGuardEnabled": true,
+            "newAppReminderEnabled": true,
+            "notificationsEnabled": true,
+            "backupRetentionDays": 7,
+        ])
         startSpaceGuard()
         diskMonitor.onMountChange = { [weak self] drive in
             guard let self else { return }
