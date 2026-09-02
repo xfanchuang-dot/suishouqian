@@ -38,8 +38,11 @@ class AppMigrator: @unchecked Sendable {
             AuditLog.append("拒绝迁移 \(appName)：\(reason)")
             return MigrationResult(success: false, error: reason, spaceSaved: 0)
         }
-        
-        do { try fileManager.createDirectory(atPath: targetDir, 
+
+        // v2.2: 迁移前拍 APFS 本地快照（整机级最后保险；阻塞进程必须走 OffPool）
+        await OffPool.run { _ = SystemSnapshot.createThrottled() }
+
+        do { try fileManager.createDirectory(atPath: targetDir,
               withIntermediateDirectories: true) } catch {
             return MigrationResult(success: false, 
                   error: "无法创建目标目录: \(error.localizedDescription)", spaceSaved: 0)
@@ -116,6 +119,15 @@ class AppMigrator: @unchecked Sendable {
         
         progress(1.0, "完成")
         AuditLog.append("迁移成功 \(appName)：\(app.size) 字节 → \(targetPath)")
+
+        // v2.2: 记录卷 UUID 台账——卷改名后按 UUID 找卷自动重写链接（自愈）
+        if targetPath.hasPrefix(drivePath + "/") {
+            if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {
+                MigrationManifest.shared.record(
+                    appName: appName, linkPath: sourcePath, volumeUUID: uuid,
+                    relativePath: String(targetPath.dropFirst(drivePath.count + 1)))
+            }
+        }
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
     }
     
@@ -144,6 +156,9 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: false, error: reason, spaceSaved: 0)
         }
 
+        // v2.2: 回迁前拍 APFS 本地快照（整机级最后保险；阻塞进程必须走 OffPool）
+        await OffPool.run { _ = SystemSnapshot.createThrottled() }
+
         progress(0.1, "删除符号链接...")
         try? fileManager.removeItem(atPath: sourcePath)
         
@@ -162,6 +177,7 @@ class AppMigrator: @unchecked Sendable {
         if verified {
             try? fileManager.removeItem(atPath: externalPath)
             try? fileManager.removeItem(atPath: backupDir)
+            MigrationManifest.shared.remove(appName: appName)
             AuditLog.append("回迁成功 \(appName)：已恢复到内置盘并清理外置副本")
         } else {
             // P0: 校验失败也要恢复软链接，否则应用失去启动入口（半完成状态）
@@ -178,6 +194,7 @@ class AppMigrator: @unchecked Sendable {
     func uninstall(app: AppItem, drivePath: String? = nil) -> MigrationResult {
         AuditLog.append("卸载 \(app.bundleName)（链接+\(app.symlinkTarget ?? "无外置副本")）")
         try? fileManager.removeItem(atPath: app.path)
+        MigrationManifest.shared.remove(appName: app.bundleName)
         
         if let target = app.symlinkTarget {
             try? fileManager.removeItem(atPath: target)

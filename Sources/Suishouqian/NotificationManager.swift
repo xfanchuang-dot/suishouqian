@@ -69,6 +69,17 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// 断链自愈完成提示（按台账卷 UUID 重写链接，卷改名也能接上）
+    func notifyLinksHealed(appNames: [String]) {
+        let list = appNames.prefix(5).joined(separator: "、")
+        let more = appNames.count > 5 ? " 等 \(appNames.count) 条" : ""
+        send(
+            title: "断链已自动修复",
+            body: "硬盘已连接（卷名可能变过），按迁移台账自动接上：\(list)\(more)",
+            sound: nil
+        )
+    }
+
     /// 新装大应用提醒（防复发：新住户主动问要不要搬）
     func notifyNewLargeAppInstalled(name: String, size: Int64) {
         send(

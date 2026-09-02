@@ -8,8 +8,10 @@ struct HealthCheckView: View {
     @State private var backups: [BackupIssue] = []
     @State private var residues: [ResidueItem] = []
     @State private var bigFiles: [BigFileItem] = []
+    @State private var regressions: [RegressionItem] = []
     @State private var isChecking = false
     @State private var repairedCount = 0
+    @State private var healedCount = 0
 
     private let checker = HealthChecker()
 
@@ -19,11 +21,12 @@ struct HealthCheckView: View {
                 header
 
                 linkSection
+                if !regressions.isEmpty { regressionSection }
                 if !backups.isEmpty { backupSection }
                 if !residues.isEmpty { residueSection }
                 if !bigFiles.isEmpty { bigFileSection }
                 if links.isEmpty && backups.isEmpty && residues.isEmpty
-                    && bigFiles.isEmpty && !isChecking { emptyState }
+                    && bigFiles.isEmpty && regressions.isEmpty && !isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
@@ -79,6 +82,12 @@ struct HealthCheckView: View {
                     .foregroundColor(.secondary)
             }
 
+            if healedCount > 0 {
+                Text("已按迁移台账自动自愈 \(healedCount) 条（卷改名/换挂载点）")
+                    .font(.system(size: 10))
+                    .foregroundColor(.green)
+            }
+
             ForEach(links) { link in
                 linkRow(link)
             }
@@ -108,6 +117,44 @@ struct HealthCheckView: View {
             }
         }
         .padding(.vertical, 3)
+    }
+
+    /// 升级回退：链接被应用更新器换回真目录（迁移被悄悄撤销）
+    private var regressionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "迁移被撤销", systemImage: "arrow.uturn.backward.circle")
+                Spacer()
+                Text("应用升级时替换了链接，内置盘被重新占用")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(regressions) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 11))
+                    Text(item.appName.replacingOccurrences(of: ".app", with: ""))
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text("重新占用 \(item.sizeFormatted)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("重新迁移") { remigrate(item) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    Button("忽略") {
+                        checker.ignoreRegression(item)
+                        regressions.removeAll { $0.id == item.id }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
     }
 
     private var backupSection: some View {
@@ -270,18 +317,67 @@ struct HealthCheckView: View {
         isChecking = true
         let drive = appState.externalDrive?.mountPoint
         Task.detached {
+            // v2.2: 先按台账自愈断链、给健康链接补账，再体检
+            let healed = checker.healBrokenLinks()
+            checker.backfillManifest()
             let l = checker.checkLinks()
             var b: [BackupIssue] = []
             if let drive { b = checker.checkBackups(drivePath: drive) }
+            let reg = drive.map { checker.checkRegressions(drivePath: $0) } ?? []
             let r = checker.checkResidues(drivePath: drive)
             let f = checker.scanBigFiles()
             await MainActor.run {
                 links = l
                 backups = b
+                regressions = reg
                 residues = r
                 bigFiles = f
+                healedCount = healed.count
                 isChecking = false
             }
+        }
+    }
+
+    /// 重新迁移被撤销的应用（镜像 AppRowView 的单应用迁移流程）
+    private func remigrate(_ item: RegressionItem) {
+        guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
+        Task { @MainActor in
+            var app = appState.apps.first { $0.path == item.appPath }
+            if app == nil {
+                await appState.scanApps()
+                app = appState.apps.first { $0.path == item.appPath }
+            }
+            guard let app else {
+                let alert = NSAlert()
+                alert.messageText = "暂时找不到应用信息"
+                alert.informativeText = "请回到迁移页等左侧列表扫描完成后再试。"
+                alert.runModal()
+                return
+            }
+
+            appState.migrationTask = MigrationTask(app: app, operation: .migrate)
+            let state = appState
+            let result = await state.migrator.migrate(
+                app: app, to: drive.mountPoint
+            ) { @Sendable pct, desc in
+                Task { @MainActor in
+                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .migrate)
+                    t.progress = pct
+                    t.currentFile = desc
+                    state.migrationTask = t
+                }
+            }
+
+            if result.success {
+                state.migrationTask = nil
+                state.notificationManager.notifyMigrationComplete(
+                    appName: app.name, spaceSaved: result.spaceSaved)
+                await state.scanApps()
+            } else {
+                state.notificationManager.notifyMigrationFailed(
+                    appName: app.name, error: result.error ?? "未知错误")
+            }
+            runCheck()
         }
     }
 

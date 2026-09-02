@@ -85,6 +85,7 @@ class AppState: ObservableObject {
     let migrator = AppMigrator()
     let diskMonitor = DiskMonitor()
     let notificationManager = NotificationManager()
+    let healthChecker = HealthChecker()
 
     /// 是否有迁移/回迁任务正在进行（强退保护依据）
     var isMigrationActive: Bool {
@@ -161,11 +162,33 @@ class AppState: ObservableObject {
             "backupRetentionDays": 7,
         ])
         startSpaceGuard()
+
+        // v2.2: 启动即尝试断链自愈 + 给历史迁移补台账
+        // （补账后，卷改名场景在下次插盘时就能自动接上，无需用户打开体检）
+        let bootChecker = healthChecker
+        Task.detached(priority: .utility) {
+            _ = bootChecker.healBrokenLinks()
+            bootChecker.backfillManifest()
+        }
+
         diskMonitor.onMountChange = { [weak self] drive in
             guard let self else { return }
             self.externalDrive = drive
             self.refreshDrives()
             self.onDriveChanged(drive)
+
+            // v2.2: 插盘即自愈——按台账里的卷 UUID 重写断链，卷改名也能接上
+            if drive != nil {
+                let checker = self.healthChecker
+                Task.detached(priority: .utility) {
+                    let healed = checker.healBrokenLinks()
+                    if !healed.isEmpty {
+                        await MainActor.run {
+                            self.notificationManager.notifyLinksHealed(appNames: healed)
+                        }
+                    }
+                }
+            }
         }
 
         diskMonitor.onUnmount = { [weak self] driveName in

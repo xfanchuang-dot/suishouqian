@@ -67,6 +67,20 @@ struct BigFileItem: Identifiable {
     }
 }
 
+/// 升级回退（迁移被悄悄撤销）：/Applications 的链接被应用更新器换回了真实目录，
+/// 而外置盘还留着迁移副本——内置盘空间被重新占用
+struct RegressionItem: Identifiable {
+    let id = UUID()
+    let appName: String
+    let appPath: String       // 内置盘真实目录
+    let externalPath: String  // 外置盘旧副本
+    let sizeBytes: Int64      // 内置盘重新占用的大小
+
+    var sizeFormatted: String {
+        ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+    }
+}
+
 /// 链接体检：扫描 /Applications 软链接 + 审计 .suishouqian-backup
 class HealthChecker: @unchecked Sendable {
     private let fileManager = FileManager.default
@@ -140,6 +154,12 @@ class HealthChecker: @unchecked Sendable {
                 do {
                     try fileManager.createSymbolicLink(
                         atPath: link.linkPath, withDestinationPath: candidate)
+                    // v2.2: 修复后同步台账（新卷/新位置），后续断链可自愈
+                    if let uuid = MigrationManifest.volumeUUID(atPath: vol.path) {
+                        MigrationManifest.shared.record(
+                            appName: link.appName, linkPath: link.linkPath,
+                            volumeUUID: uuid, relativePath: "\(sub)/\(link.appName)")
+                    }
                     AuditLog.append("修复断链 \(link.appName) → \(candidate)")
                     return true
                 } catch {
@@ -153,6 +173,99 @@ class HealthChecker: @unchecked Sendable {
     func deleteBackup(_ issue: BackupIssue) {
         try? fileManager.removeItem(atPath: issue.path)
         AuditLog.append("删除备份 \(issue.appName)（\(issue.isOrphan ? "孤儿" : "超龄 \(issue.ageDays) 天")，\(issue.sizeFormatted)）")
+    }
+
+    // MARK: - 断链自愈与台账回填（v2.2 卷改名免疫）
+
+    /// 按台账自愈所有断链：卷改名/挂载点变化后，链接的绝对路径全断，
+    /// 但台账里存了卷 UUID——按 UUID 找到卷（无论叫什么名字）重写链接。
+    /// 返回自愈成功的应用名列表。
+    func healBrokenLinks() -> [String] {
+        var healed: [String] = []
+        for link in checkLinks() where link.state == .broken {
+            guard let entry = MigrationManifest.shared.entry(forAppName: link.appName),
+                  let mount = MigrationManifest.mountPoint(forUUID: entry.volumeUUID) else {
+                continue
+            }
+            let candidate = "\(mount)/\(entry.relativePath)"
+            guard fileManager.fileExists(atPath: candidate) else { continue }
+
+            try? fileManager.removeItem(atPath: link.linkPath)
+            do {
+                try fileManager.createSymbolicLink(
+                    atPath: link.linkPath, withDestinationPath: candidate)
+                if let uuid = MigrationManifest.volumeUUID(atPath: mount) {
+                    MigrationManifest.shared.record(
+                        appName: link.appName, linkPath: link.linkPath,
+                        volumeUUID: uuid, relativePath: entry.relativePath)
+                }
+                AuditLog.append("断链自愈 \(link.appName)：按卷 UUID 重新定位 → \(candidate)")
+                healed.append(link.appName)
+            } catch {
+                // 自愈失败保持断链状态，体检页仍可手动修复
+            }
+        }
+        return healed
+    }
+
+    /// 台账回填：v2.1 及更早的迁移没有台账，体检时给健康链接补账，
+    /// 让历史迁移也获得卷改名自愈能力（只写缺失项，幂等）
+    func backfillManifest() {
+        for link in checkLinks() where link.state == .healthy {
+            guard MigrationManifest.shared.entry(forAppName: link.appName) == nil,
+                  let (root, rel) = volumeRootAndRelative(ofTarget: link.target),
+                  let uuid = MigrationManifest.volumeUUID(atPath: root) else { continue }
+            MigrationManifest.shared.record(
+                appName: link.appName, linkPath: link.linkPath,
+                volumeUUID: uuid, relativePath: rel)
+        }
+    }
+
+    /// 把 "/Volumes/<卷>/剩余/路径" 拆成 卷根 + 相对路径
+    private func volumeRootAndRelative(ofTarget target: String) -> (root: String, rel: String)? {
+        guard target.hasPrefix("/Volumes/") else { return nil }
+        let parts = target.split(separator: "/").map(String.init)
+        guard parts.count >= 3 else { return nil }
+        return ("/\(parts[0])/\(parts[1])", parts.dropFirst(2).joined(separator: "/"))
+    }
+
+    // MARK: - 升级回退检测（v2.2）
+
+    /// /Applications 出现真实应用目录、但外置盘还有同名副本 →
+    /// 多半是应用自升级时用真目录替换了软链接（迁移被撤销，内置盘重新被占用）。
+    /// 用户点过忽略的应用不再上报。
+    func checkRegressions(drivePath: String) -> [RegressionItem] {
+        let ignored = Set(UserDefaults.standard.stringArray(forKey: "regressionIgnoredApps") ?? [])
+        guard let contents = try? fileManager.contentsOfDirectory(atPath: "/Applications") else {
+            return []
+        }
+
+        var results: [RegressionItem] = []
+        for item in contents where item.hasSuffix(".app") {
+            if ignored.contains(item) { continue }
+            let appPath = "/Applications/\(item)"
+            guard let attrs = try? fileManager.attributesOfItem(atPath: appPath),
+                  let type = attrs[.type] as? FileAttributeType,
+                  type == .typeDirectory else { continue }   // 软链接（正常迁移态）不算
+
+            let externalPath = "\(drivePath)/Applications/\(item)"
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: externalPath, isDirectory: &isDir),
+                  isDir.boolValue else { continue }
+
+            results.append(RegressionItem(appName: item, appPath: appPath,
+                                          externalPath: externalPath,
+                                          sizeBytes: duSize(appPath)))
+        }
+        return results.sorted { $0.appName < $1.appName }
+    }
+
+    /// 忽略某个升级回退提示（记录后不再上报）
+    func ignoreRegression(_ item: RegressionItem) {
+        var ignored = UserDefaults.standard.stringArray(forKey: "regressionIgnoredApps") ?? []
+        ignored.append(item.appName)
+        UserDefaults.standard.set(ignored, forKey: "regressionIgnoredApps")
+        AuditLog.append("忽略升级回退：\(item.appName)")
     }
 
     // MARK: - 大文件扫描（省空间）
