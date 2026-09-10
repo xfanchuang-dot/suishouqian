@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DiskBarView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 12) {
@@ -59,6 +60,9 @@ struct DiskBarView: View {
                         .fill(barGradient(usageColor(drive.usageRatio)))
                         .frame(width: max(6, geo.size.width * drive.usageRatio),
                                height: 6)
+                        // 空间变化时用量条平滑伸缩（拔盘迁移后立即可感知）
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.4),
+                                   value: drive.freeSize)
                 }
             }
             .frame(height: 6)

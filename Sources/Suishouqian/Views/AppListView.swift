@@ -6,6 +6,7 @@ struct AppListView: View {
     @State private var selectedApps = Set<UUID>()
     @State private var filterMode: FilterMode = .all
     @State private var sortOrder: SortOrder = .size
+    @FocusState private var searchFocused: Bool
     
     enum FilterMode: String, CaseIterable {
         case all = "全部"
@@ -53,6 +54,7 @@ struct AppListView: View {
                 TextField("搜索应用...", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
+                    .focused($searchFocused)
                 
                 Spacer()
                 
@@ -76,6 +78,11 @@ struct AppListView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .background(Color(NSColor.controlBackgroundColor))
+            .contentShape(Rectangle())
+            .onTapGesture { searchFocused = true }
+            .onReceive(NotificationCenter.default.publisher(for: .focusAppSearch)) { _ in
+                searchFocused = true
+            }
             
             Divider()
             

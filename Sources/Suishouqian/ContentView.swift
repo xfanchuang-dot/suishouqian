@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HSplitView {
@@ -25,27 +26,46 @@ struct ContentView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
 
-                if appState.activePanel == 0 {
-                    MigrationPanel()
-                        .padding(.horizontal, 20)
-                } else if appState.activePanel == 1 {
-                    HealthCheckView()
-                        .padding(.horizontal, 20)
-                } else {
-                    DataPanelView()
-                        .padding(.horizontal, 20)
+                Group {
+                    if appState.activePanel == 0 {
+                        MigrationPanel()
+                            .padding(.horizontal, 20)
+                    } else if appState.activePanel == 1 {
+                        HealthCheckView()
+                            .padding(.horizontal, 20)
+                    } else {
+                        DataPanelView()
+                            .padding(.horizontal, 20)
+                    }
                 }
+                // 面板切换淡入过渡；系统开启"减弱动态效果"时自动跳过
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18),
+                           value: appState.activePanel)
 
                 Spacer()
             }
             .frame(minWidth: 300)
             .frame(maxWidth: .infinity)
         }
+        .navigationTitle("随手迁")
+        .navigationSubtitle(subtitle)
         .onAppear {
             appState.refreshDrives()
             Task { @MainActor in
                 await appState.scanApps()
             }
         }
+    }
+
+    /// 窗口副标题：外置盘状态一目了然
+    private var subtitle: String {
+        guard let drive = appState.externalDrive else { return "外置硬盘未连接" }
+        let migrated = appState.apps.filter { $0.status == .migrated }.count
+        let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
+        var text = "\(drive.name) · 已迁移 \(migrated) 个应用"
+        if savable > 0 {
+            text += " · 可再省 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))"
+        }
+        return text
     }
 }

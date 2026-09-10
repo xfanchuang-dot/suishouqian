@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// 跨视图 UI 事件（菜单命令 → 列表搜索框聚焦等）
+extension Notification.Name {
+    static let focusAppSearch = Notification.Name("com.suishouqian.focusAppSearch")
+}
+
 /// 应用委托：迁移进行中拦截退出，杜绝半完成状态的最后一个人为入口
 final class AppDelegate: NSObject, NSApplicationDelegate {
     // 仅主线程读写（applicationShouldTerminate 与 AppState.init 均在主线程）
@@ -22,6 +27,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
 
         return alert.runModal() == .alertFirstButtonReturn ? .terminateCancel : .terminateNow
+    }
+
+    // MARK: Dock 菜单（右键 Dock 图标直达常用操作）
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu(title: "随手迁")
+        let defs: [(title: String, tag: Int)] = [
+            ("立即扫描", 0), ("迁移面板", 1), ("体检面板", 2), ("数据面板", 3),
+        ]
+        for (title, tag) in defs {
+            let item = NSMenuItem(title: title,
+                                  action: #selector(dockAction(_:)),
+                                  keyEquivalent: "")
+            item.tag = tag
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @MainActor @objc private func dockAction(_ sender: NSMenuItem) {
+        guard let state = Self.appState else { return }
+        switch sender.tag {
+        case 0:
+            Task { await state.scanApps() }
+        case 1: state.activePanel = 0
+        case 2: state.activePanel = 1
+        case 3: state.activePanel = 2
+        default: break
+        }
     }
 }
 
@@ -47,6 +82,11 @@ struct SuishouqianApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(appState.isScanning)
+
+                Button("搜索应用") {
+                    NotificationCenter.default.post(name: .focusAppSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
 
                 Divider()
 
