@@ -15,6 +15,8 @@ final class MigrationManifest: @unchecked Sendable {
         var volumeUUID: String     // 卷 UUID（统一大写）
         var relativePath: String   // 盘内相对路径，如 "Applications/X.app"
         var migratedAt: Date
+        /// nil/"bundle"=应用本体（v2.2 旧台账缺此字段，解码即 nil）；"data"=数据目录
+        var kind: String?
     }
 
     private let queue = DispatchQueue(label: "com.suishouqian.manifest")
@@ -42,13 +44,15 @@ final class MigrationManifest: @unchecked Sendable {
         queue.sync { load().apps }
     }
 
-    func record(appName: String, linkPath: String, volumeUUID: String, relativePath: String) {
+    func record(appName: String, linkPath: String, volumeUUID: String,
+                relativePath: String, kind: String? = nil) {
         queue.sync {
             var manifest = load()
             manifest.apps.removeAll { $0.appName == appName }
             manifest.apps.append(Entry(appName: appName, linkPath: linkPath,
                                        volumeUUID: volumeUUID.uppercased(),
-                                       relativePath: relativePath, migratedAt: Date()))
+                                       relativePath: relativePath, migratedAt: Date(),
+                                       kind: kind))
             save(manifest)
         }
     }

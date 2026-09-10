@@ -1,0 +1,276 @@
+import SwiftUI
+
+/// 数据面板：已知大数据目录的迁移（原生搬迁指引 / 链接迁移）+ 离线分叉对账
+struct DataPanelView: View {
+    @EnvironmentObject var appState: AppState
+
+    @State private var items: [DataMigrator.DataLocationItem] = []
+    @State private var divergences: [DataMigrator.DataDivergence] = []
+    @State private var isScanning = false
+    @State private var activeTaskTitle: String?
+    @State private var lastError: String?
+
+    private let dataMigrator = DataMigrator()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                hint
+
+                if !divergences.isEmpty { divergenceSection }
+
+                ForEach(items) { item in
+                    row(item)
+                }
+
+                if items.isEmpty && !isScanning {
+                    emptyState
+                }
+
+                if let error = lastError {
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .onAppear { rescan() }
+    }
+
+    private var header: some View {
+        HStack {
+            SectionHeader(title: "应用数据", systemImage: "shippingbox")
+            Spacer()
+            if isScanning || activeTaskTitle != nil {
+                ProgressView().controlSize(.small)
+                Text(activeTaskTitle ?? "扫描中...")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            } else {
+                Button("重新扫描") { rescan() }
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    private var hint: some View {
+        Text("只列出已知安全的数据目录，搬迁走两条路：优先用应用自带的位置设置（零风险），苹果没给入口的才用链接迁移。浏览器、聊天工具等日常热用的数据不建议搬，外置盘会拖慢它们。")
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func row(_ item: DataMigrator.DataLocationItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: "folder.fill")
+                    .foregroundColor(.teal)
+                    .font(.system(size: 12))
+
+                Text(item.title)
+                    .font(.system(size: 13, weight: .medium))
+
+                Text(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                if item.managedByUs {
+                    StatusPill("已链接迁移", systemImage: "link", color: .green)
+                } else if item.isSymlink {
+                    StatusPill("已是链接", systemImage: "link", color: .secondary)
+                } else if item.ownerRunning {
+                    StatusPill("应用运行中", systemImage: "bolt.fill", color: .orange)
+                }
+
+                actionButtons(item)
+            }
+
+            Text(item.path)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if let note = item.note {
+                Text(note)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .cardStyle()
+    }
+
+    @ViewBuilder
+    private func actionButtons(_ item: DataMigrator.DataLocationItem) -> some View {
+        let busy = isScanning || activeTaskTitle != nil
+
+        switch item.relocation {
+        case .native(_, let launchAppName):
+            Button("搬迁指引") { showNativeGuide(item, launchAppName: launchAppName) }
+                .controlSize(.small)
+                .disabled(busy)
+            if item.managedByUs {
+                Button("回迁") { restoreData(item) }
+                    .controlSize(.small)
+                    .disabled(busy)
+            }
+        case .symlink:
+            if item.managedByUs || item.isSymlink {
+                Button("回迁") { restoreData(item) }
+                    .controlSize(.small)
+                    .disabled(busy || item.managedByUs == false)
+            } else {
+                Button("迁移到外置盘") { migrateData(item) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(busy || !item.isWorthMigrating || item.ownerRunning
+                              || item.managedByUs || appState.externalDrive == nil)
+            }
+        }
+    }
+
+    // MARK: - 离线分叉对账
+
+    private var divergenceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "数据分叉", systemImage: "arrow.triangle.branch")
+                Spacer()
+                Text("拔盘期间应用重建了目录，插回后两边都有数据")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(divergences) { divergence in
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 11))
+                    Text(divergence.title)
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Button("以外置盘为准（本地改名隔离）") { isolate(divergence) }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(.vertical, 2)
+            }
+
+            Text("处置会把本地重建的目录改名为「××（离线重建 日期）」留在原地，链接恢复指向外置盘；两边的合并请自行确认后手动处理，工具不做自动合并。")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .cardStyle()
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 28))
+                .foregroundStyle(Theme.accent)
+            Text("没有发现可处理的数据目录")
+                .font(.system(size: 13, weight: .semibold))
+            Text("装了剪映、LM Studio、Docker 等应用后，这里会自动出现搬迁入口")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 30)
+    }
+
+    // MARK: - Actions
+
+    private func rescan() {
+        isScanning = true
+        lastError = nil
+        Task.detached {
+            let scanned = await dataMigrator.scanDataLocations()
+            let diverged = await dataMigrator.checkDivergences()
+            await MainActor.run {
+                items = scanned
+                divergences = diverged
+                isScanning = false
+            }
+        }
+    }
+
+    private func showNativeGuide(_ item: DataMigrator.DataLocationItem,
+                                 launchAppName: String?) {
+        guard case .native(let guide, _) = item.relocation else { return }
+        let alert = NSAlert()
+        alert.messageText = "「\(item.title)」搬迁指引"
+        alert.informativeText = guide + "\n\n让应用自己搬最稳：不建链接、升级不怕、拔盘不分叉。搬完回到这里重新扫描，确认旧位置已清空。"
+        alert.addButton(withTitle: launchAppName != nil ? "打开应用" : "知道了")
+        if launchAppName != nil { alert.addButton(withTitle: "关闭") }
+        let result = alert.runModal()
+
+        if result == .alertFirstButtonReturn, let launchAppName {
+            NSWorkspace.shared.launchApplication(launchAppName)
+            AuditLog.append("原生搬迁指引：\(item.title)（已打开 \(launchAppName)）")
+        } else {
+            AuditLog.append("原生搬迁指引：\(item.title)")
+        }
+    }
+
+    private func migrateData(_ item: DataMigrator.DataLocationItem) {
+        guard let drive = appState.externalDrive else { return }
+        let alert = NSAlert()
+        alert.messageText = "迁移「\(item.title)」到外置硬盘"
+        alert.informativeText = """
+        将复制 \(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)) 到外置盘，校验通过后在原位置建链接，原件留底可回滚。
+        请确认相关应用当前没有正在写入数据。
+        """
+        alert.addButton(withTitle: "开始迁移")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        activeTaskTitle = "迁移 \(item.title)..."
+        Task { @MainActor in
+            let result = await dataMigrator.migrateData(
+                item: item, drivePath: drive.mountPoint) { _, _ in }
+            await MainActor.run {
+                activeTaskTitle = nil
+                if !result.success { lastError = result.error }
+            }
+            rescan()
+        }
+    }
+
+    private func restoreData(_ item: DataMigrator.DataLocationItem) {
+        guard let drive = appState.externalDrive else { return }
+        activeTaskTitle = "回迁 \(item.title)..."
+        Task { @MainActor in
+            let result = await dataMigrator.restoreData(
+                item: item, drivePath: drive.mountPoint) { _, _ in }
+            await MainActor.run {
+                activeTaskTitle = nil
+                if !result.success { lastError = result.error }
+            }
+            rescan()
+        }
+    }
+
+    private func isolate(_ divergence: DataMigrator.DataDivergence) {
+        let alert = NSAlert()
+        alert.messageText = "数据分叉处置"
+        alert.informativeText = """
+        将把本地重建的「\(divergence.title)」改名隔离（保留在原地），链接恢复指向外置盘正本。
+        如果你离线期间产生的数据更重要，请先手动备份，或选择暂不处置。
+        """
+        alert.addButton(withTitle: "以外置盘为准")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if dataMigrator.isolateDivergence(divergence) {
+            divergences.removeAll { $0.id == divergence.id }
+        } else {
+            lastError = "分叉隔离失败（目录可能被占用）"
+        }
+    }
+}

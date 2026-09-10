@@ -54,6 +54,8 @@ struct SuishouqianApp: App {
                     .keyboardShortcut("1", modifiers: .command)
                 Button("体检面板") { appState.activePanel = 1 }
                     .keyboardShortcut("2", modifiers: .command)
+                Button("数据面板") { appState.activePanel = 2 }
+                    .keyboardShortcut("3", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
                 Button("关于随手迁") {

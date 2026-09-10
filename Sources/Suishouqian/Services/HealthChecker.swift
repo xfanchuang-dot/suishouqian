@@ -125,6 +125,8 @@ class HealthChecker: @unchecked Sendable {
         let retentionDays = 7
         var issues: [BackupIssue] = []
         for item in contents {
+            // v2.3: 数据目录备份（Data-*）由数据面板负责，不参与应用孤儿审计
+            if item.hasPrefix(DataMigrator.manifestPrefix) { continue }
             let full = "\(backupDir)/\(item)"
             guard let attrs = try? fileManager.attributesOfItem(atPath: full),
                   let mtime = attrs[.modificationDate] as? Date else { continue }

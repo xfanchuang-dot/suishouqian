@@ -228,7 +228,7 @@ class AppMigrator: @unchecked Sendable {
     
     /// P0: 校验目标是真实挂载的独立卷，且剩余空间足够
     /// 返回 nil 表示通过；返回 String 为拒绝原因
-    private func validateTarget(drivePath: String, appSize: Int64) -> String? {
+    func validateTarget(drivePath: String, appSize: Int64) -> String? {
         var st = statfs()
         guard drivePath.withCString({ statfs($0, &st) }) == 0 else {
             return "目标路径无法访问（硬盘未插入？），已阻止迁移以免误写内置盘"
@@ -276,7 +276,7 @@ class AppMigrator: @unchecked Sendable {
         }
     }
     
-    private func copyWithDitto(from src: String, to dst: String,
+    func copyWithDitto(from src: String, to dst: String,
                                 progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         // 阻塞型 ditto+轮询走 GCD（OffPool），不占协作线程池
         return await OffPool.run { [self] in
@@ -378,7 +378,7 @@ class AppMigrator: @unchecked Sendable {
     /// 抽样哈希把"大小一致"升级为"抽样内容一致"，防位腐烂/静默写坏；
     /// 文件总数 ≤ 抽样上限时自动全量哈希。抽样失败（如个别文件无读权限）
     /// 不降级整体结果——以字节对比为准，避免误报。
-    private func verifyFiles(source: String, target: String) async -> Bool {
+    func verifyFiles(source: String, target: String) async -> Bool {
         // 阻塞型 find/stat/shasum 走 GCD（OffPool）
         return await OffPool.run { [self] in
             guard let srcInfo = quickCheck(dir: source),
@@ -495,7 +495,7 @@ class AppMigrator: @unchecked Sendable {
         }
     }
     
-    private func moveItem(from src: String, to dst: String) async -> Bool {
+    func moveItem(from src: String, to dst: String) async -> Bool {
         return await Task.detached {
             try? FileManager.default.removeItem(atPath: dst)
             do {

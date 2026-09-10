@@ -19,6 +19,7 @@ struct ContentView: View {
                 Picker("", selection: $appState.activePanel) {
                     Text("迁移").tag(0)
                     Text("体检").tag(1)
+                    Text("数据").tag(2)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 20)
@@ -27,8 +28,11 @@ struct ContentView: View {
                 if appState.activePanel == 0 {
                     MigrationPanel()
                         .padding(.horizontal, 20)
-                } else {
+                } else if appState.activePanel == 1 {
                     HealthCheckView()
+                        .padding(.horizontal, 20)
+                } else {
+                    DataPanelView()
                         .padding(.horizontal, 20)
                 }
 
