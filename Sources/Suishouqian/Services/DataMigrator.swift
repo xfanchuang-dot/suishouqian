@@ -97,6 +97,7 @@ final class DataMigrator: @unchecked Sendable {
         let path: String
         let sizeBytes: Int64
         let isSymlink: Bool       // 已经是链接（我们迁过，或应用自己指向别处）
+        let linkBroken: Bool      // 链接指向的目标不存在（盘离线或卷改名）
         let accessible: Bool
         let managedByUs: Bool     // 台账有记录（我们迁移的数据）
         let ownerRunning: Bool    // 属主应用在运行，暂不可迁移
@@ -129,10 +130,17 @@ final class DataMigrator: @unchecked Sendable {
         let size = accessible ? duSize(path) : 0
         let managed = MigrationManifest.shared
             .entry(forAppName: Self.manifestName(for: location.id)) != nil
+        // 链接指向的目标不存在（盘离线或卷改名）→ 面板提示"硬盘未连接"
+        var linkBroken = false
+        if isSymlink,
+           let dest = try? fileManager.destinationOfSymbolicLink(atPath: path) {
+            linkBroken = !fileManager.fileExists(atPath: dest)
+        }
 
         return DataLocationItem(
             id: location.id, title: location.title, path: path,
-            sizeBytes: size, isSymlink: isSymlink, accessible: accessible,
+            sizeBytes: size, isSymlink: isSymlink, linkBroken: linkBroken,
+            accessible: accessible,
             managedByUs: managed, ownerRunning: isOwnerRunning(location),
             relocation: location.relocation, note: location.note)
     }
@@ -217,7 +225,10 @@ final class DataMigrator: @unchecked Sendable {
             return (false, "该位置不是链接，无需回迁")
         }
 
-        if let reason = migrator.validateTarget(drivePath: drivePath, appSize: item.sizeBytes) {
+        // 回迁写的是内置盘：预检必须针对内置盘空间（此前误用外置盘预检——
+        // 外置盘满会被错误拒绝，内置盘满却拦不住，写一半撑爆内置盘）
+        if let reason = migrator.validateInternalFreeSpace(needBytes: item.sizeBytes) {
+            AuditLog.append("拒绝数据回迁 \(item.title)：\(reason)")
             return (false, reason)
         }
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
@@ -299,6 +310,41 @@ final class DataMigrator: @unchecked Sendable {
         }
     }
 
+    // MARK: - 数据链接自愈（v2.3.1 审查补充）
+
+    /// 数据链接的卷改名自愈：healBrokenLinks 只管 /Applications 的程序链接，
+    /// ~/... 下的数据链接卷改名后同样会断，这里按台账补齐。
+    /// 返回自愈成功的数据名列表（去掉 Data- 前缀）。
+    @discardableResult
+    func healDataLinks() -> [String] {
+        var healed: [String] = []
+        for entry in MigrationManifest.shared.all() where entry.kind == "data" {
+            // 链接位仍是链接，但指向的目标已不存在（卷改名/换挂载点场景）；
+            // 若链接位被真目录占据，那是分叉，交给 checkDivergences
+            guard let attrs = try? fileManager.attributesOfItem(atPath: entry.linkPath),
+                  let type = attrs[.type] as? FileAttributeType,
+                  type == .typeSymbolicLink,
+                  let current = try? fileManager.destinationOfSymbolicLink(atPath: entry.linkPath),
+                  !fileManager.fileExists(atPath: current) else { continue }
+            guard let mount = MigrationManifest.mountPoint(forUUID: entry.volumeUUID),
+                  fileManager.fileExists(atPath: "\(mount)/\(entry.relativePath)") else { continue }
+
+            try? fileManager.removeItem(atPath: entry.linkPath)
+            do {
+                try fileManager.createSymbolicLink(
+                    atPath: entry.linkPath,
+                    withDestinationPath: "\(mount)/\(entry.relativePath)")
+                AuditLog.append("数据链接自愈 \(entry.appName)：按卷 UUID 重新定位 → \(mount)/\(entry.relativePath)")
+                healed.append(entry.appName.hasPrefix(Self.manifestPrefix)
+                    ? String(entry.appName.dropFirst(Self.manifestPrefix.count))
+                    : entry.appName)
+            } catch {
+                // 自愈失败保持断链状态，数据面板可见
+            }
+        }
+        return healed
+    }
+
     // MARK: - Private
 
     private func expandingTilde(_ path: String) -> String {
@@ -325,7 +371,6 @@ final class DataMigrator: @unchecked Sendable {
     }
 
     private func duSize(_ path: String) -> Int64 {
-        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-sk", "-L", path]

@@ -255,7 +255,7 @@ class AppMigrator: @unchecked Sendable {
     }
     
     /// 回迁预检：内置盘（根卷）剩余空间是否足够
-    private func validateInternalFreeSpace(needBytes: Int64) -> String? {
+    func validateInternalFreeSpace(needBytes: Int64) -> String? {
         var st = statfs()
         guard "/".withCString({ statfs($0, &st) }) == 0 else {
             return "无法读取内置盘空间信息"

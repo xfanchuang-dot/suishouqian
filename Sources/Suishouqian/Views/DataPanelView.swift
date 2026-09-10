@@ -79,7 +79,12 @@ struct DataPanelView: View {
                 Spacer()
 
                 if item.managedByUs {
-                    StatusPill("已链接迁移", systemImage: "link", color: .green)
+                    if item.linkBroken {
+                        StatusPill("硬盘未连接", systemImage: "externaldrive.badge.exclamationmark",
+                                   color: .orange)
+                    } else {
+                        StatusPill("已链接迁移", systemImage: "link", color: .green)
+                    }
                 } else if item.isSymlink {
                     StatusPill("已是链接", systemImage: "link", color: .secondary)
                 } else if item.ownerRunning {
@@ -97,6 +102,12 @@ struct DataPanelView: View {
 
             if let note = item.note {
                 Text(note)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            if case .symlink = item.relocation,
+               !item.isSymlink, !item.managedByUs, !item.isWorthMigrating {
+                Text("体积小于 100MB，不值得迁移")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -121,16 +132,17 @@ struct DataPanelView: View {
                     .disabled(busy)
             }
         case .symlink:
-            if item.managedByUs || item.isSymlink {
+            // 只回迁我们自己接管的链接；用户自建链接（非台账管理）一律不碰
+            if item.managedByUs {
                 Button("回迁") { restoreData(item) }
                     .controlSize(.small)
-                    .disabled(busy || item.managedByUs == false)
-            } else {
+                    .disabled(busy)
+            } else if !item.isSymlink {
                 Button("迁移到外置盘") { migrateData(item) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(busy || !item.isWorthMigrating || item.ownerRunning
-                              || item.managedByUs || appState.externalDrive == nil)
+                              || appState.externalDrive == nil)
             }
         }
     }
@@ -191,6 +203,7 @@ struct DataPanelView: View {
         isScanning = true
         lastError = nil
         Task.detached {
+            _ = dataMigrator.healDataLinks()   // 打开面板先尝试接上断掉的数据链接
             let scanned = await dataMigrator.scanDataLocations()
             let diverged = await dataMigrator.checkDivergences()
             await MainActor.run {
@@ -212,10 +225,22 @@ struct DataPanelView: View {
         let result = alert.runModal()
 
         if result == .alertFirstButtonReturn, let launchAppName {
-            NSWorkspace.shared.launchApplication(launchAppName)
+            launchApp(named: launchAppName)
             AuditLog.append("原生搬迁指引：\(item.title)（已打开 \(launchAppName)）")
         } else {
             AuditLog.append("原生搬迁指引：\(item.title)")
+        }
+    }
+
+    /// 打开应用（open -a 按名字解析，外置盘软链应用也能找到）
+    private func launchApp(named name: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", name]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        if (try? process.run()) != nil {
+            process.waitUntilExit()
         }
     }
 
