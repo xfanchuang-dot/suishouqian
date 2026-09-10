@@ -163,6 +163,7 @@ class AppState: ObservableObject {
             "newAppReminderEnabled": true,
             "notificationsEnabled": true,
             "backupRetentionDays": 7,
+            "bigFileExtendedScanEnabled": false,
         ])
         startSpaceGuard()
 

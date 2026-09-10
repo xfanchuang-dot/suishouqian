@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("newAppReminderEnabled") private var newAppReminder = true
     @AppStorage("notificationsEnabled") private var notifications = true
     @AppStorage("backupRetentionDays") private var backupDays = 7
+    @AppStorage("bigFileExtendedScanEnabled") private var bigFileExtended = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
 
     var body: some View {
@@ -46,16 +47,42 @@ struct SettingsView: View {
                     detail: "迁移/回迁/修复都要改动 /Applications。不授予会反复弹「想要修改其他应用程序」。",
                     pane: "com.apple.preference.security?Privacy_AppManagement",
                     statusText: "建议授予")
-                authorizationRow(
-                    title: "完全磁盘访问",
-                    detail: "可选。授予后大文件扫描自动覆盖桌面/文稿/下载；不授予也不影响迁移功能。",
-                    pane: "com.apple.preference.security?Privacy_AllFiles",
-                    statusText: appState.healthChecker.hasFullDiskAccess ? "已授予" : "未授予（可选）")
                 Text("注：迁移系统自带安装的、属于 root 的应用时仍会要求输入一次管理员密码（安全设计，5 分钟内连续迁移只输一次），这是正常的，无法也不应绕过。")
+                    .settingHint()
+            }
+
+            Section("大文件扫描范围") {
+                Toggle("扩展扫描桌面/文稿/下载", isOn: $bigFileExtended)
+                    .onChange(of: bigFileExtended) { _, on in
+                        guard on else { return }
+                        confirmExtendedScan()
+                    }
+                Text("默认只扫描「资源库」，零权限弹窗。开启前请先在上方「系统授权」授予完全磁盘访问权限，否则桌面/文稿/下载扫描不到内容、且可能反复弹授权框。")
                     .settingHint()
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// 开启扩展扫描前的知情确认（无法静默探测授权状态，用引导代替）
+    private func confirmExtendedScan() {
+        let alert = NSAlert()
+        alert.messageText = "开启前请先授予完全磁盘访问权限"
+        alert.informativeText = "请在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 中勾选「随手迁」，否则桌面/文稿/下载扫描不到内容，且可能反复弹授权框。"
+        alert.addButton(withTitle: "去授权")
+        alert.addButton(withTitle: "仍要开启")
+        alert.addButton(withTitle: "取消")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            bigFileExtended = false
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                NSWorkspace.shared.open(url)
+            }
+        case .alertSecondButtonReturn:
+            break
+        default:
+            bigFileExtended = false
+        }
     }
 
     private func authorizationRow(title: String, detail: String,

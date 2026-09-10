@@ -248,8 +248,8 @@ struct HealthCheckView: View {
                     .foregroundColor(.blue)
             }
 
-            if !checker.hasFullDiskAccess {
-                Text("为避免反复弹权限框，桌面/文稿/下载等受保护位置已自动跳过，当前只扫描「资源库」；如需覆盖全部位置，在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 中允许随手迁。")
+            if !checker.extendedScanEnabled {
+                Text("桌面/文稿/下载默认不扫描（避免权限弹窗），当前只扫描「资源库」；需要覆盖全部位置时，到 设置 → 通用 → 「扩展扫描桌面/文稿/下载」开启（开启前先授予完全磁盘访问权限）。")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
