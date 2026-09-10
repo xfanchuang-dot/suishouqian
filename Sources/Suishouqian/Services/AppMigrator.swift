@@ -93,11 +93,18 @@ class AppMigrator: @unchecked Sendable {
                 source: sourcePath, target: targetPath)
             guard authResult.success else {
                 try? fileManager.removeItem(atPath: targetPath)
-                // 回滚备份
-                _ = await copyWithDitto(from: backupPath, to: sourcePath) { _ in }
-                try? fileManager.removeItem(atPath: backupPath)
-                return MigrationResult(success: false, 
-                      error: authResult.error ?? "权限操作失败", spaceSaved: 0)
+                // 回滚原件：恢复成功才删备份；恢复失败必须保留备份兜底，
+                // 否则「原件已不在 + 备份被删」就是真丢数据
+                let restored = await copyWithDitto(from: backupPath, to: sourcePath) { _ in }
+                if restored {
+                    try? fileManager.removeItem(atPath: backupPath)
+                } else {
+                    AuditLog.append("迁移失败 \(appName)：授权回滚未完成，原件备份保留于 \(backupPath)")
+                }
+                return MigrationResult(success: false,
+                      error: restored ? (authResult.error ?? "权限操作失败")
+                                      : "权限操作失败且回滚未完成，原件备份保留在外置盘 .suishouqian-backup，可从体检页恢复",
+                      spaceSaved: 0)
             }
         } else {
             let moved = await moveItem(from: sourcePath, to: backupPath)

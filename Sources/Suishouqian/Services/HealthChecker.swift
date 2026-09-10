@@ -352,6 +352,10 @@ class HealthChecker: @unchecked Sendable {
 
     // MARK: - 已卸载应用残留扫描（省空间）
 
+    /// 残留扫描绝不上报的目录：高价值用户数据，即使"找不到属主"也不算残留。
+    /// MobileSync = iPhone 备份（苹果无属主标记，误清理代价极高）
+    private let protectedResidueNames: Set<String> = ["MobileSync"]
+
     /// 扫描 ~/Library/Application Support 与 ~/Library/Caches：
     /// 找出没有任何在装应用可认领、且 ≥100MB 的目录
     func checkResidues(drivePath: String?) -> [ResidueItem] {
@@ -367,8 +371,9 @@ class HealthChecker: @unchecked Sendable {
         ] {
             let items = (try? fileManager.contentsOfDirectory(atPath: base)) ?? []
             for item in items {
-                // 系统自有目录与工具自身目录不参与
+                // 系统自有目录与工具自身目录不参与；保护名单绝不上报
                 if item.lowercased().hasPrefix("com.apple.") || item == "随手迁" { continue }
+                if protectedResidueNames.contains(item) { continue }
 
                 let full = "\(base)/\(item)"
                 var isDir: ObjCBool = false
@@ -472,7 +477,20 @@ class HealthChecker: @unchecked Sendable {
         return (try? fileManager.contentsOfDirectory(atPath: "/Applications")) ?? []
     }
 
+    /// du 结果缓存（10 分钟 TTL）：残留/备份审计每次体检会对几十个目录跑 du，
+    /// 冷缓存可达几十秒；短时间内重复体检直接复用。近似值对"省空间线索"足够。
+    nonisolated(unsafe) private static var duCache: [String: (bytes: Int64, at: Date)] = [:]
+    private static let duCacheLock = NSLock()
+    private static let duCacheTTL: TimeInterval = 600
+
     private func duSize(_ path: String) -> Int64 {
+        Self.duCacheLock.lock()
+        if let hit = Self.duCache[path], Date().timeIntervalSince(hit.at) < Self.duCacheTTL {
+            Self.duCacheLock.unlock()
+            return hit.bytes
+        }
+        Self.duCacheLock.unlock()
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-sk", path]
@@ -483,9 +501,11 @@ class HealthChecker: @unchecked Sendable {
         process.waitUntilExit()
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
                             encoding: .utf8) ?? ""
-        if let kb = Int64(output.split(separator: "\t").first ?? "") {
-            return kb * 1024
-        }
-        return 0
+        let bytes = Int64(output.split(separator: "\t").first ?? "").map { $0 * 1024 } ?? 0
+
+        Self.duCacheLock.lock()
+        Self.duCache[path] = (bytes, Date())
+        Self.duCacheLock.unlock()
+        return bytes
     }
 }
