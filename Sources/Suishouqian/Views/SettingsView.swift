@@ -21,7 +21,7 @@ struct SettingsView: View {
             guardForm
                 .tabItem { Label("外置盘守护", systemImage: "bolt.badge.clock") }
         }
-        .frame(width: 460, height: 300)
+        .frame(width: 480)
     }
 
     // MARK: - 通用
@@ -39,8 +39,47 @@ struct SettingsView: View {
                 Text("迁移完成/失败、插拔盘、空间告警等通知的总开关。")
                     .settingHint()
             }
+
+            Section("系统授权（各授予一次，更新重装不失效）") {
+                authorizationRow(
+                    title: "修改其他应用（App Management）",
+                    detail: "迁移/回迁/修复都要改动 /Applications。不授予会反复弹「想要修改其他应用程序」。",
+                    pane: "com.apple.preference.security?Privacy_AppManagement",
+                    statusText: "建议授予")
+                authorizationRow(
+                    title: "完全磁盘访问",
+                    detail: "可选。授予后大文件扫描自动覆盖桌面/文稿/下载；不授予也不影响迁移功能。",
+                    pane: "com.apple.preference.security?Privacy_AllFiles",
+                    statusText: appState.healthChecker.hasFullDiskAccess ? "已授予" : "未授予（可选）")
+                Text("注：迁移系统自带安装的、属于 root 的应用时仍会要求输入一次管理员密码（安全设计，5 分钟内连续迁移只输一次），这是正常的，无法也不应绕过。")
+                    .settingHint()
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func authorizationRow(title: String, detail: String,
+                                  pane: String, statusText: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+                Text(statusText)
+                    .font(.system(size: 11, weight: statusText.hasPrefix("已") ? .semibold : .regular))
+                    .foregroundColor(statusText.hasPrefix("已") ? .green : .secondary)
+                Button("去授权") {
+                    if let url = URL(string: "x-apple.systempreferences:\(pane)") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .controlSize(.small)
+            }
+            Text(detail)
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: - 备份

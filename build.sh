@@ -56,9 +56,9 @@ cat > "$BUNDLE/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.suishouqian.app</string>
     <key>CFBundleVersion</key>
-    <string>2.3.1</string>
+    <string>2.3.2</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.3.1</string>
+    <string>2.3.2</string>
     <key>CFBundleExecutable</key>
     <string>随手迁</string>
     <key>CFBundlePackageType</key>
@@ -78,8 +78,16 @@ echo "[5/7] 修正 rpath..."
 install_name_tool -add_rpath @executable_path/../Frameworks "$MACOS_DIR/$APP_NAME" 2>/dev/null || true
 
 # 7. Sign
+# v2.3.2: 用自签证书稳定签名身份——ad-hoc 签名每次构建哈希都变，
+# 系统 App Management/文件夹授权全部作废，导致反复弹授权框；
+# 换稳定证书后授权只需授予一次，更新重装也不失效
 echo "[6/7] 签名..."
-codesign --force --sign - --timestamp=none --deep "$BUNDLE"
+SIGN_IDENTITY="Suishouqian CodeSign"
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
+    echo "  ⚠️ 找不到签名证书 $SIGN_IDENTITY，退回 ad-hoc（授权将无法持久化）"
+    SIGN_IDENTITY="-"
+fi
+codesign --force --deep --sign "$SIGN_IDENTITY" --timestamp=none "$BUNDLE"
 
 # 8. Install (overwrite, no rm to avoid permission dialogs)
 echo ""
