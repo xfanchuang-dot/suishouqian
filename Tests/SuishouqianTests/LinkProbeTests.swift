@@ -13,7 +13,7 @@ final class LinkProbeTests: XCTestCase {
     func testThunderboltClassPositive() {
         let info = LinkInfo(filesystem: "apfs", protocolKind: "PCI-Express")
         XCTAssertTrue(info.verdict.positive)
-        XCTAssertTrue(info.verdict.text.contains("体感与内置盘一致"))
+        XCTAssertTrue(info.verdict.text.contains("满速体验"))
     }
 
     func testUSBPositiveWithHint() {

@@ -22,11 +22,16 @@ struct DiskBarView: View {
                 offlineCard
             }
         }
+        // 换线缆/换盒子后重插同一路径：旧链路结论必须作废重探
+        .onChange(of: appState.externalDrive?.mountPoint) { _, new in
+            guard let new, !new.isEmpty else { return }
+            probeLink(mount: new)
+        }
     }
 
-    /// 探测一次并缓存（diskutil 阻塞子进程，放后台跑）
+    /// 探测并覆盖缓存（diskutil 阻塞子进程，放后台跑；重插/换设备时重探）
     private func probeLink(mount: String) {
-        guard linkInfo[mount] == nil, !mount.isEmpty else { return }
+        guard !mount.isEmpty else { return }
         Task.detached(priority: .utility) {
             guard let info = DiskLinkProbe.probe(mountPoint: mount) else { return }
             await MainActor.run { linkInfo[mount] = info }
@@ -83,15 +88,19 @@ struct DiskBarView: View {
             // 链路体检行：卷格式 · 连接协议 · 体感结论（exFAT 高亮警告）
             if let link = linkInfo[drive.mountPoint] {
                 let v = link.verdict
+                let summary = link.protocolKind.isEmpty
+                    ? link.filesystemDisplay
+                    : "\(link.filesystemDisplay) · \(link.protocolKind)"
                 HStack(spacing: 4) {
                     Image(systemName: v.positive
                           ? "checkmark.circle" : "exclamationmark.triangle.fill")
                         .font(.system(size: 9))
-                    Text("\(link.filesystemDisplay) · \(link.protocolKind.isEmpty ? "链路未知" : link.protocolKind) · \(v.text)")
+                    Text("\(summary) · \(v.text)")
                         .font(.system(size: 10))
                         .lineLimit(1)
                 }
                 .foregroundColor(v.positive ? .secondary : .orange)
+                .help(v.text)   // 行宽不够截断时，悬停看全文
             }
         }
         .padding(12)

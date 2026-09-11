@@ -16,7 +16,7 @@ struct LinkInfo: Equatable {
         }
         let p = protocolKind.lowercased()
         if p.contains("pci") || p.contains("thunderbolt") || p.contains("fabric") {
-            return ("雷电/NVMe 级链路，体感与内置盘一致", true)
+            return ("雷电/NVMe 级链路，满速体验", true)
         }
         if p.contains("usb") {
             return ("USB 链路，日常流畅；大应用若启动偏慢优先换线缆/硬盘盒", true)
