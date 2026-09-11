@@ -1,61 +1,61 @@
 import AppKit
 
-/// 迁移前的知情确认。
+/// 搬迁前的知情确认。
 ///
-/// 只在**用户主动点迁移**时出现，不做任何后台扫描或主动提醒——
-/// 目的单一：把"这个应用搬走后更新会怎样"讲清楚，避免用户踩了坑才知道。
+/// 只在**用户主动点搬迁**、且该应用确实有讲得清的后果时才弹窗——不做后台扫描、
+/// 不做主动提醒。目的单一：把"这个应用这样搬走后，下次更新会怎样"讲清楚。
 enum MigrationAdvisor {
 
-    /// 单个应用：App Store 应用先确认；其余直接放行（不打扰）。
-    /// `linkBack` 决定讲哪种后果——两种搬法的失败形态不同，不能混为一谈
+    /// 单个应用：只有 `updateConsequence` 讲得出后果时才确认，其余直接放行（不打扰）。
+    /// `linkBack` 决定讲哪种后果——两种搬法的风险不同，不能混为一谈
     @MainActor
     static func confirmRelocation(of app: AppItem, linkBack: Bool) -> Bool {
-        guard !app.updateMechanism.isSafeToRelocate else { return true }
+        guard let consequence = app.updateMechanism.updateConsequence(linkBack: linkBack) else {
+            return true
+        }
 
         let alert = NSAlert()
         alert.messageText = "「\(app.name)」是 App Store 安装的应用"
         alert.informativeText = """
-        \(app.updateMechanism.updateConsequence(linkBack: linkBack) ?? app.updateMechanism.guidance)
+        \(consequence)
 
-        建议：让它留在内置盘，改用「数据」面板迁移它的大体积数据（数据目录不受应用升级影响）。
-
-        \(linkBack ? "仍然要搬到外置盘吗？" : "仍然要这样搬走吗？")
+        \(app.updateMechanism.guidance)
         """
-        alert.addButton(withTitle: "留在内置盘（推荐）")
+        // 用户点的是「迁移」，默认按钮就尊重这个意图；取消后即可改用「纯搬迁」
         alert.addButton(withTitle: linkBack ? "仍然搬走（留链接）" : "仍然纯搬迁（不留链接）")
-        alert.alertStyle = .warning
-        // 默认按钮是"留在内置盘"：误按回车时走安全的一侧
-        return alert.runModal() == .alertSecondButtonReturn
+        alert.addButton(withTitle: "取消")
+        alert.alertStyle = .informational
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// 批量迁移：只提示其中会被更新顶掉的 App Store 应用，让用户决定是否跳过。
+    /// 批量迁移：批量走的是「留链接」，而其中 App Store 应用更适合用「纯搬迁」。
     /// 返回要迁移的清单；返回 nil 表示用户取消整批操作。
     @MainActor
     static func resolveBatch(_ apps: [AppItem]) -> [AppItem]? {
-        let risky = apps.filter { !$0.updateMechanism.isSafeToRelocate }
-        guard !risky.isEmpty else { return apps }
+        let appStoreApps = apps.filter { $0.updateMechanism.prefersNoLink }
+        guard !appStoreApps.isEmpty else { return apps }
 
-        let names = risky.prefix(5).map(\.name).joined(separator: "、")
-        let more = risky.count > 5 ? " 等 \(risky.count) 个" : ""
+        let names = appStoreApps.prefix(5).map(\.name).joined(separator: "、")
+        let more = appStoreApps.count > 5 ? " 等 \(appStoreApps.count) 个" : ""
         let alert = NSAlert()
-        alert.messageText = "其中 \(risky.count) 个是 App Store 应用"
+        alert.messageText = "其中 \(appStoreApps.count) 个是 App Store 应用"
         alert.informativeText = """
         \(names)\(more)。
 
-        它们的更新由系统负责，更新时会把应用重新装回「应用程序」文件夹，\
-        从而把迁移顶掉（不会丢数据，但腾出来的空间又被占回去）。\
-        建议让它们留在内置盘，改用「数据」面板迁移它们的大体积数据。
+        它们更适合用行内的「纯搬迁」（不留链接）：不留链接时 App Store 更新会就地写到\
+        外置盘上（本机实测），搬迁不会被撤销。而这里的一键迁移用的是「留链接」，\
+        更新有可能把链接换成真目录。
 
-        其余 \(apps.count - risky.count) 个可以正常迁移。
+        其余 \(apps.count - appStoreApps.count) 个可以正常一键迁移。
         """
-        alert.addButton(withTitle: "跳过这 \(risky.count) 个，迁移其余")
-        alert.addButton(withTitle: "全部迁移")
+        alert.addButton(withTitle: "跳过这 \(appStoreApps.count) 个，迁移其余")
+        alert.addButton(withTitle: "全部迁移（留链接）")
         alert.addButton(withTitle: "取消")
-        alert.alertStyle = .warning
+        alert.alertStyle = .informational
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
-            return apps.filter { $0.updateMechanism.isSafeToRelocate }
+            return apps.filter { !$0.updateMechanism.prefersNoLink }
         case .alertSecondButtonReturn:
             return apps
         default:

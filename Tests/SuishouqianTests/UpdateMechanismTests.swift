@@ -87,42 +87,48 @@ final class UpdateMechanismTests: XCTestCase {
 
     // MARK: - 迁移建议的取向
 
-    func testOnlyAppStoreIsUnsafeToRelocate() {
-        XCTAssertFalse(UpdateMechanism.appStore.isSafeToRelocate)
-        XCTAssertTrue(UpdateMechanism.sparkle.isSafeToRelocate)
-        XCTAssertTrue(UpdateMechanism.squirrel.isSafeToRelocate)
-        XCTAssertTrue(UpdateMechanism.unknown.isSafeToRelocate,
-                      "看不出来不该拦着用户，只提示留意")
+    /// 只有 App Store 应用更适合"不留链接"（本机实测：不留链接不受更新影响，
+    /// 而留链接能否扛住更新尚未观测到）
+    func testOnlyAppStorePrefersNoLink() {
+        XCTAssertTrue(UpdateMechanism.appStore.prefersNoLink)
+        XCTAssertFalse(UpdateMechanism.sparkle.prefersNoLink)
+        XCTAssertFalse(UpdateMechanism.squirrel.prefersNoLink)
+        XCTAssertFalse(UpdateMechanism.unknown.prefersNoLink,
+                       "看不出更新方式的不该被特殊对待")
     }
 
-    func testGuidanceMentionsConsequence() {
-        XCTAssertTrue(UpdateMechanism.appStore.guidance.contains("顶掉"))
-        XCTAssertTrue(UpdateMechanism.appStore.guidance.contains("数据"),
-                      "App Store 应用的指引要给出替代方案（迁数据）")
+    func testGuidanceMentionsVerifiedInPlaceUpdate() {
+        // 这条结论是实测得来的（QQ音乐 11.8.1 → 11.9.1，外置盘就地升级、无第二份），
+        // 写进文案是为了让用户放心搬；改动前请先确认结论仍成立
+        let guidance = UpdateMechanism.appStore.guidance
+        XCTAssertTrue(guidance.contains("就地"), "要说明更新是就地写在外置盘上的")
+        XCTAssertTrue(guidance.contains("11.8.1"), "带上实测的证据")
+        XCTAssertTrue(guidance.contains("Spotlight"), "要讲清代价：不再出现在「应用程序」里")
         XCTAssertTrue(UpdateMechanism.sparkle.guidance.contains("外置盘"))
     }
 
-    // MARK: - 两种搬法的后果必须分开讲（现场教训：纯搬迁曾绕过确认框）
+    // MARK: - 两种搬法的后果必须分开讲
 
-    func testAppStoreConsequencesDifferByMode() throws {
+    /// 实测（2026-09-11）推翻了原先"App Store 会把它当成没装、另装一份"的推测：
+    /// 不留链接是干净的，因此**不该**再对纯搬迁告警
+    func testPureRelocationOfAppStoreAppNeedsNoWarning() {
+        XCTAssertNil(UpdateMechanism.appStore.updateConsequence(linkBack: false),
+                     "不留链接已实测不受更新影响，不该打扰用户")
+    }
+
+    func testLinkRelocationWarnsAboutUnverifiedRisk() throws {
         let linked = try XCTUnwrap(UpdateMechanism.appStore.updateConsequence(linkBack: true))
-        let pure = try XCTUnwrap(UpdateMechanism.appStore.updateConsequence(linkBack: false))
-
-        // 留链接：更新顶掉链接，应用回到内置盘、仍能用（优雅降级）
-        XCTAssertTrue(linked.contains("重新装回"))
-        XCTAssertTrue(linked.contains("照常能用"), "留链接的后果是优雅降级，要讲清不丢数据")
-
-        // 不留链接：App Store 视为没装，可能再装一份 → 两份并存
-        XCTAssertTrue(pure.contains("没装"))
-        XCTAssertTrue(pure.contains("各有一份"), "纯搬迁对 App Store 应用会产生重复副本，必须讲清")
-        XCTAssertNotEqual(linked, pure, "两种搬法的后果不同，不能共用文案")
+        XCTAssertTrue(linked.contains("链接"), "要讲清风险发生在链接上")
+        XCTAssertTrue(linked.contains("体检页"), "要给出发现手段")
+        XCTAssertTrue(linked.contains("纯搬迁"), "要给出更稳的替代方案")
+        // 不能再说"会另装一份"——那是被实测推翻的推测
+        XCTAssertFalse(linked.contains("各有一份"))
     }
 
     func testOnlyAppStoreHasUpdateConsequences() {
         XCTAssertNil(UpdateMechanism.sparkle.updateConsequence(linkBack: true))
-        XCTAssertNil(UpdateMechanism.sparkle.updateConsequence(linkBack: false))
         XCTAssertNil(UpdateMechanism.squirrel.updateConsequence(linkBack: false))
-        XCTAssertNil(UpdateMechanism.unknown.updateConsequence(linkBack: false),
-                     "看不出更新方式的应用，纯搬迁反而更稳，不该警告")
+        XCTAssertNil(UpdateMechanism.unknown.updateConsequence(linkBack: true),
+                     "看不出更新方式的应用不该被警告")
     }
 }
