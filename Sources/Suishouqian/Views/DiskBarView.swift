@@ -3,20 +3,33 @@ import SwiftUI
 struct DiskBarView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// mountPoint → 链路体检结果（协议/格式/结论）
+    @State private var linkInfo: [String: LinkInfo] = [:]
 
     var body: some View {
         HStack(spacing: 12) {
             if let builtin = appState.builtinDrive {
                 driveCard(drive: builtin, label: "内置硬盘",
                           icon: "internaldrive.fill", color: .blue)
+                    .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
             }
 
             if let external = appState.externalDrive {
                 driveCard(drive: external, label: "外置硬盘",
                           icon: "externaldrive.fill", color: .green)
+                    .task(id: external.mountPoint) { probeLink(mount: external.mountPoint) }
             } else {
                 offlineCard
             }
+        }
+    }
+
+    /// 探测一次并缓存（diskutil 阻塞子进程，放后台跑）
+    private func probeLink(mount: String) {
+        guard linkInfo[mount] == nil, !mount.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            guard let info = DiskLinkProbe.probe(mountPoint: mount) else { return }
+            await MainActor.run { linkInfo[mount] = info }
         }
     }
 
@@ -66,6 +79,20 @@ struct DiskBarView: View {
                 }
             }
             .frame(height: 6)
+
+            // 链路体检行：卷格式 · 连接协议 · 体感结论（exFAT 高亮警告）
+            if let link = linkInfo[drive.mountPoint] {
+                let v = link.verdict
+                HStack(spacing: 4) {
+                    Image(systemName: v.positive
+                          ? "checkmark.circle" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                    Text("\(link.filesystemDisplay) · \(link.protocolKind.isEmpty ? "链路未知" : link.protocolKind) · \(v.text)")
+                        .font(.system(size: 10))
+                        .lineLimit(1)
+                }
+                .foregroundColor(v.positive ? .secondary : .orange)
+            }
         }
         .padding(12)
         .background(
