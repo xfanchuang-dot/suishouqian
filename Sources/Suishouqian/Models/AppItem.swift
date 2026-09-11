@@ -20,6 +20,8 @@ struct AppItem: Identifiable {
         case restoring
         case needsSync
         case systemApp
+        /// 一直住在外置盘的应用（无符号链接、内置盘无副本）
+        case externalOnly
     }
     
     var isSystemApp: Bool {

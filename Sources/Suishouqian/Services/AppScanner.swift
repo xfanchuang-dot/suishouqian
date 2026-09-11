@@ -2,29 +2,53 @@ import Foundation
 import AppKit
 
 class AppScanner: @unchecked Sendable {
-    
-    func scanApplications() async -> [AppItem] {
-        let dirs = [
+
+    /// 扫描应用列表。externalRoots 传外置盘上的应用目录
+    /// （如 <盘>/Applications、<盘>/Suishouqian_Apps）：
+    /// 一直住在外置盘的应用（如安装时选了外置盘的 WPS）也要出现在列表里。
+    /// 去重规则：外置盘候选若与内置盘同名（多半是迁移过去的正本），跳过。
+    func scanApplications(externalRoots: [String] = []) async -> [AppItem] {
+        let internalDirs = [
             "/Applications",
             "/System/Applications"
         ]
 
-        var urls: [URL] = []
-        for dir in dirs {
+        func listApps(in dir: String) -> [URL] {
             guard let contents = try? FileManager.default.contentsOfDirectory(
                 at: URL(fileURLWithPath: dir),
                 includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .totalFileSizeKey],
                 options: [.skipsHiddenFiles]
-            ) else { continue }
-            urls.append(contentsOf: contents.filter { $0.pathExtension == "app" })
+            ) else { return [] }
+            return contents.filter { $0.pathExtension == "app" }
+        }
+
+        var internalURLs: [URL] = []
+        for dir in internalDirs {
+            internalURLs.append(contentsOf: listApps(in: dir))
+        }
+        let internalNames = Set(internalURLs.map(\.lastPathComponent))
+
+        // 外置盘候选：去掉与内置盘同名的（那是迁移正本，/Applications 里已有链接）
+        var externalURLs: [URL] = []
+        for root in externalRoots {
+            for url in listApps(in: root) where !internalNames.contains(url.lastPathComponent) {
+                externalURLs.append(url)
+            }
         }
 
         // 体验：并行扫描（此前逐个 du 串行，70 个应用要 5~8 秒）。
         // 并发限 8 且 du 走 OffPool：无界并发 + 协作池内阻塞等待
         // 曾把线程池占死，导致迁移任务冻结（2026-08-26 事故根因）
         var items: [AppItem] = []
+        items += await scanChunk(internalURLs)
+        items += await scanChunk(externalURLs)
+        return items
+    }
+
+    private func scanChunk(_ urls: [URL]) async -> [AppItem] {
         let chunkSize = 8
         var index = 0
+        var items: [AppItem] = []
         while index < urls.count {
             let chunk = urls[index..<min(index + chunkSize, urls.count)]
             let part = await withTaskGroup(of: AppItem?.self) { group in
@@ -41,6 +65,11 @@ class AppScanner: @unchecked Sendable {
             index += chunkSize
         }
         return items
+    }
+
+    /// 外置盘候选去重（纯逻辑，供测试）
+    static func externalCandidates(_ names: [String], alreadyInternal: Set<String>) -> [String] {
+        names.filter { !alreadyInternal.contains($0) }
     }
 
     /// 轻量清单：/Applications 下的 .app 名单（新应用入住提醒用，不做 du）
@@ -88,6 +117,9 @@ class AppScanner: @unchecked Sendable {
             item.status = .systemApp
         } else if item.isOnExternal {
             item.status = .migrated
+        } else if path.hasPrefix("/Volumes/") {
+            // 一直住在外置盘的应用（无链接、内置盘无副本）
+            item.status = .externalOnly
         }
         
         return item

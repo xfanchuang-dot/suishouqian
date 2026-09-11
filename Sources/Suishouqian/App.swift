@@ -239,6 +239,10 @@ class AppState: ObservableObject {
                         }
                     }
                 }
+                // v2.4.2: 插盘后重扫列表，外置盘原住民应用立即可见
+                Task { @MainActor [weak self] in
+                    await self?.scanApps()
+                }
             }
         }
 
@@ -264,7 +268,12 @@ class AppState: ObservableObject {
     func scanApps() async {
         isScanning = true
         // 稳定性：不先清空列表，扫描完成原子替换，避免每次扫描整页闪空白
-        let scanned = await scanner.scanApplications()
+        // v2.4.2: 外置盘接入时连带扫描盘上 Applications（外置盘原住民应用）
+        var roots: [String] = []
+        if let mount = externalDrive?.mountPoint {
+            roots = ["\(mount)/Applications", "\(mount)/Suishouqian_Apps"]
+        }
+        let scanned = await scanner.scanApplications(externalRoots: roots)
         apps = scanned.sorted { $0.size > $1.size }
         isScanning = false
         

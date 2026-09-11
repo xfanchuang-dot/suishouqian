@@ -198,6 +198,50 @@ class AppMigrator: @unchecked Sendable {
                                spaceSaved: -app.size)
     }
 
+    /// 把「一直住在外置盘」的应用搬回内置盘（无链接语义：复制→校验→删外置副本）
+    func moveBackToInternal(app: AppItem, drivePath: String,
+                            progress: @escaping @Sendable (Double, String) -> Void)
+        async -> MigrationResult {
+        let sourcePath = app.path
+        let destPath = "/Applications/\(app.bundleName)"
+
+        if let runningName = Self.runningAppName(matching: sourcePath) {
+            return MigrationResult(success: false,
+                  error: "「\(runningName)」正在运行，请先退出后再搬回", spaceSaved: 0)
+        }
+        if fileManager.fileExists(atPath: destPath) {
+            return MigrationResult(success: false,
+                  error: "内置盘已存在同名应用，无法搬回", spaceSaved: 0)
+        }
+        if let reason = validateInternalFreeSpace(needBytes: app.size) {
+            AuditLog.append("拒绝搬回 \(app.bundleName)：\(reason)")
+            return MigrationResult(success: false, error: reason, spaceSaved: 0)
+        }
+
+        await OffPool.run { _ = SystemSnapshot.createThrottled() }
+
+        progress(0.1, "正在复制 \(app.name)...")
+        guard await copyWithDitto(from: sourcePath, to: destPath, progress: { pct in
+            progress(0.1 + pct * 0.7, "复制 \(app.name)...")
+        }) else {
+            try? fileManager.removeItem(atPath: destPath)
+            return MigrationResult(success: false, error: "复制失败", spaceSaved: 0)
+        }
+
+        progress(0.9, "校验...")
+        guard await verifyFiles(source: sourcePath, target: destPath) else {
+            try? fileManager.removeItem(atPath: destPath)
+            AuditLog.append("搬回失败 \(app.bundleName)：校验未通过，外置副本保留")
+            return MigrationResult(success: false, error: "文件校验失败，请重试", spaceSaved: 0)
+        }
+
+        try? fileManager.removeItem(atPath: sourcePath)
+        MigrationManifest.shared.remove(appName: app.bundleName)
+        AuditLog.append("搬回内置盘成功 \(app.bundleName)：\(app.size) 字节 ← \(sourcePath)")
+        progress(1.0, "完成")
+        return MigrationResult(success: true, error: nil, spaceSaved: -app.size)
+    }
+
     func uninstall(app: AppItem, drivePath: String? = nil) -> MigrationResult {
         AuditLog.append("卸载 \(app.bundleName)（链接+\(app.symlinkTarget ?? "无外置副本")）")
         try? fileManager.removeItem(atPath: app.path)

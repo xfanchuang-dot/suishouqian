@@ -83,4 +83,20 @@ final class DataMigrationTests: XCTestCase {
         XCTAssertTrue(DataMigrator.manifestName(for: "ios-backup")
             .hasPrefix(DataMigrator.manifestPrefix))
     }
+
+    // MARK: - 外置盘原住民应用扫描（v2.4.2）
+
+    func testExternalCandidatesDedupeAgainstInternal() {
+        let names = ["wpsoffice.app", "Cursor.app", "LM Studio.app", "Demo.app"]
+        let internalNames: Set<String> = ["Cursor.app", "Demo.app"]
+        let result = AppScanner.externalCandidates(names, alreadyInternal: internalNames)
+        // Cursor/Demo 内置盘已有（迁移正本），WPS 和 LM Studio 是外置盘原住民
+        XCTAssertEqual(result, ["wpsoffice.app", "LM Studio.app"])
+    }
+
+    func testExternalCandidatesKeepAllWhenNothingInternal() {
+        let result = AppScanner.externalCandidates(
+            ["A.app", "B.app"], alreadyInternal: [])
+        XCTAssertEqual(result, ["A.app", "B.app"])
+    }
 }
