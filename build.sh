@@ -56,9 +56,9 @@ cat > "$BUNDLE/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.suishouqian.app</string>
     <key>CFBundleVersion</key>
-    <string>2.5.1</string>
+    <string>2.5.2</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.5.1</string>
+    <string>2.5.2</string>
     <key>CFBundleExecutable</key>
     <string>随手迁</string>
     <key>CFBundlePackageType</key>

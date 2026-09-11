@@ -65,6 +65,60 @@ struct BigFileItem: Identifiable {
     var directory: String {
         (path as NSString).deletingLastPathComponent
     }
+
+    /// 人话分类说明 + 是否系统管理的数据（v2.5.2：让用户知道"这是什么、敢不敢清"）
+    var classification: BigFileClassifier.Result {
+        BigFileClassifier.classify(path: path)
+    }
+}
+
+/// 大文件分类器（纯逻辑，可测试）：按路径特征给用户能看懂的说明
+enum BigFileClassifier {
+    struct Result: Equatable {
+        let label: String          // 这是什么
+        let systemManaged: Bool    // 系统管理的数据 → 禁用清理按钮
+    }
+
+    static func classify(path: String) -> Result {
+        let p = path.lowercased()
+
+        // 系统管理的数据：只读展示，绝不建议清理
+        if p.contains("containers/com.apple.")
+            || p.contains("group containers/group.com.apple.")
+            || p.hasPrefix("/private/var")
+            || p.contains("library/cloudstorage") {
+            return Result(label: "系统数据（建议保留）", systemManaged: true)
+        }
+        // iPhone 备份：高价值数据
+        if p.contains("mobilesync") {
+            return Result(label: "iPhone 备份（误删代价高）", systemManaged: false)
+        }
+        // 开发缓存：可再生，清理无损
+        let devCaches = ["deriveddata", "coresimulator", "node_modules",
+                         "/.cocoapods", "/.gradle", "/.npm", "xcode/archives"]
+        if devCaches.contains(where: { p.contains($0) }) {
+            return Result(label: "开发缓存（可清理，会自动重建）", systemManaged: false)
+        }
+        // 应用数据：清理可能丢设置/记录
+        if p.contains("application support") || p.contains("/containers/")
+            || p.contains("group containers") {
+            return Result(label: "应用数据（清理可能丢失设置或记录）", systemManaged: false)
+        }
+
+        let ext = (path as NSString).pathExtension.lowercased()
+        switch ext {
+        case "dmg", "iso", "pkg":
+            return Result(label: "安装镜像/安装包（装完即可删）", systemManaged: false)
+        case "mp4", "mkv", "mov", "avi", "m4v", "mp3", "flac", "wav", "aac":
+            return Result(label: "音视频文件", systemManaged: false)
+        case "zip", "rar", "7z", "tar", "gz", "bz2":
+            return Result(label: "压缩包", systemManaged: false)
+        case "raw", "vmdk", "qcow2", "img", "hdd", "vdi":
+            return Result(label: "虚拟磁盘镜像", systemManaged: false)
+        default:
+            return Result(label: "其他大文件", systemManaged: false)
+        }
+    }
 }
 
 /// 升级回退（迁移被悄悄撤销）：/Applications 的链接被应用更新器换回了真实目录，

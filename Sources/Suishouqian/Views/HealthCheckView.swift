@@ -187,6 +187,9 @@ struct HealthCheckView: View {
                     .controlSize(.small)
                 }
                 .padding(.vertical, 2)
+                .help(issue.isOrphan
+                      ? "这个应用在内置盘和外置盘的应用目录里都不存在了（已卸载），这份迁移前备份已经没有用处。删除会移入废纸篓，可恢复。"
+                      : "这是迁移「\(issue.appName)」时留的底，已超过保留期。只要应用还能正常打开就可以删。")
             }
         }
         .cardStyle()
@@ -219,6 +222,7 @@ struct HealthCheckView: View {
                         .controlSize(.small)
                 }
                 .padding(.vertical, 2)
+                .help("该目录体积 ≥100MB，且没有任何已安装应用认领它——判断为已卸载应用的残留数据。\n位置：\(item.path)\n不确定是什么时，可先点「显示」去 Finder 里看看再决定。")
             }
         }
         .cardStyle()
@@ -257,16 +261,18 @@ struct HealthCheckView: View {
 
             ForEach(bigFiles) { file in
                 HStack(spacing: 8) {
-                    Image(systemName: "doc.fill")
-                        .foregroundColor(.blue)
+                    Image(systemName: file.classification.systemManaged
+                          ? "lock.shield" : "doc.fill")
+                        .foregroundColor(file.classification.systemManaged
+                                         ? .secondary : .blue)
                         .font(.system(size: 11))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(file.name)
                             .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
-                        Text(file.directory)
+                        Text("\(file.classification.label) · \(file.directory)")
                             .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                            .foregroundColor(file.classification.systemManaged ? .orange : .secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -277,8 +283,12 @@ struct HealthCheckView: View {
                         .controlSize(.small)
                     Button("清理") { recycleBigFile(file) }
                         .controlSize(.small)
+                        .disabled(file.classification.systemManaged)
                 }
                 .padding(.vertical, 2)
+                .help(file.classification.systemManaged
+                      ? "这是系统管理的数据，随手迁不建议也不允许从这里清理。"
+                      : "\(file.path)\n分类：\(file.classification.label)。清理会移入废纸篓，可随时恢复。")
             }
         }
         .cardStyle()
