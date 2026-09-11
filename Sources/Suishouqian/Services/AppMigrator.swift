@@ -447,9 +447,10 @@ class AppMigrator: @unchecked Sendable {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return 0 }
+        // 先读至 EOF 再等待退出（项目铁律：先等后读会在输出写满管道时死锁）
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8) ?? ""
+        let output = String(data: data, encoding: .utf8) ?? ""
         return Int64(output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
     }
 
@@ -539,18 +540,20 @@ class AppMigrator: @unchecked Sendable {
     }
 
     /// 批量 shasum，返回 相对路径(去根前缀) → 哈希；进程失败返回 nil
-    private func shasum(files: [String], relativeTo root: String) -> [String: String]? {        let process = Process()
+    private func shasum(files: [String], relativeTo root: String) -> [String: String]? {
+        let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/shasum")
         process.arguments = ["-a", "256"] + files
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
+        // 先读至 EOF 再等待退出（项目铁律：先等后读会在输出写满管道时死锁）
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
 
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8) ?? ""
+        let output = String(data: data, encoding: .utf8) ?? ""
         var map: [String: String] = [:]
         let prefix = root + "/"
         for line in output.split(separator: "\n") {
@@ -600,8 +603,9 @@ class AppMigrator: @unchecked Sendable {
 
         do {
             try process.run()
-            process.waitUntilExit()
+            // 先读至 EOF 再等待退出（项目铁律：先等后读会在输出写满管道时死锁）
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let parts = output.split(separator: " ")
             guard parts.count == 2,
@@ -668,16 +672,16 @@ class AppMigrator: @unchecked Sendable {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             process.arguments = ["-e", script]
             
-            let outPipe = Pipe()
+            // stdout 直接丢弃：这条命令的 stdout 我们不读，若接成管道又没人读，
+            // 一旦写满 64KB 缓冲，进程会永久阻塞在写上（本项目被烧过两次的死锁形态）。
+            // 只有 stderr 需要读——读至 EOF 再等待退出，顺序不能颠倒
             let errPipe = Pipe()
-            process.standardOutput = outPipe
+            process.standardOutput = FileHandle.nullDevice
             process.standardError = errPipe
             
             do {
                 try process.run()
-                // 先读至 EOF 再等待退出（防管道写满死锁）
                 let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                _ = outPipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
                 
                 if process.terminationStatus == 0 {

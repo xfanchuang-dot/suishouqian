@@ -623,9 +623,10 @@ class HealthChecker: @unchecked Sendable {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return 0 }
+        // 先读至 EOF 再等待退出（项目铁律：先等后读会在输出写满管道时死锁）
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8) ?? ""
+        let output = String(data: data, encoding: .utf8) ?? ""
         let bytes = Int64(output.split(separator: "\t").first ?? "").map { $0 * 1024 } ?? 0
 
         Self.duCacheLock.lock()
