@@ -60,9 +60,12 @@ struct ContentView: View {
     /// 窗口副标题：外置盘状态一目了然
     private var subtitle: String {
         guard let drive = appState.externalDrive else { return "外置硬盘未连接" }
-        let migrated = appState.apps.filter { $0.status == .migrated }.count
+        // 与列表筛选/底部统计同一口径：链接迁移的与"外置盘原住民"都算在外置盘上
+        let offInternal = appState.apps.filter {
+            $0.status == .migrated || $0.status == .externalOnly
+        }.count
         let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
-        var text = "\(drive.name) · 已迁移 \(migrated) 个应用"
+        var text = "\(drive.name) · 在外置盘 \(offInternal) 个应用"
         if savable > 0 {
             text += " · 可再省 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))"
         }

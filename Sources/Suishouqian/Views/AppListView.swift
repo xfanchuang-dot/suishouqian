@@ -11,7 +11,10 @@ struct AppListView: View {
     enum FilterMode: String, CaseIterable {
         case all = "全部"
         case movable = "可迁移"
-        case migrated = "已迁移"
+        /// 一切"不在内置盘上"的应用：链接迁移的 + 本来就装在外置盘的。
+        /// 早先这里只筛链接迁移的，导致那批"外置盘原住民"应用（Word/微信/Xcode…）
+        /// 除了「全部」之外无处可查——纯搬迁产生的应用也会落入这一类
+        case offInternal = "在外置盘"
         case system = "系统"
     }
     
@@ -32,7 +35,8 @@ struct AppListView: View {
         switch filterMode {
         case .all: break
         case .movable: apps = apps.filter { $0.status == .normal }
-        case .migrated: apps = apps.filter { $0.status == .migrated }
+        case .offInternal:
+            apps = apps.filter { $0.status == .migrated || $0.status == .externalOnly }
         case .system: apps = apps.filter { $0.status == .systemApp }
         }
         
@@ -65,7 +69,7 @@ struct AppListView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 240)
+                .frame(width: 272)   // 「在外置盘」比原来的「已迁移」长，留够宽度防截断
                 
                 Picker("", selection: $sortOrder) {
                     ForEach(SortOrder.allCases, id: \.self) { order in
@@ -116,7 +120,10 @@ struct AppListView: View {
             
             // 底部统计
             HStack(spacing: 12) {
-                let migrated = appState.apps.filter { $0.status == .migrated }
+                // 与「在外置盘」筛选口径一致：链接迁移的 + 外置盘原住民都算
+                let offInternal = appState.apps.filter {
+                    $0.status == .migrated || $0.status == .externalOnly
+                }
                 let movable = appState.apps.filter { $0.status == .normal }
                 let totalSavable = movable.reduce(0) { $0 + $1.size }
 
@@ -124,9 +131,9 @@ struct AppListView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
 
-                Label("\(migrated.count) 已迁移", systemImage: "externaldrive.fill")
+                Label("\(offInternal.count) 在外置盘", systemImage: "externaldrive.fill")
                     .font(.system(size: 11))
-                    .foregroundColor(migrated.isEmpty ? .secondary : .green)
+                    .foregroundColor(offInternal.isEmpty ? .secondary : .green)
 
                 Spacer()
 
