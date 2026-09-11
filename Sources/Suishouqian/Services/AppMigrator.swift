@@ -86,6 +86,8 @@ class AppMigrator: @unchecked Sendable {
                 return MigrationResult(success: false, 
                       error: "备份失败", spaceSaved: 0)
             }
+            // 备份 mtime 必须代表"备份时刻"，否则刚建好就被当超龄清掉
+            stampBackupCreation(at: backupPath)
             
             // 删原件 + 建符号链接（需要 admin，但只操作 /Applications 不写外置盘）
             progress(0.9, "需要管理员权限...")
@@ -113,6 +115,8 @@ class AppMigrator: @unchecked Sendable {
                 return MigrationResult(success: false, 
                       error: "无法移动原文件（可能正在运行或权限不足）", spaceSaved: 0)
             }
+            // 备份 mtime 必须代表"备份时刻"（move 会保留原应用的安装时间）
+            stampBackupCreation(at: backupPath)
             do {
                 try fileManager.createSymbolicLink(atPath: sourcePath, 
                                                    withDestinationPath: targetPath)
@@ -263,22 +267,44 @@ class AppMigrator: @unchecked Sendable {
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
     }
     
+    /// 备份是否已过保留期（纯逻辑，供测试）。
+    /// 判据是备份目录的 mtime——它必须代表"备份创建时刻"，
+    /// 而不是被备份应用的安装时间（见 stampBackupCreation 的说明）
+    static func isBackupExpired(modifiedAt: Date, now: Date = Date(),
+                                retentionDays: Int) -> Bool {
+        modifiedAt < now.addingTimeInterval(-Double(retentionDays) * 86400)
+    }
+
     func cleanOldBackups(at drivePath: String) {
         let backupDir = "\(drivePath)/.suishouqian-backup"
         guard let contents = try? fileManager.contentsOfDirectory(atPath: backupDir) else { return }
-        
-        let cutoff = Date().addingTimeInterval(-Double(retentionDays) * 86400)
-        
+        let now = Date()
+
         for item in contents {
             let fullPath = "\(backupDir)/\(item)"
             guard let attrs = try? fileManager.attributesOfItem(atPath: fullPath),
                   let modDate = attrs[.modificationDate] as? Date,
-                  modDate < cutoff else { continue }
+                  Self.isBackupExpired(modifiedAt: modDate, now: now,
+                                       retentionDays: retentionDays) else { continue }
             try? fileManager.removeItem(atPath: fullPath)
             if !fileManager.fileExists(atPath: fullPath) {
                 AuditLog.append("清理过期备份：\(item)（超过 \(retentionDays) 天）")
             }
         }
+    }
+
+    /// 给刚建立的备份打上"创建时刻"。
+    ///
+    /// 备份是经 ditto/move 得到的，目录 mtime 会**继承原应用的安装时间**
+    /// （实测：VS Code 迁到外置盘后 mtime 仍是 7 月 22 日）。而保留期按 mtime 判断，
+    /// 于是刚建好的备份在下一次扫描时就被当成"超龄"删除——日志实证：
+    /// `10:46:29 迁移成功` 与 `10:46:35 清理过期备份` 相隔 6 秒，
+    /// "原件留底可回滚"这个安全底实际并不存在。
+    ///
+    /// 备份一旦建立，它的 mtime 就应当代表备份时间。
+    /// 改目录的 mtime 不影响代码签名（签名只覆盖文件内容与 CodeResources 封条）。
+    func stampBackupCreation(at path: String, now: Date = Date()) {
+        try? fileManager.setAttributes([.modificationDate: now], ofItemAtPath: path)
     }
     
     /// P0: 校验目标是真实挂载的独立卷，且剩余空间足够

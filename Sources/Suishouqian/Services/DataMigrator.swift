@@ -197,6 +197,8 @@ final class DataMigrator: @unchecked Sendable {
             try? fileManager.removeItem(atPath: externalPath)
             return (false, "无法移动原目录（可能正在被使用）")
         }
+        // 备份 mtime 必须代表"备份时刻"，否则会被 cleanOldBackups 立刻当超龄清掉
+        migrator.stampBackupCreation(at: backupPath)
         do {
             try fileManager.createSymbolicLink(atPath: site, withDestinationPath: externalPath)
         } catch {

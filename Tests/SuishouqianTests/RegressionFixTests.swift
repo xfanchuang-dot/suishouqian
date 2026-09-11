@@ -257,6 +257,73 @@ final class RegressionFixTests: XCTestCase {
         XCTAssertEqual(callbacks, 0, "静默刷新不得回调挂载变化")
     }
 
+    // MARK: - ⑪ 备份时间戳：刚建的备份绝不能被当"超龄"清掉
+
+    /// 现场复现（2026-09-11 实测迁移 VS Code）：
+    /// 备份经 ditto/move 得到会继承原应用的安装时间（VS Code 是 7 月 22 日），
+    /// 而保留期按 mtime 判 → 审计日志出现
+    /// `10:46:29 迁移成功` / `10:46:35 清理过期备份：Visual Studio Code.app（超过 7 天）`，
+    /// 刚建 6 秒的备份被删，"原件留底可回滚"形同不存在
+    func testStampBackupCreationKeepsFreshBackupAlive() throws {
+        let backup = try makeDir("stamp/Visual Studio Code.app")
+        // 模拟继承来的旧安装时间
+        let installed = Date(timeIntervalSinceNow: -60 * 86400)
+        try FileManager.default.setAttributes([.modificationDate: installed],
+                                             ofItemAtPath: backup)
+        XCTAssertTrue(AppMigrator.isBackupExpired(modifiedAt: installed, retentionDays: 7),
+                      "前提：继承来的旧 mtime 会被判超龄（正是被误删的原因）")
+
+        AppMigrator().stampBackupCreation(at: backup)
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: backup)
+        let mtime = try XCTUnwrap(attrs[.modificationDate] as? Date)
+        XCTAssertFalse(AppMigrator.isBackupExpired(modifiedAt: mtime, retentionDays: 7),
+                       "打完创建时刻后，刚建的备份不得被判超龄")
+    }
+
+    func testBackupExpiryBoundary() {
+        let now = Date()
+        XCTAssertTrue(AppMigrator.isBackupExpired(
+            modifiedAt: now.addingTimeInterval(-8 * 86400), now: now, retentionDays: 7))
+        XCTAssertFalse(AppMigrator.isBackupExpired(
+            modifiedAt: now.addingTimeInterval(-6 * 86400), now: now, retentionDays: 7))
+        XCTAssertFalse(AppMigrator.isBackupExpired(
+            modifiedAt: now, now: now, retentionDays: 7), "刚建的备份绝不能过期")
+    }
+
+    /// 端到端：跑一遍清理扫描，确认刚建的备份活下来、真超龄的被清掉
+    func testCleanOldBackupsKeepsFreshStampedBackup() throws {
+        let drive = try makeDir("cleandrive")
+        let backupDir = "\(drive)/.suishouqian-backup"
+        try FileManager.default.createDirectory(atPath: backupDir,
+                                                withIntermediateDirectories: true)
+        UserDefaults.standard.set(7, forKey: "backupRetentionDays")
+        defer { UserDefaults.standard.removeObject(forKey: "backupRetentionDays") }
+
+        let installed = Date(timeIntervalSinceNow: -60 * 86400)
+
+        // 刚迁移出来的备份：目录 mtime 继承自原应用（60 天前），已按新逻辑打时间戳
+        let fresh = "\(backupDir)/Fresh.app"
+        try FileManager.default.createDirectory(atPath: fresh, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.modificationDate: installed],
+                                             ofItemAtPath: fresh)
+        let migrator = AppMigrator()
+        migrator.stampBackupCreation(at: fresh)
+
+        // 真正超龄的备份（未打时间戳，mtime 就是 60 天前）
+        let stale = "\(backupDir)/Stale.app"
+        try FileManager.default.createDirectory(atPath: stale, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.modificationDate: installed],
+                                             ofItemAtPath: stale)
+
+        migrator.cleanOldBackups(at: drive)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fresh),
+                      "刚建的备份必须留下——现场 bug 是 6 秒后被当超龄删掉")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stale),
+                       "真正超龄的备份应被清理")
+    }
+
     // MARK: - ⑩ 守护 plist 对特殊卷名必须仍是合法 XML
 
     func testLaunchAgentPlistEscapesTrickyVolumeName() throws {
