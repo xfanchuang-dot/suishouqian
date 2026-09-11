@@ -51,17 +51,21 @@ struct AppRowView: View {
                 // 迁移/回迁/卸载都是会动文件的互斥操作，任务进行中必须禁用，
                 // 否则并发触发会互相覆盖 migrationTask 状态、留下半完成副本
                 .disabled(appState.isMigrationActive)
+                .help("""
+                迁移：把应用搬到外置盘，并在「应用程序」里留一个链接。
 
-                // 纯搬迁（不留链接）：适合自带更新器、不需要出现在「应用程序」的应用
-                Menu {
-                    Button("纯搬迁（不在「应用程序」留链接）") { moveToExternal() }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 12))
+                应用仍会出现在「应用程序」文件夹里，双击、卸载（拖到废纸篓）都和以前一样；\
+                启动时链接会被解析到外置盘，自带更新器也能正常更新。
+                """)
+
+                // 纯搬迁与「迁移」并列显示，不做成隐藏菜单——它是对
+                // "更新会把迁移顶掉"的机制性解法，必须在动手那一刻就看得见
+                Button("纯搬迁") {
+                    moveToExternal()
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 20)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .font(.system(size: 11))
                 .disabled(appState.isMigrationActive)
                 .help("""
                 纯搬迁：把应用搬到外置盘，但不在「应用程序」文件夹留链接。
@@ -70,6 +74,8 @@ struct AppRowView: View {
                 应用就住在它自己的位置，自带更新器会就地更新。
 
                 代价：应用不再出现在「应用程序」里，改用 Spotlight / Dock 启动。
+
+                适合：看不出更新方式的应用，或曾经被更新顶掉过迁移的应用。
                 """)
             } else if app.status == .externalOnly {
                 Button("搬回内置盘") {
