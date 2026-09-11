@@ -241,7 +241,23 @@ final class RegressionFixTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "backupRetentionDays")
     }
 
-    // MARK: - ⑧ 守护 plist 对特殊卷名必须仍是合法 XML
+    // MARK: - ⑨ 定时刷新绝不能触发「挂载变化」回调
+    //
+    // 这是"每 10 分钟误报一次外置硬盘已连接"的根因：refresh() 此前无条件回调，
+    // 定时器、Time Machine 备份卷挂卸都会各触发一轮（连带全量重扫与自愈）。
+    func testSilentRefreshDoesNotFireMountCallback() {
+        let monitor = DiskMonitor()
+        var callbacks = 0
+        monitor.onMountChange = { _ in callbacks += 1 }
+
+        // 模拟定时器刷新（默认 notifyChanges: false）
+        monitor.refresh()
+        monitor.refresh()
+
+        XCTAssertEqual(callbacks, 0, "静默刷新不得回调挂载变化")
+    }
+
+    // MARK: - ⑩ 守护 plist 对特殊卷名必须仍是合法 XML
 
     func testLaunchAgentPlistEscapesTrickyVolumeName() throws {
         // 卷名含 & < > " 时：此前只转义了 WatchPaths 一处，脚本内嵌的同一路径
