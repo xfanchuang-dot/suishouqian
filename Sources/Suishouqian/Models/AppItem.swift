@@ -47,6 +47,9 @@ struct DriveInfo {
     let totalSize: Int64
     let freeSize: Int64
     let isExternal: Bool
+    /// 卷 UUID（统一大写）。多盘并列时用它认住「用户上次选定的那块盘」，
+    /// 否则同容量的两块盘之间目标盘会随枚举顺序漂移
+    let volumeUUID: String?
     var isConnected: Bool { mountPoint != "" }
     
     var freeFormatted: String {

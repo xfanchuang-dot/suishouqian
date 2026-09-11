@@ -163,7 +163,14 @@ class HealthChecker: @unchecked Sendable {
         return results
     }
 
-    /// 审计备份目录：孤儿（应用已不在任何位置）或超龄（>7 天）
+    /// 备份保留天数（设置页可调）。此前体检里硬编码 7 天，
+    /// 用户把保留期设成 90 天后仍会被报"超过 7 天可清理"，口径必须与设置一致
+    var backupRetentionDays: Int {
+        let days = UserDefaults.standard.integer(forKey: "backupRetentionDays")
+        return days > 0 ? days : 7
+    }
+
+    /// 审计备份目录：孤儿（应用已不在任何位置）或超龄（超过保留期）
     func checkBackups(drivePath: String) -> [BackupIssue] {
         let backupDir = "\(drivePath)/.suishouqian-backup"
         guard let contents = try? fileManager.contentsOfDirectory(atPath: backupDir) else {
@@ -176,7 +183,7 @@ class HealthChecker: @unchecked Sendable {
             atPath: "\(drivePath)/Applications")) ?? []
         for name in externalApps { knownApps.insert(name) }
 
-        let retentionDays = 7
+        let retentionDays = backupRetentionDays
         var issues: [BackupIssue] = []
         for item in contents {
             // v2.3: 数据目录备份（Data-*）由数据面板负责，不参与应用孤儿审计
@@ -226,9 +233,34 @@ class HealthChecker: @unchecked Sendable {
         return false
     }
 
-    func deleteBackup(_ issue: BackupIssue) {
-        try? fileManager.removeItem(atPath: issue.path)
-        AuditLog.append("删除备份 \(issue.appName)（\(issue.isOrphan ? "孤儿" : "超龄 \(issue.ageDays) 天")，\(issue.sizeFormatted)）")
+    /// 删除备份。
+    /// **走废纸篓而非永久删除**：界面对用户的承诺就是"删除会移入废纸篓，可恢复"，
+    /// 而这不是可选项——它是迁移出问题时唯一的兜底。此前用 removeItem 永久删除，
+    /// 与文案不符，且在"全部清理"一键操作下能直接抹掉所有安全底。
+    @discardableResult
+    func deleteBackup(_ issue: BackupIssue) async -> Bool {
+        let ok = await recycleToTrash(issue.path)
+        if ok {
+            AuditLog.append("删除备份 \(issue.appName)（\(issue.isOrphan ? "孤儿" : "超龄 \(issue.ageDays) 天")，\(issue.sizeFormatted)，已入废纸篓）")
+        } else {
+            AuditLog.append("删除备份失败 \(issue.appName)：\(issue.path) 未能移入废纸篓")
+        }
+        return ok
+    }
+
+    /// 移入废纸篓并等待完成。
+    /// NSWorkspace.recycleURLs 是**异步**的（头文件明确写 Asynchronous），
+    /// 此前调用后立刻查 fileExists 判成功，结果恒为 false：界面不移除条目、
+    /// 不写审计日志——而文件其实已经进了废纸篓，用户看到的与真实状态不符。
+    @discardableResult
+    func recycleToTrash(_ path: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            NSWorkspace.shared.recycle([URL(fileURLWithPath: path)]) { _, error in
+                // 以"路径是否真的不在了"为准，而不是只看 error
+                let gone = !FileManager.default.fileExists(atPath: path)
+                continuation.resume(returning: error == nil && gone)
+            }
+        }
     }
 
     // MARK: - 断链自愈与台账回填（v2.2 卷改名免疫）
@@ -285,6 +317,32 @@ class HealthChecker: @unchecked Sendable {
         return ("/\(parts[0])/\(parts[1])", parts.dropFirst(2).joined(separator: "/"))
     }
 
+    /// 台账校准：清掉链接位已不存在的应用条目。
+    ///
+    /// 应用被手动卸载、或用户绕过本工具删掉链接后，台账会留下"幽灵记录"
+    /// （本机实测积了 6 条：应用早已不在 /Applications，条目仍在），
+    /// 会让后续读台账的功能误判。
+    ///
+    /// 判"不存在"必须用 **lstat 语义**（`attributesOfItem` 不跟随符号链接）：
+    /// 硬盘未连接时链接是断的，但链接本身仍在，那种情况绝不能清——
+    /// 否则插回硬盘就失去了自愈所需的定位信息。
+    /// 数据条目（kind == "data"）不处理：分叉场景下它的链接位本来就可能是真目录。
+    @discardableResult
+    func pruneStaleManifestEntries() -> [String] {
+        var pruned: [String] = []
+        for entry in MigrationManifest.shared.all() {
+            if entry.kind == "data" { continue }
+            // lstat 成功 = 链接（即使断链）或真目录都算"位上有东西"，保留
+            if (try? fileManager.attributesOfItem(atPath: entry.linkPath)) != nil { continue }
+            MigrationManifest.shared.remove(appName: entry.appName)
+            pruned.append(entry.appName)
+        }
+        if !pruned.isEmpty {
+            AuditLog.append("台账校准：清理 \(pruned.count) 条已失效记录（\(pruned.joined(separator: "、"))）")
+        }
+        return pruned
+    }
+
     // MARK: - 升级回退检测（v2.2）
 
     /// /Applications 出现真实应用目录、但外置盘还有同名副本 →
@@ -304,16 +362,29 @@ class HealthChecker: @unchecked Sendable {
                   let type = attrs[.type] as? FileAttributeType,
                   type == .typeDirectory else { continue }   // 软链接（正常迁移态）不算
 
-            let externalPath = "\(drivePath)/Applications/\(item)"
-            var isDir: ObjCBool = false
-            guard fileManager.fileExists(atPath: externalPath, isDirectory: &isDir),
-                  isDir.boolValue else { continue }
+            // 新旧两个外置应用目录都要看：历史迁移落在 Suishouqian_Apps 里，
+            // 只查 Applications 会漏掉它们的"迁移被撤销"
+            guard let externalPath = externalAppPath(named: item, drivePath: drivePath) else {
+                continue
+            }
 
             results.append(RegressionItem(appName: item, appPath: appPath,
                                           externalPath: externalPath,
                                           sizeBytes: duSize(appPath)))
         }
         return results.sorted { $0.appName < $1.appName }
+    }
+
+    /// 外置盘上承载应用本体的目录：新版 Applications + 旧版 Suishouqian_Apps
+    func externalAppPath(named bundleName: String, drivePath: String) -> String? {
+        for sub in ["Applications", "Suishouqian_Apps"] {
+            let candidate = "\(drivePath)/\(sub)/\(bundleName)"
+            var isDir: ObjCBool = false
+            if fileManager.fileExists(atPath: candidate, isDirectory: &isDir), isDir.boolValue {
+                return candidate
+            }
+        }
+        return nil
     }
 
     /// 忽略某个升级回退提示（记录后不再上报）
@@ -355,12 +426,15 @@ class HealthChecker: @unchecked Sendable {
         // *.app/*：应用包内部文件不报（那是应用列表的职责）。
         // Safari/Mail/Messages/com.apple.TCC：双重保险排除——就算扩展扫描开启，
         // 这些高敏目录也绝不触碰（读不到是小事，弹授权框是大事）
+        // 注意：这里不再接 `head -200`——find 输出是 NUL 分隔、整条流没有换行，
+        // head 按行计数对它完全无效（实测 300 条过 head 仍是 300 条），
+        // 真正的条数上限由下面的 prefix(limit) 负责
         let script = """
         find \(rootArgs) -type f -size +\(minKB)k \
           -not -path '*/.Trash/*' -not -path '*.app/*' \
           -not -path '*/Library/Safari/*' -not -path '*/Library/Mail/*' \
           -not -path '*/Library/Messages/*' -not -path '*/com.apple.TCC/*' \
-          -print0 2>/dev/null | head -200
+          -print0 2>/dev/null
         """
 
         let process = Process()
@@ -388,15 +462,14 @@ class HealthChecker: @unchecked Sendable {
         return Array(items.sorted { $0.sizeBytes > $1.sizeBytes }.prefix(limit))
     }
 
-    /// 大文件移入废纸篓（可恢复）
+    /// 大文件移入废纸篓（可恢复）。等待回收真正完成，再如实回报结果
     @discardableResult
-    func recycleBigFile(_ item: BigFileItem) -> Bool {
-        NSWorkspace.shared.recycle([URL(fileURLWithPath: item.path)]) { _, _ in }
-        let gone = !fileManager.fileExists(atPath: item.path)
-        if gone {
+    func recycleBigFile(_ item: BigFileItem) async -> Bool {
+        let ok = await recycleToTrash(item.path)
+        if ok {
             AuditLog.append("清理大文件 \(item.name)（\(item.sizeFormatted)，已入废纸篓）")
         }
-        return gone
+        return ok
     }
 
     /// 在 Finder 中显示
@@ -446,16 +519,14 @@ class HealthChecker: @unchecked Sendable {
         return results.sorted { $0.sizeBytes > $1.sizeBytes }
     }
 
-    /// 残留移入废纸篓（可恢复，不做永久删除）
+    /// 残留移入废纸篓（可恢复，不做永久删除）。等待回收完成再回报
     @discardableResult
-    func recycleResidue(_ item: ResidueItem) -> Bool {
-        var didRecycle = false
-        NSWorkspace.shared.recycle([URL(fileURLWithPath: item.path)]) { _, _ in }
-        didRecycle = !fileManager.fileExists(atPath: item.path)
-        if didRecycle {
+    func recycleResidue(_ item: ResidueItem) async -> Bool {
+        let ok = await recycleToTrash(item.path)
+        if ok {
             AuditLog.append("清理应用残留 \(item.name)（\(item.location)，\(item.sizeFormatted)，已入废纸篓）")
         }
-        return didRecycle
+        return ok
     }
 
     /// 在装应用特征集：应用名（含去空格/去尾数字变体）+ BundleID + 其前两段

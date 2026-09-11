@@ -183,16 +183,28 @@ class AppState: ObservableObject {
         let fresh = current.filter { !known.contains($0) }
         guard !fresh.isEmpty else { return }
 
-        for name in fresh {
-            let path = "/Applications/\(name)"
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? Int64, size >= 500 * 1_048_576 else { continue }
-            let display = String(name.dropLast(4))
-            notificationManager.notifyNewLargeAppInstalled(name: display, size: size)
-            AuditLog.append("新应用提醒：\(display)（\(size / 1_048_576)MB）")
-        }
+        // 先记账再测量：测量要跑 du，别让期间的重复 tick 反复提醒同一批应用
         known.formUnion(current)
         defaults.set(Array(known), forKey: "knownAppNames")
+
+        Task.detached(priority: .utility) { [weak self] in
+            for name in fresh {
+                // .app 是目录：attributesOfItem 的 .size 只有几十字节（目录条目本身），
+                // 拿它比 500MB 永远不成立——旧版提醒功能因此从未生效过。
+                // 必须递归量体积，且 du 要带 -L（这里应用可能是迁移后的软链接）。
+                // du 是阻塞子进程：放 OffPool，不占协作线程池
+                let bytes = await OffPool.run {
+                    AppScanner.directorySizeBytes(atPath: "/Applications/\(name)")
+                }
+                guard bytes >= 500 * 1_048_576 else { continue }
+                let display = String(name.dropLast(4))
+                await MainActor.run {
+                    self?.notificationManager.notifyNewLargeAppInstalled(
+                        name: display, size: bytes)
+                }
+                AuditLog.append("新应用提醒：\(display)（\(bytes / 1_048_576)MB）")
+            }
+        }
     }
 
     init() {
@@ -216,6 +228,13 @@ class AppState: ObservableObject {
             _ = bootChecker.healBrokenLinks()
             _ = bootDataMigrator.healDataLinks()
             bootChecker.backfillManifest()
+            bootChecker.pruneStaleManifestEntries()
+        }
+
+        // Time Machine 目标盘缓存：只认本地挂载点。tmutil 是阻塞调用，
+        // 放后台预热；之后 DiskMonitor 选盘时只读缓存，不阻塞主线程
+        Task.detached(priority: .utility) {
+            _ = VolumeClassifier.refreshTimeMachineCache()
         }
 
         diskMonitor.onMountChange = { [weak self] drive in
@@ -276,6 +295,10 @@ class AppState: ObservableObject {
         let scanned = await scanner.scanApplications(externalRoots: roots)
         apps = scanned.sorted { $0.size > $1.size }
         isScanning = false
+
+        // 台账校准：应用被绕过本工具删掉后，台账会留下"幽灵记录"，
+        // 顺手清掉（lstat 语义，断链但盘离线的情况不会误清）
+        healthChecker.pruneStaleManifestEntries()
         
         // P0: 每次扫描顺带清理过期备份（此前 cleanOldBackups 从未被调用，
         // 外置盘上积累了 4 个月前的 1GB 陈旧备份）

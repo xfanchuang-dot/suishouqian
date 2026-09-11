@@ -174,7 +174,11 @@ class AppMigrator: @unchecked Sendable {
             progress(0.2 + pct * 0.7, "回迁 \(app.name)...")
         }
         guard copyOk else {
+            // 复制失败也要保证应用仍有入口：先腾空链接位（半截副本已由
+            // copyWithDitto 清掉，这里再兜一次），再重建软链接
+            try? fileManager.removeItem(atPath: sourcePath)
             try? fileManager.createSymbolicLink(atPath: sourcePath, withDestinationPath: externalPath)
+            AuditLog.append("回迁失败 \(appName)：复制未完成，已恢复软链接（外置副本保留）")
             return MigrationResult(success: false, error: "回迁复制失败", spaceSaved: 0)
         }
         
@@ -293,6 +297,13 @@ class AppMigrator: @unchecked Sendable {
         if targetDev == rootDev {
             return "目标路径不是已挂载的外置硬盘（卷名可能已变更），已阻止迁移以免数据写入内置盘"
         }
+
+        // Time Machine 备份盘不能当目标：系统清理旧备份时会把放上去的应用一起销毁。
+        // 缓存没建立时补一次（tmutil 是阻塞调用，但迁移是一次性用户操作，可接受）
+        VolumeClassifier.ensureCachePrimed()
+        if VolumeClassifier.isOnTimeMachineVolume(path: drivePath) {
+            return "目标是 Time Machine 备份盘，系统空间紧张时会自动清理其中的旧备份，不能用于存放应用"
+        }
         
         // 空间检查：需要 app 大小 + 5% 余量
         let freeBytes = Int64(st.f_bavail) * Int64(st.f_bsize)
@@ -346,11 +357,17 @@ class AppMigrator: @unchecked Sendable {
                 try process.run()
                 pollProgress(of: process, copiedPath: dst,
                              totalKB: totalKB, progress: progress)
-                guard process.terminationStatus == 0 else { return false }
+                guard process.terminationStatus == 0 else {
+                    // 失败必须清掉半截副本：留在 dst 会让"链接位被残缺目录占住"，
+                    // 后续重建软链接必然失败——回迁失败后应用失去入口的根因
+                    try? FileManager.default.removeItem(atPath: dst)
+                    return false
+                }
 
                 progress(1.0)
                 return true
             } catch {
+                try? FileManager.default.removeItem(atPath: dst)
                 return false
             }
         }

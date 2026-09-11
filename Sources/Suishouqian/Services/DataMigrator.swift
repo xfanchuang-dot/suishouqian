@@ -240,7 +240,10 @@ final class DataMigrator: @unchecked Sendable {
         guard await migrator.copyWithDitto(from: target, to: site, progress: { pct in
             progress(0.2 + pct * 0.7, "回迁 \(item.title)...")
         }) else {
+            // 先腾空链接位再重建，否则半截副本会把链接位占住、建链失败（应用失去数据入口）
+            try? fileManager.removeItem(atPath: site)
             try? fileManager.createSymbolicLink(atPath: site, withDestinationPath: target)
+            AuditLog.append("数据回迁失败 \(item.title)：复制未完成，已恢复链接（外置副本保留）")
             return (false, "回迁复制失败")
         }
 

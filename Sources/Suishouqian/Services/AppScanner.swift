@@ -139,25 +139,36 @@ class AppScanner: @unchecked Sendable {
     private func calculateSize(at url: URL) async -> Int64 {
         let path = url.path
         return await OffPool.run {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-            process.arguments = ["-sk", path]
-
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                let output = String(data: data, encoding: .utf8) ?? ""
-                let parts = output.split(separator: "\t")
-                if let kb = Int64(parts.first ?? "0") {
-                    return kb * 1024
-                }
-            } catch {}
-            return 0
+            Self.directorySizeBytes(atPath: path)
         }
+    }
+
+    /// 目录体积（字节）。
+    ///
+    /// **必须带 `-L` 跟随符号链接**：已迁移应用的路径是软链接，不带 -L 时
+    /// BSD du 只统计链接本身（本机实测 `/Applications/Safari.app` 报 0），
+    /// 后果有两个：列表里已迁移应用显示"0 字节"；回迁的空间预检
+    /// `validateInternalFreeSpace(needBytes: app.size)` 拿到 0 而永远放行，
+    /// 内置盘满时会在复制中途失败。`-L` 对普通目录无影响。
+    static func directorySizeBytes(atPath path: String) -> Int64 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
+        process.arguments = ["-sk", "-L", path]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            // 先读至 EOF 再等待退出（防管道写满死锁）
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            if let kb = Int64(output.split(separator: "\t").first ?? "0") {
+                return kb * 1024
+            }
+        } catch {}
+        return 0
     }
 }

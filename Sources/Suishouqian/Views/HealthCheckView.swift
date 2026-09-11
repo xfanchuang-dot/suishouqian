@@ -160,7 +160,7 @@ struct HealthCheckView: View {
     private var backupSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("备份可清理（孤儿或超过 7 天）")
+                Text("备份可清理（孤儿或超过 \(checker.backupRetentionDays) 天）")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.orange)
                 Spacer()
@@ -181,15 +181,14 @@ struct HealthCheckView: View {
                         .foregroundColor(.secondary)
                     Spacer()
                     Button("删除") {
-                        checker.deleteBackup(issue)
-                        backups.removeAll { $0.id == issue.id }
+                        Task { await deleteBackup(issue) }
                     }
                     .controlSize(.small)
                 }
                 .padding(.vertical, 2)
                 .help(issue.isOrphan
                       ? "这个应用在内置盘和外置盘的应用目录里都不存在了（已卸载），这份迁移前备份已经没有用处。删除会移入废纸篓，可恢复。"
-                      : "这是迁移「\(issue.appName)」时留的底，已超过保留期。只要应用还能正常打开就可以删。")
+                      : "这是迁移「\(issue.appName)」时留的底，已超过保留期。只要应用还能正常打开就可以删。删除会移入废纸篓，可恢复。")
             }
         }
         .cardStyle()
@@ -218,7 +217,7 @@ struct HealthCheckView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("清理") { recycleResidue(item) }
+                    Button("清理") { Task { await confirmRecycleResidue(item) } }
                         .controlSize(.small)
                 }
                 .padding(.vertical, 2)
@@ -228,14 +227,14 @@ struct HealthCheckView: View {
         .cardStyle()
     }
 
-    private func recycleResidue(_ item: ResidueItem) {
+    private func confirmRecycleResidue(_ item: ResidueItem) async {
         let alert = NSAlert()
         alert.messageText = "清理应用残留"
         alert.informativeText = "将把「\(item.name)」（\(item.sizeFormatted)）移入废纸篓。它不隶属于任何已安装的应用，如无异常可放心清理。"
         alert.addButton(withTitle: "移入废纸篓")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        if checker.recycleResidue(item) {
+        if await checker.recycleResidue(item) {
             residues.removeAll { $0.id == item.id }
         }
     }
@@ -281,7 +280,7 @@ struct HealthCheckView: View {
                         .font(.system(size: 11, weight: .semibold))
                     Button("显示") { checker.revealInFinder(file.path) }
                         .controlSize(.small)
-                    Button("清理") { recycleBigFile(file) }
+                    Button("清理") { Task { await confirmRecycleBigFile(file) } }
                         .controlSize(.small)
                         .disabled(file.classification.systemManaged)
                 }
@@ -294,14 +293,14 @@ struct HealthCheckView: View {
         .cardStyle()
     }
 
-    private func recycleBigFile(_ file: BigFileItem) {
+    private func confirmRecycleBigFile(_ file: BigFileItem) async {
         let alert = NSAlert()
         alert.messageText = "清理大文件"
         alert.informativeText = "将把「\(file.name)」（\(file.sizeFormatted)）移入废纸篓，可随时恢复。请确认它不再需要。"
         alert.addButton(withTitle: "移入废纸篓")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        if checker.recycleBigFile(file) {
+        if await checker.recycleBigFile(file) {
             bigFiles.removeAll { $0.id == file.id }
         }
     }
@@ -323,28 +322,52 @@ struct HealthCheckView: View {
 
     // MARK: - Actions
 
+    /// 体检快照（跨 OffPool 边界传递）
+    private struct CheckSnapshot {
+        var links: [LinkHealth] = []
+        var backups: [BackupIssue] = []
+        var regressions: [RegressionItem] = []
+        var residues: [ResidueItem] = []
+        var bigFiles: [BigFileItem] = []
+        var healedCount = 0
+    }
+
     private func runCheck() {
         isChecking = true
         let drive = appState.externalDrive?.mountPoint
         Task.detached {
-            // v2.2: 先按台账自愈断链、给健康链接补账，再体检
-            let healed = checker.healBrokenLinks()
-            checker.backfillManifest()
-            let l = checker.checkLinks()
-            var b: [BackupIssue] = []
-            if let drive { b = checker.checkBackups(drivePath: drive) }
-            let reg = drive.map { checker.checkRegressions(drivePath: $0) } ?? []
-            let r = checker.checkResidues(drivePath: drive)
-            let f = checker.scanBigFiles()
+            // 体检要跑大量 du / find（阻塞子进程）。整体放 OffPool，
+            // 不占 Swift 协作线程池——那是 2026-08-26 冻结事故的根因类别
+            let snapshot = await OffPool.run { () -> CheckSnapshot in
+                // v2.2: 先按台账自愈断链、给健康链接补账、清掉过期记录，再体检
+                var result = CheckSnapshot()
+                result.healedCount = checker.healBrokenLinks().count
+                checker.backfillManifest()
+                checker.pruneStaleManifestEntries()
+                result.links = checker.checkLinks()
+                if let drive {
+                    result.backups = checker.checkBackups(drivePath: drive)
+                    result.regressions = checker.checkRegressions(drivePath: drive)
+                }
+                result.residues = checker.checkResidues(drivePath: drive)
+                result.bigFiles = checker.scanBigFiles()
+                return result
+            }
             await MainActor.run {
-                links = l
-                backups = b
-                regressions = reg
-                residues = r
-                bigFiles = f
-                healedCount = healed.count
+                links = snapshot.links
+                backups = snapshot.backups
+                regressions = snapshot.regressions
+                residues = snapshot.residues
+                bigFiles = snapshot.bigFiles
+                healedCount = snapshot.healedCount
                 isChecking = false
             }
+        }
+    }
+
+    private func deleteBackup(_ issue: BackupIssue) async {
+        if await checker.deleteBackup(issue) {
+            backups.removeAll { $0.id == issue.id }
         }
     }
 
@@ -411,11 +434,35 @@ struct HealthCheckView: View {
         runCheck()
     }
 
+    /// 全部清理：这是批量动安全底的操作，必须先二次确认
     private func cleanAllBackups() {
-        for issue in backups {
-            checker.deleteBackup(issue)
+        guard !backups.isEmpty else { return }
+        let totalBytes = backups.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        let alert = NSAlert()
+        alert.messageText = "清理全部 \(backups.count) 份备份？"
+        alert.informativeText = """
+        合计 \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))。\
+        这些是迁移应用时留的兜底副本，全部移入废纸篓（可恢复）。
+
+        若某个应用迁移后一直正常，它的备份确实可以清；但备份是出问题时唯一的退路，
+        不确定时建议只清「应用已卸载」的孤儿备份。
+        """
+        alert.addButton(withTitle: "全部移入废纸篓")
+        alert.addButton(withTitle: "取消")
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let pending = backups
+        Task {
+            var removed = Set<UUID>()
+            for issue in pending {
+                if await checker.deleteBackup(issue) { removed.insert(issue.id) }
+            }
+            let done = removed
+            await MainActor.run {
+                backups.removeAll { done.contains($0.id) }
+            }
         }
-        backups = []
     }
 
     private func color(for state: LinkHealth.LinkState) -> Color {

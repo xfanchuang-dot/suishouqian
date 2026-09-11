@@ -15,22 +15,24 @@ final class LaunchAgentManager {
         "\(agentsDir)/\(plistName)"
     }
     
-    private static func plistContent(watchPath: String) -> String {
+    /// 生成守护 plist（internal 供测试验证转义：卷名含 & < > " 时必须仍是合法 plist）
+    static func plistContent(watchPath: String) -> String {
         // 用运行时实际路径，此前硬编码 /Applications/随手迁.app，
         // 应用不在该位置时守护指向空路径（曾导致插盘唤醒功能实际失效）
         let appPath = Bundle.main.bundlePath
-        let escAppPath = appPath.replacingOccurrences(of: "'", with: "'\\''")
         // 挂载边沿检测：WatchPaths 对卷目录的任何文件变动都会触发（不只插盘），
-        // 用状态文件区分"未挂载→挂载"的边沿，只有该瞬间才唤起，杜绝反复弹窗
+        // 用状态文件区分"未挂载→挂载"的边沿，只有该瞬间才唤起，杜绝反复弹窗。
+        //
+        // 两个路径都从 argv 传入（$1/$2），不拼进脚本文本：这样整份脚本只需做一次
+        // XML 转义即可，卷名里的引号、$、反引号也无法破坏脚本（此前只转义了
+        // WatchPaths 那处，脚本内嵌的同一路径没转义，卷名含 & 时会生成非法 plist）
         let shell = """
-        V='\(watchPath.replacingOccurrences(of: "'", with: "'\\''"))'; S="$HOME/.suishouqian-watch-state"; \
+        V="$1"; A="$2"; S="$HOME/.suishouqian-watch-state"; \
         if [ -d "$V" ]; then \
           if [ ! -f "$S" ]; then echo ok > "$S"; \
-            pgrep -f '随手迁.app/Contents/MacOS' >/dev/null 2>&1 || open '\(escAppPath)'; fi; \
+            pgrep -f '随手迁.app/Contents/MacOS' >/dev/null 2>&1 || open "$A"; fi; \
         else rm -f "$S"; fi
         """
-        // 卷名可能含 & < > 等 XML 特殊字符，未转义会生成非法 plist
-        let escapedWatch = xmlEscape(watchPath)
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -42,11 +44,14 @@ final class LaunchAgentManager {
             <array>
                 <string>/bin/sh</string>
                 <string>-c</string>
-                <string>\(shell)</string>
+                <string>\(xmlEscape(shell))</string>
+                <string>suishouqian-watch</string>
+                <string>\(xmlEscape(watchPath))</string>
+                <string>\(xmlEscape(appPath))</string>
             </array>
             <key>WatchPaths</key>
             <array>
-                <string>\(escapedWatch)</string>
+                <string>\(xmlEscape(watchPath))</string>
             </array>
             <key>RunAtLoad</key>
             <false/>
@@ -57,7 +62,7 @@ final class LaunchAgentManager {
         """
     }
     
-    /// XML 特殊字符转义（卷名含 & < > 时防 plist 非法）
+    /// XML 特殊字符转义（卷名含 & < > " 时防 plist 非法）
     private static func xmlEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")

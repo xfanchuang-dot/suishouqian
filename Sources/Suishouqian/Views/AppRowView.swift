@@ -38,6 +38,9 @@ struct AppRowView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .font(.system(size: 11))
+                // 迁移/回迁/卸载都是会动文件的互斥操作，任务进行中必须禁用，
+                // 否则并发触发会互相覆盖 migrationTask 状态、留下半完成副本
+                .disabled(appState.isMigrationActive)
             } else if app.status == .externalOnly {
                 Button("搬回内置盘") {
                     moveBack()
@@ -53,6 +56,7 @@ struct AppRowView: View {
                 .buttonStyle(.plain)
                 .foregroundColor(.red)
                 .font(.system(size: 11))
+                .disabled(appState.isMigrationActive)
             } else if app.status == .migrated {
                 HStack(spacing: 4) {
                     Button("回迁") {
@@ -61,6 +65,7 @@ struct AppRowView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .font(.system(size: 11))
+                    .disabled(appState.isMigrationActive)
 
                     Button("卸载") {
                         uninstallApp()
@@ -68,6 +73,7 @@ struct AppRowView: View {
                     .buttonStyle(.plain)
                     .foregroundColor(.red)
                     .font(.system(size: 11))
+                    .disabled(appState.isMigrationActive)
                 }
             }
         }

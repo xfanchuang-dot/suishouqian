@@ -56,9 +56,9 @@ cat > "$BUNDLE/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.suishouqian.app</string>
     <key>CFBundleVersion</key>
-    <string>2.5.2</string>
+    <string>2.6.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.5.2</string>
+    <string>2.6.0</string>
     <key>CFBundleExecutable</key>
     <string>随手迁</string>
     <key>CFBundlePackageType</key>
@@ -69,9 +69,21 @@ cat > "$BUNDLE/Contents/Info.plist" << 'EOF'
     <true/>
     <key>CFBundleIconFile</key>
     <string>icon.icns</string>
+    <key>SUFeedURL</key>
+    <string>https://github.com/xfanchuang-dot/suishouqian/releases/latest/download/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key>
+    <false/>
 </dict>
 </plist>
 EOF
+
+# 6b. Sparkle 公钥（可选）：设置 SPARKLE_PUBLIC_KEY 环境变量时写入。
+# 未设置时 App 内的「检查更新」会明确提示"通道尚未配置"，而不是抛原始错误。
+if [ -n "${SPARKLE_PUBLIC_KEY:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY" \
+        "$BUNDLE/Contents/Info.plist"
+    echo "  已写入 SUPublicEDKey"
+fi
 
 # 6. Fix rpath (Sparkle in Frameworks/)
 echo "[5/7] 修正 rpath..."
@@ -81,13 +93,27 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$MACOS_DIR/$APP_NAM
 # v2.3.2: 用自签证书稳定签名身份——ad-hoc 签名每次构建哈希都变，
 # 系统 App Management/文件夹授权全部作废，导致反复弹授权框；
 # 换稳定证书后授权只需授予一次，更新重装也不失效
+# v2.6.0: 去掉已废弃的 `codesign --deep`，改为由内向外分层签名——
+# --deep 是 Apple 明确不推荐用于签名的做法，对带 XPC/Helper 的框架可能漏签或错签
 echo "[6/7] 签名..."
 SIGN_IDENTITY="Suishouqian CodeSign"
 if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY"; then
     echo "  ⚠️ 找不到签名证书 $SIGN_IDENTITY，退回 ad-hoc（授权将无法持久化）"
     SIGN_IDENTITY="-"
 fi
-codesign --force --deep --sign "$SIGN_IDENTITY" --timestamp=none "$BUNDLE"
+
+if [ -d "$FW_DIR/Sparkle.framework" ]; then
+    # 最内层：XPC 服务与内嵌 App（先签它们，否则外层签名会失效）
+    while IFS= read -r -d '' nested; do
+        codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$nested"
+    done < <(find "$FW_DIR/Sparkle.framework" -depth \
+                \( -name "*.xpc" -o -name "*.app" \) -print0)
+    # 框架本体
+    codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$FW_DIR/Sparkle.framework"
+fi
+
+# 最外层：主 App（不带 --deep，嵌套代码已在上面各自签好）
+codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$BUNDLE"
 
 # 8. Install (overwrite, no rm to avoid permission dialogs)
 echo ""
