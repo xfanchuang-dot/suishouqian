@@ -101,4 +101,28 @@ final class UpdateMechanismTests: XCTestCase {
                       "App Store 应用的指引要给出替代方案（迁数据）")
         XCTAssertTrue(UpdateMechanism.sparkle.guidance.contains("外置盘"))
     }
+
+    // MARK: - 两种搬法的后果必须分开讲（现场教训：纯搬迁曾绕过确认框）
+
+    func testAppStoreConsequencesDifferByMode() throws {
+        let linked = try XCTUnwrap(UpdateMechanism.appStore.updateConsequence(linkBack: true))
+        let pure = try XCTUnwrap(UpdateMechanism.appStore.updateConsequence(linkBack: false))
+
+        // 留链接：更新顶掉链接，应用回到内置盘、仍能用（优雅降级）
+        XCTAssertTrue(linked.contains("重新装回"))
+        XCTAssertTrue(linked.contains("照常能用"), "留链接的后果是优雅降级，要讲清不丢数据")
+
+        // 不留链接：App Store 视为没装，可能再装一份 → 两份并存
+        XCTAssertTrue(pure.contains("没装"))
+        XCTAssertTrue(pure.contains("各有一份"), "纯搬迁对 App Store 应用会产生重复副本，必须讲清")
+        XCTAssertNotEqual(linked, pure, "两种搬法的后果不同，不能共用文案")
+    }
+
+    func testOnlyAppStoreHasUpdateConsequences() {
+        XCTAssertNil(UpdateMechanism.sparkle.updateConsequence(linkBack: true))
+        XCTAssertNil(UpdateMechanism.sparkle.updateConsequence(linkBack: false))
+        XCTAssertNil(UpdateMechanism.squirrel.updateConsequence(linkBack: false))
+        XCTAssertNil(UpdateMechanism.unknown.updateConsequence(linkBack: false),
+                     "看不出更新方式的应用，纯搬迁反而更稳，不该警告")
+    }
 }

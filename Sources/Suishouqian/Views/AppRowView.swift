@@ -148,12 +148,15 @@ struct AppRowView: View {
     
     private func migrateApp() {
         // App Store 应用先讲清"更新会把迁移顶掉"，用户确认后才继续
-        guard MigrationAdvisor.confirmRelocation(of: app) else { return }
+        guard MigrationAdvisor.confirmRelocation(of: app, linkBack: true) else { return }
         runRelocation(createLink: true)
     }
 
-    /// 纯搬迁：搬到外置盘但不在「应用程序」留链接（理由见菜单里的说明）
+    /// 纯搬迁：搬到外置盘但不在「应用程序」留链接（理由见按钮说明）。
+    /// 同样要过确认框——对 App Store 应用来说，不留链接的失败形态（下次更新
+    /// 可能往「应用程序」再装一份，两份并存）比留链接更糟，这个必须讲清楚
     private func moveToExternal() {
+        guard MigrationAdvisor.confirmRelocation(of: app, linkBack: false) else { return }
         runRelocation(createLink: false)
     }
 

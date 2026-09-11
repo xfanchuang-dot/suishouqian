@@ -78,4 +78,27 @@ enum UpdateMechanism: String, Equatable {
         }
         return .unknown
     }
+
+    /// 该应用按某种方式搬走后，"下次更新会发生什么"。
+    /// 只对能讲清后果的 App Store 应用返回文案；其余返回 nil（自带更新器的应用两种
+    /// 搬法都正常，看不出更新方式的应用纯搬迁反而更稳，都不需要额外警告）。
+    ///
+    /// 两种搬法的失败形态不同，必须分开讲：
+    /// - 留链接：更新把真目录写回 /Applications 顶掉链接 → 应用回到内置盘、照常能用，
+    ///   外置盘剩一份旧副本。**优雅降级**，只是空间白折腾一轮。
+    /// - 不留链接：应用不在 /Applications，App Store 视其为"没装" → 更新很可能再装一份到
+    ///   /Applications，于是**两份并存**，且外置盘那份旧版本仍会被 Spotlight 搜到。
+    func updateConsequence(linkBack: Bool) -> String? {
+        guard self == .appStore else { return nil }
+        return linkBack
+            ? """
+              下次 App Store 更新会把应用重新装回「应用程序」文件夹，链接被顶掉：\
+              应用回到内置盘、照常能用，外置盘上的旧副本删掉即可。不会丢数据，但空间白折腾一轮。
+              """
+            : """
+              它搬走后就不在「应用程序」里了，App Store 会把它当成"没装"：\
+              下次更新很可能往「应用程序」装一份新的，于是内置盘和外置盘各有一份，\
+              而外置盘那份旧版本仍会被 Spotlight 搜到。
+              """
+    }
 }

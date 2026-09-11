@@ -389,7 +389,7 @@ struct HealthCheckView: View {
             }
 
             // 与迁移页同一套判断：App Store 应用重新迁移后会再次被更新顶掉，先讲清楚
-            guard MigrationAdvisor.confirmRelocation(of: app) else { return }
+            guard MigrationAdvisor.confirmRelocation(of: app, linkBack: true) else { return }
 
             appState.migrationTask = MigrationTask(app: app, operation: .migrate)
             let state = appState

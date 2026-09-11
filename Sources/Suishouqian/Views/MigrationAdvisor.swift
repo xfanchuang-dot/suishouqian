@@ -6,20 +6,23 @@ import AppKit
 /// 目的单一：把"这个应用搬走后更新会怎样"讲清楚，避免用户踩了坑才知道。
 enum MigrationAdvisor {
 
-    /// 单个应用：App Store 应用先确认；其余直接放行（不打扰）
+    /// 单个应用：App Store 应用先确认；其余直接放行（不打扰）。
+    /// `linkBack` 决定讲哪种后果——两种搬法的失败形态不同，不能混为一谈
     @MainActor
-    static func confirmRelocation(of app: AppItem) -> Bool {
+    static func confirmRelocation(of app: AppItem, linkBack: Bool) -> Bool {
         guard !app.updateMechanism.isSafeToRelocate else { return true }
 
         let alert = NSAlert()
         alert.messageText = "「\(app.name)」是 App Store 安装的应用"
         alert.informativeText = """
-        \(app.updateMechanism.guidance)
+        \(app.updateMechanism.updateConsequence(linkBack: linkBack) ?? app.updateMechanism.guidance)
 
-        仍然要搬到外置盘吗？
+        建议：让它留在内置盘，改用「数据」面板迁移它的大体积数据（数据目录不受应用升级影响）。
+
+        \(linkBack ? "仍然要搬到外置盘吗？" : "仍然要这样搬走吗？")
         """
         alert.addButton(withTitle: "留在内置盘（推荐）")
-        alert.addButton(withTitle: "仍然搬走")
+        alert.addButton(withTitle: linkBack ? "仍然搬走（留链接）" : "仍然纯搬迁（不留链接）")
         alert.alertStyle = .warning
         // 默认按钮是"留在内置盘"：误按回车时走安全的一侧
         return alert.runModal() == .alertSecondButtonReturn
