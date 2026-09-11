@@ -12,6 +12,8 @@ struct AppItem: Identifiable {
     let symlinkTarget: String?
     var icon: NSImage?
     var status: AppStatus = .normal
+    /// 更新方式（扫描时探测）：决定"搬到外置盘后更新会不会把迁移顶掉"
+    var updateMechanism: UpdateMechanism = .unknown
     
     enum AppStatus: Equatable {
         case normal

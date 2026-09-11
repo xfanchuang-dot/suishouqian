@@ -26,10 +26,20 @@ struct AppRowView: View {
                     }
                 }
             }
+            // 悬停即知这个应用的更新方式，以及搬走后更新会怎样（不占界面、不主动打扰）
+            .help("更新方式：\(app.updateMechanism.label)\n\n\(app.updateMechanism.guidance)")
 
             Spacer()
 
             statusBadge
+
+            // App Store 应用搬走后被更新顶掉的风险最高，给一个安静但看得见的标记
+            if app.updateMechanism == .appStore {
+                Image(systemName: "apple.logo")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .help(app.updateMechanism.guidance)
+            }
 
             if app.status == .normal && appState.externalDrive != nil {
                 Button("迁移") {
@@ -41,6 +51,26 @@ struct AppRowView: View {
                 // 迁移/回迁/卸载都是会动文件的互斥操作，任务进行中必须禁用，
                 // 否则并发触发会互相覆盖 migrationTask 状态、留下半完成副本
                 .disabled(appState.isMigrationActive)
+
+                // 纯搬迁（不留链接）：适合自带更新器、不需要出现在「应用程序」的应用
+                Menu {
+                    Button("纯搬迁（不在「应用程序」留链接）") { moveToExternal() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 12))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 20)
+                .disabled(appState.isMigrationActive)
+                .help("""
+                纯搬迁：把应用搬到外置盘，但不在「应用程序」文件夹留链接。
+
+                好处是从机制上消除"更新把链接顶掉、迁移被悄悄撤销"这个问题——\
+                应用就住在它自己的位置，自带更新器会就地更新。
+
+                代价：应用不再出现在「应用程序」里，改用 Spotlight / Dock 启动。
+                """)
             } else if app.status == .externalOnly {
                 Button("搬回内置盘") {
                     moveBack()
@@ -111,15 +141,26 @@ struct AppRowView: View {
     }
     
     private func migrateApp() {
+        // App Store 应用先讲清"更新会把迁移顶掉"，用户确认后才继续
+        guard MigrationAdvisor.confirmRelocation(of: app) else { return }
+        runRelocation(createLink: true)
+    }
+
+    /// 纯搬迁：搬到外置盘但不在「应用程序」留链接（理由见菜单里的说明）
+    private func moveToExternal() {
+        runRelocation(createLink: false)
+    }
+
+    /// 迁移与纯搬迁走同一条链路（运行检测→空间预检→快照→复制→校验→备份），
+    /// 只差"是否在源位置留链接"这一步
+    private func runRelocation(createLink: Bool) {
         guard let drive = appState.externalDrive else { return }
         Task { @MainActor [weak appState] in
             guard let appState else { return }
             appState.migrationTask = MigrationTask(app: app, operation: .migrate)
             
             let state = self.appState  // 值类型捕获，避免 Sendable 警告
-            let result = await state.migrator.migrate(
-                app: app, to: drive.mountPoint
-            ) { @Sendable pct, desc in
+            let onProgress: @Sendable (Double, String) -> Void = { @Sendable pct, desc in
                 Task { @MainActor in
                     var t = state.migrationTask ?? MigrationTask(app: app, operation: .migrate)
                     t.progress = pct
@@ -127,10 +168,17 @@ struct AppRowView: View {
                     state.migrationTask = t
                 }
             }
+
+            let result: AppMigrator.MigrationResult
+            if createLink {
+                result = await state.migrator.migrate(
+                    app: app, to: drive.mountPoint, progress: onProgress)
+            } else {
+                result = await state.migrator.moveToExternal(
+                    app: app, drivePath: drive.mountPoint, progress: onProgress)
+            }
             
             if result.success {
-                var t = state.migrationTask
-                t?.status = .completed
                 state.migrationTask = nil
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)

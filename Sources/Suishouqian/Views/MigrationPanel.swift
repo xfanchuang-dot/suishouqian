@@ -150,9 +150,17 @@ struct MigrationPanel: View {
         guard let drive = appState.externalDrive else { return }
         let movableApps = appState.apps.filter { $0.status == .normal }
 
+        // App Store 应用迁完会被更新顶掉，批量前一次问清是否跳过（只问一次，不打扰）
+        guard let targets = MigrationAdvisor.resolveBatch(movableApps) else { return }
+        let skipped = movableApps.count - targets.count
+        guard !targets.isEmpty else {
+            batchSummary = "已跳过全部 \(skipped) 个 App Store 应用，没有需要迁移的应用"
+            return
+        }
+
         Task { @MainActor in
             var okCount = 0, failCount = 0
-            for app in movableApps {
+            for app in targets {
                 appState.migrationTask = MigrationTask(app: app, operation: .migrate)
 
                 let appState = self.appState  // 值类型捕获
@@ -178,9 +186,10 @@ struct MigrationPanel: View {
                 }
             }
 
-            batchSummary = failCount == 0
+            batchSummary = (failCount == 0
                 ? "批量迁移完成：\(okCount) 个全部成功"
-                : "批量迁移结束：\(okCount) 成功 / \(failCount) 失败"
+                : "批量迁移结束：\(okCount) 成功 / \(failCount) 失败")
+                + (skipped > 0 ? "；已跳过 \(skipped) 个 App Store 应用" : "")
             appState.migrationTask = nil
             await appState.scanApps()
         }

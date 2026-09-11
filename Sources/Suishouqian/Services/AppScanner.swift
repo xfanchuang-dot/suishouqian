@@ -86,7 +86,9 @@ class AppScanner: @unchecked Sendable {
         var displayName = bundleName.replacingOccurrences(of: ".app", with: "")
         var version: String?
         
-        if let plist = NSDictionary(contentsOf: infoPlist) {
+        // 读一次 Info.plist：显示名、版本、以及更新方式判定都要用
+        let plist = NSDictionary(contentsOf: infoPlist)
+        if let plist {
             if let name = plist["CFBundleDisplayName"] as? String {
                 displayName = name
             } else if let name = plist["CFBundleName"] as? String {
@@ -112,6 +114,11 @@ class AppScanner: @unchecked Sendable {
             symlinkTarget: target,
             icon: icon
         )
+
+        // 更新方式（复用已读到的 plist，不额外读盘）：
+        // App Store 应用搬走后，更新会把 /Applications 的软链接顶掉（迁移被撤销），
+        // 列表里要能看出来，迁移前也要据此提醒
+        item.updateMechanism = UpdateMechanism.detect(atAppPath: path, infoPlist: plist)
         
         if item.isSystemApp {
             item.status = .systemApp

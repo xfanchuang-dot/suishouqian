@@ -16,7 +16,13 @@ class AppMigrator: @unchecked Sendable {
         let spaceSaved: Int64
     }
 
-    func migrate(app: AppItem, to drivePath: String,
+    /// 迁移：把应用搬到外置盘。
+    ///
+    /// - Parameter createLink: `true` = 在 `/Applications` 留软链接（应用仍有入口，默认）；
+    ///   `false` = **纯搬迁**，不留任何替身。好处是从机制上消除"更新把软链接顶掉、
+    ///   迁移被悄悄撤销"这件事；代价是应用不再出现在「应用程序」文件夹里
+    ///   （靠 Spotlight / Dock / Launchpad 启动）。
+    func migrate(app: AppItem, to drivePath: String, createLink: Bool = true,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
 
         let appName = app.bundleName
@@ -89,10 +95,10 @@ class AppMigrator: @unchecked Sendable {
             // 备份 mtime 必须代表"备份时刻"，否则刚建好就被当超龄清掉
             stampBackupCreation(at: backupPath)
             
-            // 删原件 + 建符号链接（需要 admin，但只操作 /Applications 不写外置盘）
+            // 删原件（按需再建符号链接，需要 admin；只操作 /Applications 不写外置盘）
             progress(0.9, "需要管理员权限...")
-            let authResult = await authenticatedRemoveAndSymlink(
-                source: sourcePath, target: targetPath)
+            let authResult = await authenticatedRemove(
+                source: sourcePath, linkTarget: targetPath, createLink: createLink)
             guard authResult.success else {
                 try? fileManager.removeItem(atPath: targetPath)
                 // 回滚原件：恢复成功才删备份；恢复失败必须保留备份兜底，
@@ -117,22 +123,28 @@ class AppMigrator: @unchecked Sendable {
             }
             // 备份 mtime 必须代表"备份时刻"（move 会保留原应用的安装时间）
             stampBackupCreation(at: backupPath)
-            do {
-                try fileManager.createSymbolicLink(atPath: sourcePath, 
-                                                   withDestinationPath: targetPath)
-            } catch {
-                _ = await moveItem(from: backupPath, to: sourcePath)
-                try? fileManager.removeItem(atPath: targetPath)
-                return MigrationResult(success: false, 
-                      error: "创建符号链接失败: \(error.localizedDescription)", spaceSaved: 0)
+            if createLink {
+                do {
+                    try fileManager.createSymbolicLink(atPath: sourcePath,
+                                                       withDestinationPath: targetPath)
+                } catch {
+                    _ = await moveItem(from: backupPath, to: sourcePath)
+                    try? fileManager.removeItem(atPath: targetPath)
+                    return MigrationResult(success: false,
+                          error: "创建符号链接失败: \(error.localizedDescription)", spaceSaved: 0)
+                }
             }
         }
         
         progress(1.0, "完成")
-        AuditLog.append("迁移成功 \(appName)：\(app.size) 字节 → \(targetPath)")
+        AuditLog.append(createLink
+            ? "迁移成功 \(appName)：\(app.size) 字节 → \(targetPath)"
+            : "纯搬迁成功 \(appName)：\(app.size) 字节 → \(targetPath)（未在 /Applications 留链接）")
 
-        // v2.2: 记录卷 UUID 台账——卷改名后按 UUID 找卷自动重写链接（自愈）
-        if targetPath.hasPrefix(drivePath + "/") {
+        // 台账只在留链接时需要——它的用途是"卷改名后按 UUID 重写链接"。
+        // 纯搬迁没有链接可修，而且台账校准会把 linkPath 不存在的条目当幽灵清掉，
+        // 所以不记录才是正确的（这类应用由扫描 <盘>/Applications 识别为「在外置盘」）
+        if createLink, targetPath.hasPrefix(drivePath + "/") {
             if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {
                 MigrationManifest.shared.record(
                     appName: appName, linkPath: sourcePath, volumeUUID: uuid,
@@ -140,6 +152,16 @@ class AppMigrator: @unchecked Sendable {
             }
         }
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
+    }
+
+    /// 纯搬迁：把应用搬到外置盘，但**不在 /Applications 留链接**。
+    ///
+    /// 适合自带更新器、且不需要出现在「应用程序」文件夹的应用。
+    /// 对这类应用它比"迁移"更稳：更新器破坏的对象就是那个链接（App Store /
+    /// 安装器会往 /Applications 写真目录把链接顶掉），没有链接就没有这个故障模式。
+    func moveToExternal(app: AppItem, drivePath: String,
+                        progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        await migrate(app: app, to: drivePath, createLink: false, progress: progress)
     }
     
     func restore(app: AppItem, from drivePath: String,
@@ -244,6 +266,8 @@ class AppMigrator: @unchecked Sendable {
         }
 
         try? fileManager.removeItem(atPath: sourcePath)
+        // 与回迁一致：应用回到内置盘了，搬迁时的留底备份即可回收
+        try? fileManager.removeItem(atPath: "\(drivePath)/.suishouqian-backup/\(app.bundleName)")
         MigrationManifest.shared.remove(appName: app.bundleName)
         AuditLog.append("搬回内置盘成功 \(app.bundleName)：\(app.size) 字节 ← \(sourcePath)")
         progress(1.0, "完成")
@@ -619,20 +643,26 @@ class AppMigrator: @unchecked Sendable {
         }.value
     }
     
-    /// 用 osascript 提权删除源文件并创建符号链接（不操作外置盘）
-    private func authenticatedRemoveAndSymlink(source: String,
-                                               target: String) async -> (success: Bool, error: String?) {
+    /// 用 osascript 提权删除源应用，`createLink` 为真时再建符号链接（不操作外置盘）。
+    /// 删除与建链放在同一次授权里完成，用户只输一次密码。
+    private func authenticatedRemove(source: String, linkTarget: String,
+                                     createLink: Bool) async -> (success: Bool, error: String?) {
         return await Task.detached {
-            // 稳定性：路径进入 shell 单引号串必须转义单引号，否则命令拼坏
-            func esc(_ s: String) -> String {
+            // 两层转义：先按 shell 单引号串转义，再按 AppleScript 双引号串转义。
+            // 路径要穿过 AppleScript → shell 两层，只做一层会在含引号的路径上拼坏命令
+            func escShell(_ s: String) -> String {
                 s.replacingOccurrences(of: "'", with: "'\\''")
             }
-            let script = """
-            tell application "随手迁" to activate
-            delay 0.3
-            do shell script "rm -rf '\(esc(source))' && ln -s '\(esc(target))' '\(esc(source))'" \
-            with administrator privileges
-            """
+            func escAppleScript(_ s: String) -> String {
+                s.replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+            }
+
+            let command = createLink
+                ? "rm -rf '\(escShell(source))' && ln -s '\(escShell(linkTarget))' '\(escShell(source))'"
+                : "rm -rf '\(escShell(source))'"
+            let script = "tell application \"随手迁\" to activate\ndelay 0.3\n"
+                + "do shell script \"\(escAppleScript(command))\" with administrator privileges"
             
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -645,12 +675,14 @@ class AppMigrator: @unchecked Sendable {
             
             do {
                 try process.run()
+                // 先读至 EOF 再等待退出（防管道写满死锁）
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                _ = outPipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
                 
                 if process.terminationStatus == 0 {
                     return (true, nil)
                 } else {
-                    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                     let errMsg = String(data: errData, encoding: .utf8)?
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
                     // 用户取消了密码弹窗
