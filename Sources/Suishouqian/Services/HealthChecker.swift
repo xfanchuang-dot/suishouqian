@@ -263,6 +263,65 @@ class HealthChecker: @unchecked Sendable {
         }
     }
 
+    /// 断链且目标彻底消失时的找回：更新器（Squirrel/ShipIt）的安装分两步——
+    /// 先把旧版移走、再把新版从缓存写入；若第二步被系统权限拒绝（本机实测：
+    /// 2026-09-12 VS Code 更新写外置盘被 TCC 静默拒绝），应用就"消失"了——
+    /// 链接还在但目标为空，新版完整躺在 `~/Library/Caches/<id>.ShipIt/update.*`。
+    ///
+    /// 这里扫描这些更新缓存，找同名 .app 移回链接指向的目标位置（链接不用动，
+    /// 它本来就指着那里）——正是当时手工恢复走过的路径。
+    ///
+    /// - Parameter cacheRoots: 更新缓存候选根目录（默认扫 ~/Library/Caches，
+    ///   传入以供测试）
+    static func findVanishedAppCandidates(appName: String,
+                                           cacheRoots: [String]? = nil) -> [String] {
+        let roots = cacheRoots ?? [NSHomeDirectory() + "/Library/Caches"]
+        var candidates: [String] = []
+        let fm = FileManager.default
+
+        for root in roots {
+            guard let products = try? fm.contentsOfDirectory(atPath: root) else { continue }
+            for product in products where product.hasSuffix(".ShipIt") {
+                let shipItDir = "\(root)/\(product)"
+                guard let entries = try? fm.contentsOfDirectory(atPath: shipItDir) else { continue }
+                for entry in entries where entry.hasPrefix("update.") {
+                    let candidate = "\(shipItDir)/\(entry)/\(appName)"
+                    // 必须像个完整应用（有 Info.plist），半截缓存不能拿来恢复
+                    if fm.fileExists(atPath: candidate + "/Contents/Info.plist") {
+                        candidates.append(candidate)
+                    }
+                }
+            }
+        }
+        return candidates
+    }
+
+    /// 从更新缓存恢复"消失"的应用：把找到的新版移回断链指向的目标位置。
+    /// 返回 nil=恢复成功；返回 String=失败原因
+    /// - Parameter cacheRoots: 更新缓存候选根目录（默认扫 ~/Library/Caches，传入以供测试）
+    func recoverVanishedTarget(_ link: LinkHealth,
+                               cacheRoots: [String]? = nil) -> String? {
+        guard let target = try? fileManager.destinationOfSymbolicLink(atPath: link.linkPath),
+              !fileManager.fileExists(atPath: target) else {
+            return "链接目标仍存在，无需恢复"
+        }
+        guard let candidate = Self.findVanishedAppCandidates(
+                appName: link.appName, cacheRoots: cacheRoots).first else {
+            return "更新缓存里没有找到「\(link.appName)」的新版本"
+        }
+
+        do {
+            try fileManager.createDirectory(
+                atPath: (target as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true)
+            try fileManager.moveItem(atPath: candidate, toPath: target)
+            AuditLog.append("从更新缓存恢复 \(link.appName)：\(candidate) → \(target)")
+            return nil
+        } catch {
+            return "恢复失败：\(error.localizedDescription)"
+        }
+    }
+
     // MARK: - 断链自愈与台账回填（v2.2 卷改名免疫）
 
     /// 按台账自愈所有断链：卷改名/挂载点变化后，链接的绝对路径全断，

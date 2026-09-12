@@ -324,6 +324,77 @@ final class RegressionFixTests: XCTestCase {
                        "真正超龄的备份应被清理")
     }
 
+    // MARK: - ⑫ 更新失败致应用消失：从更新缓存恢复（2026-09-12 VS Code 实测事故）
+
+    /// 现场还原：Squirrel/ShipIt 更新分两步——先把旧版移走，再把缓存里的新版
+    /// 写回应用位置；第二步被系统权限拒绝（实测日志：Operation not permitted，
+    /// ShipIt 无 App Management 授权静默失败）后，应用本体消失、链接悬空，
+    /// 新版完整留在 ~/Library/Caches/<id>.ShipIt/update.*/。
+    /// 修复 = 扫描该缓存找同名 .app 移回目标位置（当时手工恢复的路径，已产品化）
+    func testFindVanishedAppCandidatesInShipItCache() throws {
+        // 构造 ShipIt 缓存形态：caches/<product>.ShipIt/update.<id>/<App>.app
+        let caches = try makeDir("caches")
+        let good = try makeDir("caches/com.example.ShipIt/update.abc123/GoneApp.app")
+        try Data("x".utf8).write(to: URL(fileURLWithPath: "\(good)/Contents.plist")) // 占位，非 Info.plist
+        // 完整版（带 Info.plist）才是可用候选
+        let complete = try makeDir("caches/com.example.ShipIt/update.def456/GoneApp.app/Contents")
+        try Data("plist".utf8).write(to: URL(fileURLWithPath: "\(complete)/Info.plist"))
+        // 半截缓存（无 Info.plist）必须被排除
+        _ = try makeDir("caches/com.example.ShipIt/update.half/GoneApp.app")
+
+        let found = HealthChecker.findVanishedAppCandidates(appName: "GoneApp.app",
+                                                            cacheRoots: [caches])
+        XCTAssertEqual(found, ["\(caches)/com.example.ShipIt/update.def456/GoneApp.app"],
+                       "只应找到带 Info.plist 的完整候选")
+    }
+
+    func testRecoverVanishedTargetRestoresFromCache() throws {
+        // 断链：链接指向已消失的外置目标
+        let siteDir = try makeDir("recover2")
+        let site = "\(siteDir)/GoneApp.app"
+        try FileManager.default.createSymbolicLink(
+            atPath: site, withDestinationPath: "/Volumes/Nowhere/Applications/GoneApp.app")
+
+        // 更新缓存里有完整新版
+        let caches = try makeDir("caches2")
+        let staged = try makeDir(
+            "caches2/com.example.ShipIt/update.zz/GoneApp.app/Contents")
+        try Data("new".utf8).write(to: URL(fileURLWithPath: "\(staged)/Info.plist"))
+
+        // 把断链指到一个可写的"消失目标"位置，便于验证移回
+        let targetDir = try makeDir("vanishedTarget/Applications")
+        let target = "\(targetDir)/GoneApp.app"
+        try FileManager.default.removeItem(atPath: site)
+        try FileManager.default.createSymbolicLink(atPath: site, withDestinationPath: target)
+
+        let link = LinkHealth(appName: "GoneApp.app", linkPath: site,
+                              target: target, state: .broken)
+        let failure = HealthChecker().recoverVanishedTarget(link, cacheRoots: [caches])
+
+        XCTAssertNil(failure, failure ?? "")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target + "/Contents/Info.plist"),
+                      "新版应已就位到链接指向的目标")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "/Volumes/Nowhere/Applications/GoneApp.app"),
+                       "恢复不得把文件写到不存在的卷上")
+    }
+
+    func testRecoverRefusesWhenTargetStillExists() throws {
+        // 目标还在（普通断链，比如盘没插）时绝不能动——缓存恢复只用于"本体消失"
+        let dir = try makeDir("exists")
+        let real = try makeDir("exists/real/App.app/Contents")  // 目标真实存在
+        try Data("x".utf8).write(to: URL(fileURLWithPath: "\(real)/Info.plist"))
+        let site = "\(dir)/App.app"
+        try FileManager.default.createSymbolicLink(atPath: site,
+                                                   withDestinationPath: "\(dir)/real/App.app")
+        let link = LinkHealth(appName: "App.app", linkPath: site,
+                              target: "\(dir)/real/App.app", state: .broken)
+
+        let failure = HealthChecker().recoverVanishedTarget(link)
+        XCTAssertEqual(failure, "链接目标仍存在，无需恢复")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(dir)/real/App.app/Contents/Info.plist"),
+                      "目标存在时恢复流程不得碰任何文件")
+    }
+
     // MARK: - ⑩ 守护 plist 对特殊卷名必须仍是合法 XML
 
     func testLaunchAgentPlistEscapesTrickyVolumeName() throws {

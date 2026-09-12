@@ -420,11 +420,31 @@ struct HealthCheckView: View {
     private func repairOne(_ link: LinkHealth) {
         if checker.repair(link) {
             runCheck()
-        } else {
+            return
+        }
+        // 修复找不到同名应用：可能不是盘没插，而是更新器把应用本体弄丢了
+        //（实测：VS Code 的更新进程写外置盘被系统权限拒绝，旧版移走、新版没写入）
+        if let failure = checker.recoverVanishedTarget(link) {
             let alert = NSAlert()
             alert.messageText = "修复失败"
-            alert.informativeText = "在所有已挂载硬盘上都没有找到「\(link.appName)」，请插入对应硬盘或手动回迁。"
+            alert.informativeText = """
+            在所有已挂载硬盘上都没有找到「\(link.appName)」，更新缓存里也没有可恢复的新版本。
+
+            \(failure)。请插入对应硬盘、重新安装该应用，或手动回迁。
+            """
             alert.runModal()
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "已从更新缓存恢复「\(link.appName.replacingOccurrences(of: ".app", with: ""))」"
+            alert.informativeText = """
+            这个应用的更新曾中途失败（更新进程写外置盘被系统权限拒绝，应用本体被移走了）。\
+            已把更新缓存里的新版本放回原位，链接已接通。
+
+            提示：这类失败与"迁移/纯搬迁"无关，是更新器写外置盘缺权限；\
+            若再次发生，可先回迁内置盘完成更新，再迁移出去。
+            """
+            alert.runModal()
+            runCheck()
         }
     }
 
