@@ -129,6 +129,9 @@ class AppState: ObservableObject {
     let notificationManager = NotificationManager()
     let healthChecker = HealthChecker()
     let dataMigrator = DataMigrator()
+    /// 启动监听令牌：addObserver(forName:) 的返回值必须持有，
+    /// 否则令牌释放后回调静默失效（经典坑，编译器不报）
+    private var launchObserver: NSObjectProtocol?
 
     /// 是否有迁移/回迁任务正在进行（强退保护依据）
     var isMigrationActive: Bool {
@@ -235,6 +238,27 @@ class AppState: ObservableObject {
         // 放后台预热；之后 DiskMonitor 选盘时只读缓存，不阻塞主线程
         Task.detached(priority: .utility) {
             _ = VolumeClassifier.refreshTimeMachineCache()
+        }
+
+        // v2.9.0 使用频率顾问：只记「住在外置盘上的应用」的启动时刻。
+        // bundleURL 是软链接解析后的真身路径，所以链接迁移态与外置盘原住民都会命中；
+        // 内置盘应用的启动零记录——顾问只关心"外置盘有多离不开"。
+        launchObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil, queue: .main
+        ) { note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.activationPolicy == .regular,
+                  let path = app.bundleURL?.path,
+                  path.hasPrefix("/Volumes/"),
+                  let bid = app.bundleIdentifier, !bid.isEmpty
+            else { return }
+            LaunchUsageTracker.shared.record(
+                bundleID: bid,
+                name: app.localizedName ?? (path as NSString).lastPathComponent
+            )
+            // 不写 AuditLog：那是迁移/回迁/卸载/修复的操作台账，
+            // 使用记录有自己的 launch-usage.json，混进来会稀释审计日志的契约
         }
 
         diskMonitor.onMountChange = { [weak self] drive in

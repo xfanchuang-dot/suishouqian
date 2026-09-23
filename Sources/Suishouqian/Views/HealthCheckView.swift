@@ -9,6 +9,7 @@ struct HealthCheckView: View {
     @State private var residues: [ResidueItem] = []
     @State private var bigFiles: [BigFileItem] = []
     @State private var regressions: [RegressionItem] = []
+    @State private var usageSuggestions: [UsageSuggestion] = []
     @State private var isChecking = false
     @State private var repairedCount = 0
     @State private var healedCount = 0
@@ -21,16 +22,21 @@ struct HealthCheckView: View {
                 header
 
                 linkSection
+                if !usageSuggestions.isEmpty { usageSection }
                 if !regressions.isEmpty { regressionSection }
                 if !backups.isEmpty { backupSection }
                 if !residues.isEmpty { residueSection }
                 if !bigFiles.isEmpty { bigFileSection }
                 if links.isEmpty && backups.isEmpty && residues.isEmpty
-                    && bigFiles.isEmpty && regressions.isEmpty && !isChecking { emptyState }
+                    && bigFiles.isEmpty && regressions.isEmpty
+                    && usageSuggestions.isEmpty && !isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
-        .onAppear { runCheck() }
+        .onAppear {
+            runCheck()
+            computeUsage()
+        }
     }
 
     private var header: some View {
@@ -44,7 +50,10 @@ struct HealthCheckView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             } else {
-                Button("重新扫描") { runCheck() }
+                Button("重新扫描") {
+                    runCheck()
+                    computeUsage()
+                }
                     .controlSize(.small)
             }
         }
@@ -117,6 +126,48 @@ struct HealthCheckView: View {
             }
         }
         .padding(.vertical, 3)
+    }
+
+    /// 使用频率顾问（v2.9.0）：近 7 天频繁启动、却住在外置盘上的应用。
+    /// 只在打开体检面板时陈列，没有后台扫描、没有主动弹窗。
+    private var usageSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "高频应用 · 建议搬回内置盘", systemImage: "speedometer")
+                Spacer()
+                Text("近 \(LaunchUsageTracker.suggestDays) 天经常启动，却要靠外置盘才能打开")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(usageSuggestions) { sug in
+                HStack(spacing: 8) {
+                    if let icon = sug.app.icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 18, height: 18)
+                    } else {
+                        Image(systemName: "app")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 11))
+                    }
+                    Text(sug.app.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text("近 \(sug.days) 天启动 \(sug.count) 次 · \(sug.app.sizeFormatted)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("搬回内置盘") { moveBackExternal(sug.app) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(appState.isMigrationActive || appState.externalDrive == nil)
+                        .help("搬回后应用就在内置盘本地，不再依赖外置盘")
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
     }
 
     /// 升级回退：链接被应用更新器换回真目录（迁移被悄悄撤销）
@@ -368,6 +419,49 @@ struct HealthCheckView: View {
     private func deleteBackup(_ issue: BackupIssue) async {
         if await checker.deleteBackup(issue) {
             backups.removeAll { $0.id == issue.id }
+        }
+    }
+
+    /// 把当前扫描结果与启动记录对上，得出"高频外置盘应用"。
+    /// 纯内存计数，不需要 OffPool。
+    private func computeUsage() {
+        usageSuggestions = LaunchUsageTracker.suggestions(
+            apps: appState.apps,
+            entries: LaunchUsageTracker.shared.entries
+        )
+    }
+
+    /// 外置盘原住民/迁移态应用搬回内置盘（流程与 AppRowView.moveBack 一致：
+    /// 复制→校验→删外置副本，运行中会被 migrator 拒绝）
+    private func moveBackExternal(_ app: AppItem) {
+        guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
+        Task { @MainActor in
+            appState.migrationTask = MigrationTask(app: app, operation: .restore)
+            let state = appState
+            let result = await state.migrator.moveBackToInternal(
+                app: app, drivePath: drive.mountPoint
+            ) { @Sendable pct, desc in
+                Task { @MainActor in
+                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .restore)
+                    t.progress = pct
+                    t.currentFile = desc
+                    state.migrationTask = t
+                }
+            }
+
+            if result.success {
+                state.migrationTask = nil
+                state.notificationManager.notifyMigrationComplete(
+                    appName: app.name, spaceSaved: result.spaceSaved)
+                await state.scanApps()
+            } else if var t = state.migrationTask {
+                t.status = .failed(result.error ?? "未知错误")
+                state.migrationTask = t
+                state.notificationManager.notifyMigrationFailed(
+                    appName: app.name, error: result.error ?? "未知错误")
+            }
+            // 应用已不在外置盘，重新对账——它应当从建议列表里消失
+            computeUsage()
         }
     }
 

@@ -85,7 +85,8 @@ class AppScanner: @unchecked Sendable {
         
         var displayName = bundleName.replacingOccurrences(of: ".app", with: "")
         var version: String?
-        
+        var bundleID: String?
+
         // 读一次 Info.plist：显示名、版本、以及更新方式判定都要用
         let plist = NSDictionary(contentsOf: infoPlist)
         if let plist {
@@ -96,6 +97,10 @@ class AppScanner: @unchecked Sendable {
             }
             if let ver = plist["CFBundleShortVersionString"] as? String {
                 version = ver
+            }
+            // 使用频率顾问的关联键（plist 损坏时为 nil，该应用不参与统计）
+            if let bid = plist["CFBundleIdentifier"] as? String {
+                bundleID = bid
             }
         }
         
@@ -109,6 +114,7 @@ class AppScanner: @unchecked Sendable {
             bundleName: bundleName,
             path: path,
             version: version,
+            bundleID: bundleID,
             size: size,
             isSymlink: isSymlink,
             symlinkTarget: target,

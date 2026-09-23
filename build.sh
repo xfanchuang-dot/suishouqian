@@ -16,11 +16,15 @@ rm -rf "$DIST_DIR"
 mkdir -p "$MACOS_DIR" "$FW_DIR" "$RESOURCES_DIR"
 
 # 2. Build
+# 构建缓存放内置盘：SwiftPM 的 build.db（SQLite）在这块 USB 外置盘上收尾落盘
+# 必报 disk I/O error（直接 sqlite3 写同盘正常，纯 SwiftPM 触发，2026-09-23 实测），
+# 内置盘无此问题且顺带更快。属构建产物，随删随建。
+SCRATCH_DIR="$HOME/Library/Caches/suishouqian-scratch"
 echo "[1/5] 编译..."
-swift build -c release --package-path "$PROJECT_DIR"
+swift build -c release --package-path "$PROJECT_DIR" --scratch-path "$SCRATCH_DIR"
 
 # 3. Copy binary
-BIN=$(find "$PROJECT_DIR/.build" -name "$APP_NAME" -type f -not -path "*/DerivedData/*" | head -1)
+BIN=$(find "$SCRATCH_DIR" -name "$APP_NAME" -type f -not -path "*/DerivedData/*" | head -1)
 if [ -z "$BIN" ]; then
     echo "错误: 找不到编译产物"
     exit 1
@@ -29,7 +33,7 @@ cp "$BIN" "$MACOS_DIR/"
 
 # 4. Copy Sparkle
 echo "[2/5] 复制 Sparkle 框架..."
-SPARKLE_SRC=$(find "$PROJECT_DIR/.build" -path "*/Sparkle.framework" -type d -not -path "*/DerivedData/*" | head -1)
+SPARKLE_SRC=$(find "$SCRATCH_DIR" -path "*/Sparkle.framework" -type d -not -path "*/DerivedData/*" | head -1)
 if [ -z "$SPARKLE_SRC" ]; then
     echo "警告: 找不到 Sparkle，跳过"
 else
@@ -56,9 +60,9 @@ cat > "$BUNDLE/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.suishouqian.app</string>
     <key>CFBundleVersion</key>
-    <string>2.8.0</string>
+    <string>2.9.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.8.0</string>
+    <string>2.9.0</string>
     <key>CFBundleExecutable</key>
     <string>随手迁</string>
     <key>CFBundlePackageType</key>

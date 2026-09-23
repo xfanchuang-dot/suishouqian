@@ -7,6 +7,10 @@ struct AppItem: Identifiable {
     let bundleName: String
     let path: String
     let version: String?
+    /// CFBundleIdentifier：使用频率顾问用它把启动记录与扫描结果对上
+    /// （bundleID 在更新/改名/搬家中都稳定）。plist 读不到时为 nil，
+    /// 这类应用不参与使用统计。
+    var bundleID: String? = nil
     let size: Int64
     let isSymlink: Bool
     let symlinkTarget: String?
