@@ -2,6 +2,9 @@
 .build/
 dist/
 
+# 构建脚本挪开的旧产物（不用 rm -rf，见 build.sh 第 1 步）
+_bak/
+
 # Xcode / SwiftPM
 xcuserdata/
 *.xcodeproj.bak

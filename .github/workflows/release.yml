@@ -1,0 +1,133 @@
+name: release
+
+# 推 tag（如 v2.15.0）即出正式包：DMG + appcast.xml + GitHub Release。
+#
+# 双路径设计（v3.0 工程化）：
+#   · 配了 Apple 签名/公证 secrets  → Developer ID 分层签名 + notarytool 公证 + stapler 装订
+#   · 没配                        → 退回自签/临时签名，照样产出可下载的 DMG
+#     （用户首次打开需右键"打开"，且 Sparkle 自动更新在未公证时体验略差）
+#   两条路径都产出 Sparkle 的 appcast.xml，所以更新通道从第一天起就能跑通。
+#
+# 需要的 Secrets（全部可选，配了就自动升级到正式签名路径）:
+#   APPLE_CERTIFICATE_P12         Developer ID Application 证书（.p12 的 base64）
+#   APPLE_CERTIFICATE_PASSWORD    .p12 的密码
+#   APPLE_ID                      Apple 开发者账号邮箱
+#   APPLE_TEAM_ID                 团队 ID
+#   APPLE_APP_PASSWORD            App 专用密码（appleid.apple.com 生成）
+#   SPARKLE_PRIVATE_KEY           Sparkle EdDSA 私钥全文（scripts/sparkle_keys.sh 导出）
+# 未配 SPARKLE_PRIVATE_KEY 时，appcast 会用发版机的钥匙串——CI 上取不到，
+# 所以正式发布务必配置它，否则 appcast 生成会失败。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  APPLE_ID: ${{ secrets.APPLE_ID }}
+  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+  SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+  SUISHOUQIAN_SCRATCH: ${{ runner.temp }}/suishouqian-scratch
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 tag 与 VERSION 一致
+        run: |
+          VERSION="$(tr -d ' \t\r\n' < VERSION)"
+          echo "VERSION=$VERSION"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [ "$TAG" != "$VERSION" ]; then
+              echo "::error::tag v$TAG 与 VERSION=$VERSION 不一致——发版前先同步 VERSION 与 CHANGELOG"
+              exit 1
+            fi
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: 跑全量测试
+        run: swift test
+
+      - name: 导入 Developer ID 证书（只在配了 secrets 时）
+        if: ${{ env.APPLE_CERTIFICATE_P12 != '' }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+                      | grep -o 'Developer ID Application: [^"]*' | head -1)"
+          [ -n "$IDENTITY" ] || { echo "::error::证书导入后找不到 Developer ID Application 身份"; exit 1; }
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "签名身份: $IDENTITY"
+
+      - name: 构建 App
+        run: bash build.sh --dist-only
+
+      - name: 公证并装订 App（只在配了 secrets 时）
+        if: ${{ env.APPLE_ID != '' }}
+        run: |
+          ditto -c -k --keepParent "dist/随手迁.app" "$RUNNER_TEMP/app.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/app.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "dist/随手迁.app"
+
+      - name: 打包 DMG
+        run: bash scripts/package_dmg.sh --no-build
+
+      - name: 公证并装订 DMG（只在配了 secrets 时）
+        if: ${{ env.APPLE_ID != '' }}
+        run: |
+          xcrun notarytool submit "dist/随手迁-$VERSION.dmg" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "dist/随手迁-$VERSION.dmg"
+          xcrun stapler validate "dist/随手迁-$VERSION.dmg"
+
+      - name: 从 CHANGELOG 抽出版本说明
+        run: |
+          awk -v ver="$VERSION" '
+            $0 ~ "^## " ver { grab=1; next }
+            grab && /^## / { exit }
+            grab { print }
+          ' CHANGELOG.md > release_notes.md
+          # Sparkle 的更新弹窗要读同名说明文件（generate_appcast 会一并收进 appcast）
+          cp release_notes.md "dist/随手迁-$VERSION.md"
+          echo "--- release_notes.md ---"; cat release_notes.md
+
+      - name: 生成 appcast.xml
+        run: bash scripts/make_appcast.sh
+
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$VERSION" \
+            "dist/随手迁-$VERSION.dmg" \
+            "dist/appcast.xml" \
+            --title "随手迁 v$VERSION" \
+            --notes-file release_notes.md
+
+      - name: 上传构建产物（含未发布的调试件）
+        uses: actions/upload-artifact@v4
+        with:
+          name: suishouqian-v${{ env.VERSION }}
+          path: |
+            dist/随手迁-${{ env.VERSION }}.dmg
+            dist/appcast.xml

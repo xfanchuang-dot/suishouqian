@@ -1,51 +1,48 @@
-.PHONY: build release package install clean test
+# 快捷方式集合。**build.sh 是唯一的构建/打包入口**。
+#
+# 这里不再自己实现打包。此前本文件自带一套「release」recipe——写死 CFBundleShortVersionString
+# 2.0.0、用 Apple 已废弃的 `codesign --deep`、`rm -rf /Applications/随手迁.app` 后再 cp——
+# 与 build.sh 形成两套入口互相打架，`make release` 产出的还是个版本号假的包。
+# 现在全部转发给 build.sh / scripts/，只有一处实现。
+#
+# 版本号来自 ./VERSION（见 build.sh 顶部的说明）。
+
+.PHONY: help build test install dist dmg appcast release-keys clean
 
 APP_NAME := 随手迁
-BUILD_DIR := .build/arm64-apple-macosx/release
-DIST_DIR := dist
-APP_BUNDLE := $(DIST_DIR)/$(APP_NAME).app
-SOURCES := Sources/Suishouqian
+VERSION  := $(shell tr -d ' \t\r\n' < VERSION 2>/dev/null)
+
+help:
+	@echo "随手迁 v$(VERSION) —— 可用目标:"
+	@echo "  make build         调试编译 (swift build)"
+	@echo "  make test          跑全部单元测试"
+	@echo "  make install       编译+签名+装进 /Applications 并启动  ← 日常"
+	@echo "  make dist          编译+签名，产物只留在 dist/"
+	@echo "  make dmg           在 dist/ 里打包 DMG"
+	@echo "  make appcast       生成 dist/appcast.xml（需 Sparkle 私钥）"
+	@echo "  make release-keys  一次性：生成 Sparkle 更新签名密钥"
+	@echo "  make clean         清理 SwiftPM 构建缓存"
 
 build:
-	swift build -c release 2>&1
+	swift build
 
-release: build
-	@echo "=== 打包 $(APP_NAME) ==="
-	rm -rf $(DIST_DIR)
-	mkdir -p $(APP_BUNDLE)/Contents/MacOS
-	mkdir -p $(APP_BUNDLE)/Contents/Resources
-	mkdir -p $(APP_BUNDLE)/Contents/Frameworks
-	# 复制二进制
-	cp $(BUILD_DIR)/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
-	# 复制Sparkle框架
-	cp -R $(BUILD_DIR)/Sparkle.framework $(APP_BUNDLE)/Contents/Frameworks/
-	# 添加rpath
-	install_name_tool -add_rpath @executable_path/../Frameworks $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME) 2>/dev/null || true
-	# 创建Info.plist
-	@echo '<?xml version="1.0" encoding="UTF-8"?>' > $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<plist version="1.0"><dict>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundleExecutable</key><string>$(APP_NAME)</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundleIdentifier</key><string>com.suishouqian.app</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundleName</key><string>$(APP_NAME)</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundleDisplayName</key><string>$(APP_NAME)</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundleVersion</key><string>1</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundleShortVersionString</key><string>2.0.0</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>CFBundlePackageType</key><string>APPL</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>LSMinimumSystemVersion</key><string>15.0</string>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '<key>NSHighResolutionCapable</key><true/>' >> $(APP_BUNDLE)/Contents/Info.plist
-	@echo '</dict></plist>' >> $(APP_BUNDLE)/Contents/Info.plist
-	# 代码签名
-	codesign --force --deep --sign - $(APP_BUNDLE) 2>&1
-	@echo "=== 打包完成: $(APP_BUNDLE) ==="
-	@du -sh $(APP_BUNDLE)
+test:
+	swift test
 
-install: release
-	@echo "=== 安装到 /Applications ==="
-	rm -rf /Applications/$(APP_NAME).app
-	cp -R $(APP_BUNDLE) /Applications/
-	@echo "=== 安装完成 ==="
+install:
+	bash build.sh
+
+dist:
+	bash build.sh --dist-only
+
+dmg: dist
+	bash scripts/package_dmg.sh --no-build
+
+appcast: dmg
+	bash scripts/make_appcast.sh
+
+release-keys:
+	bash scripts/sparkle_keys.sh
 
 clean:
-	rm -rf $(DIST_DIR)
 	swift package clean 2>/dev/null || true

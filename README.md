@@ -56,10 +56,16 @@ Dock 右键图标可直达：立即扫描、三个面板。
 ## 构建与测试
 
 ```bash
-swift build        # 编译
-swift test         # 单元测试（链接三态、残留匹配、审计日志隔离、防死锁回归等）
-bash build.sh      # 构建 + 签名 + 安装到 /Applications + 启动（覆盖旧版，旧版进废纸篓）
+swift build                     # 编译
+swift test                      # 单元测试（链接三态、残留匹配、审计日志隔离、防死锁回归等）
+bash build.sh                   # 构建 + 签名 + 安装到 /Applications + 启动（覆盖旧版，旧版进废纸篓）
+bash build.sh --dist-only       # 只构建 + 签名，产物留在 dist/（CI / 发版用）
+bash scripts/package_dmg.sh     # dist/ 里的 .app 打成 DMG
+bash scripts/make_appcast.sh    # 生成 Sparkle 的 appcast.xml
+make help                       # 上面这些的快捷目标一览
 ```
+
+版本号唯一来源是根目录 `VERSION`（`build.sh` 会校验它与 `CHANGELOG.md` 顶部一致）。
 
 ## 项目结构
 
@@ -86,8 +92,14 @@ Sources/Suishouqian/
 
 ## 路线图
 
-- **v3.0 工程化收官**：Developer ID 签名 + 公证 + DMG + Sparkle appcast + GitHub Actions CI
+- **v3.0 工程化收官**
+  - ✅ **已完成**（2.16.0）：GitHub Actions 测试 CI + 发布流水线（推 tag 即产 DMG / appcast / Release）、DMG 打包、Sparkle 更新通道（EdDSA 密钥 + `appcast.xml`）、版本号单一来源、发布手册
+  - ⏳ **待 Apple Developer 账号**（$99/年）：Developer ID 签名 + 公证。流水线已按双路径写好——配好 secrets 即自动升级为正式签名 + 公证；没有账号也能发布（首次打开需右键「打开」）。详见 [docs/RELEASING.md](docs/RELEASING.md)
 - 备选：任意大目录的手动链接迁移（当前仅清单内目录）、数据分叉的内容合并向导、多盘支持
+
+## 发布
+
+见 [docs/RELEASING.md](docs/RELEASING.md)：版本号纪律、Sparkle 密钥备份、GitHub Secrets 清单、本地与 CI 两种发版流程。
 
 ## 更新日志
 
