@@ -33,12 +33,12 @@ struct DiskBarView: View {
         }
     }
 
-    /// 探测并覆盖缓存（diskutil 阻塞子进程，放后台跑；重插/换设备时重探）
+    /// 探测并覆盖缓存（diskutil 阻塞子进程走 OffPool；重插/换设备时重探）
     private func probeLink(mount: String) {
         guard !mount.isEmpty else { return }
-        Task.detached(priority: .utility) {
-            guard let info = DiskLinkProbe.probe(mountPoint: mount) else { return }
-            await MainActor.run { linkInfo[mount] = info }
+        Task {
+            let info = await OffPool.run { DiskLinkProbe.probe(mountPoint: mount) }
+            if let info { linkInfo[mount] = info }
         }
     }
 

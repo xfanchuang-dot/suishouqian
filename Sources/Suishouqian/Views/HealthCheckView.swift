@@ -536,58 +536,26 @@ struct HealthCheckView: View {
 
     // MARK: - Actions
 
-    /// 体检快照（跨 OffPool 边界传递）
-    private struct CheckSnapshot {
-        var links: [LinkHealth] = []
-        var backups: [BackupIssue] = []
-        var regressions: [RegressionItem] = []
-        var residues: [ResidueItem] = []
-        var bigFiles: [BigFileItem] = []
-        var launchAgents: [LaunchAgentIssue] = []
-        var spotlightIndexing: Bool?
-        var unusedApps: [UnusedAppInfo] = []
-        var healedCount = 0
-    }
-
+    /// 体检快照改为消费 CheckEngine 的 CheckReport（v2.14.0 起编排只此一份）
     private func runCheck() {
         isChecking = true
         let drive = appState.externalDrive?.mountPoint
         let apps = appState.apps
-        Task.detached {
-            // 体检要跑大量 du / find（阻塞子进程）。整体放 OffPool，
-            // 不占 Swift 协作线程池——那是 2026-08-26 冻结事故的根因类别
-            let snapshot = await OffPool.run { () -> CheckSnapshot in
-                // v2.2: 先按台账自愈断链、给健康链接补账、清掉过期记录，再体检
-                var result = CheckSnapshot()
-                result.healedCount = checker.healBrokenLinks().count
-                checker.backfillManifest()
-                checker.pruneStaleManifestEntries()
-                result.links = checker.checkLinks()
-                if let drive {
-                    result.backups = checker.checkBackups(drivePath: drive)
-                    result.regressions = checker.checkRegressions(drivePath: drive)
-                    // mdutil 是阻塞子进程，和其它体检项一起在 OffPool 跑
-                    result.spotlightIndexing = SpotlightCheck.status(for: drive)
-                }
-                result.residues = checker.checkResidues(drivePath: drive)
-                result.bigFiles = checker.scanBigFiles()
-                result.launchAgents = checker.checkLaunchAgents()
-                // 每个外置盘应用跑一次 mdls，同为子进程慢活
-                result.unusedApps = UnusedAppsCheck.scanSync(apps: apps)
-                return result
-            }
-            await MainActor.run {
-                links = snapshot.links
-                backups = snapshot.backups
-                regressions = snapshot.regressions
-                residues = snapshot.residues
-                bigFiles = snapshot.bigFiles
-                launchAgents = snapshot.launchAgents
-                spotlightIndexing = snapshot.spotlightIndexing
-                unusedApps = snapshot.unusedApps
-                healedCount = snapshot.healedCount
-                isChecking = false
-            }
+        Task {
+            // 引擎内部已把所有子进程慢活放进 OffPool 并行跑，这里只等结果
+            let report = await appState.checkEngine.run(
+                drivePath: drive, apps: apps, scope: .full)
+            links = report.links
+            backups = report.backups
+            regressions = report.regressions
+            residues = report.residues
+            bigFiles = report.bigFiles
+            launchAgents = report.launchAgents
+            spotlightIndexing = report.spotlightIndexing
+            unusedApps = report.unusedApps
+            usageSuggestions = report.usageSuggestions
+            healedCount = report.healedCount
+            isChecking = false
         }
     }
 

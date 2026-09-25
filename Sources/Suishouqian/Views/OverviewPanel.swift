@@ -17,8 +17,6 @@ struct OverviewPanel: View {
     @State private var unusedApps: [UnusedAppInfo] = []
     @State private var isChecking = false
 
-    private let checker = HealthChecker()
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -52,7 +50,7 @@ struct OverviewPanel: View {
         let title: String
         let detail: String
         /// 目标面板：nil = 无需处理入口（纯提示）
-        let targetPanel: Int?
+        let targetPanel: Panel?
         let targetLabel: String
     }
 
@@ -65,7 +63,7 @@ struct OverviewPanel: View {
                 icon: "link.badge.plus", color: .red,
                 title: "\(brokenCount) 条断链",
                 detail: "链接指向的应用找不到了（卷在线但目标丢失），可在体检页修复或回迁",
-                targetPanel: 2, targetLabel: "去修复"))
+                targetPanel: .health, targetLabel: "去修复"))
         }
 
         if let drive = appState.externalDrive {
@@ -76,7 +74,7 @@ struct OverviewPanel: View {
                     icon: "arrow.up.arrow.down", color: .teal,
                     title: "把 \(movable.count) 个内置盘应用搬到「\(drive.name)」",
                     detail: "可腾出内置盘 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))",
-                    targetPanel: 1, targetLabel: "去迁移"))
+                    targetPanel: .migrate, targetLabel: "去迁移"))
             }
         }
 
@@ -85,7 +83,7 @@ struct OverviewPanel: View {
                 icon: "speedometer", color: .orange,
                 title: "\(usageSuggestions.count) 个高频应用住在外置盘",
                 detail: "近 7 天经常启动却要靠外置盘，建议搬回内置盘",
-                targetPanel: 2, targetLabel: "去处理"))
+                targetPanel: .health, targetLabel: "去处理"))
         }
 
         if !unusedApps.isEmpty {
@@ -93,7 +91,7 @@ struct OverviewPanel: View {
                 icon: "moon.zzz", color: .indigo,
                 title: "\(unusedApps.count) 个外置盘应用长期未用",
                 detail: "超过 \(UnusedAppsCheck.unusedDays) 天没打开，搬回内置盘把盘面腾出来",
-                targetPanel: 2, targetLabel: "去处理"))
+                targetPanel: .health, targetLabel: "去处理"))
         }
 
         if !launchAgents.isEmpty {
@@ -101,7 +99,7 @@ struct OverviewPanel: View {
                 icon: "powerplug.fill", color: .orange,
                 title: "\(launchAgents.count) 条开机自启指向外置盘",
                 detail: "盘没插时这些自启会失败，守护项开机必失败",
-                targetPanel: 2, targetLabel: "去看看"))
+                targetPanel: .health, targetLabel: "去看看"))
         }
 
         if spotlightIndexing == true {
@@ -109,7 +107,7 @@ struct OverviewPanel: View {
                 icon: "magnifyingglass", color: .orange,
                 title: "Spotlight 正在索引外置盘",
                 detail: "搜索会混入外置副本，后台扫描白耗盘和电",
-                targetPanel: 2, targetLabel: "去关闭"))
+                targetPanel: .health, targetLabel: "去关闭"))
         }
 
         if !backups.isEmpty {
@@ -118,7 +116,7 @@ struct OverviewPanel: View {
                 icon: "clock.badge.exclamationmark", color: .orange,
                 title: "\(backups.count) 份迁移备份可清理",
                 detail: "孤儿或超过保留期，共 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))",
-                targetPanel: 2, targetLabel: "去清理"))
+                targetPanel: .health, targetLabel: "去清理"))
         }
 
         if !residues.isEmpty {
@@ -127,7 +125,7 @@ struct OverviewPanel: View {
                 icon: "trash.slash", color: .purple,
                 title: "\(residues.count) 项已卸载应用残留",
                 detail: "占着内置盘 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))，清理走废纸篓",
-                targetPanel: 2, targetLabel: "去清理"))
+                targetPanel: .health, targetLabel: "去清理"))
         }
 
         return out
@@ -198,39 +196,18 @@ struct OverviewPanel: View {
         isChecking = true
         let drive = appState.externalDrive?.mountPoint
         let apps = appState.apps
-        Task.detached {
-            // 与体检页同一套子进程慢活（du/find/mdls/mdutil/diskutil）：OffPool
-            let snapshot = await OffPool.run { () -> CheckResult in
-                var r = CheckResult()
-                _ = checker.healBrokenLinks()
-                r.links = checker.checkLinks()
-                if let drive {
-                    r.backups = checker.checkBackups(drivePath: drive)
-                    r.spotlightIndexing = SpotlightCheck.status(for: drive)
-                }
-                r.residues = checker.checkResidues(drivePath: drive)
-                r.launchAgents = checker.checkLaunchAgents()
-                r.unusedApps = UnusedAppsCheck.scanSync(apps: apps)
-                return r
-            }
-            await MainActor.run {
-                links = snapshot.links
-                backups = snapshot.backups
-                residues = snapshot.residues
-                launchAgents = snapshot.launchAgents
-                spotlightIndexing = snapshot.spotlightIndexing
-                unusedApps = snapshot.unusedApps
-                isChecking = false
-            }
+        Task {
+            // 总览只要结论项：跳过大文件扫描与回归明细（最慢的两项）
+            let report = await appState.checkEngine.run(
+                drivePath: drive, apps: apps, scope: .overview)
+            links = report.links
+            backups = report.backups
+            residues = report.residues
+            launchAgents = report.launchAgents
+            spotlightIndexing = report.spotlightIndexing
+            unusedApps = report.unusedApps
+            usageSuggestions = report.usageSuggestions
+            isChecking = false
         }
-    }
-
-    private struct CheckResult {
-        var links: [LinkHealth] = []
-        var backups: [BackupIssue] = []
-        var residues: [ResidueItem] = []
-        var launchAgents: [LaunchAgentIssue] = []
-        var spotlightIndexing: Bool?
-        var unusedApps: [UnusedAppInfo] = []
     }
 }

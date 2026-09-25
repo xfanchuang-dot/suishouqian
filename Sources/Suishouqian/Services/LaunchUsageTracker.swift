@@ -53,7 +53,8 @@ final class LaunchUsageTracker: @unchecked Sendable {
         return dir.appendingPathComponent("launch-usage.json")
     }
 
-    private init() {
+    /// internal 而非 private：测试与 CheckEngine 注入需要能构造独立实例
+    init() {
         load()
     }
 

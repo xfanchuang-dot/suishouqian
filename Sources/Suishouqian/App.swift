@@ -5,6 +5,14 @@ extension Notification.Name {
     static let focusAppSearch = Notification.Name("com.suishouqian.focusAppSearch")
 }
 
+/// 右侧面板（v2.14.0 起用枚举，替代散布各处的 0/1/2/3 魔法数字）
+enum Panel: Int {
+    case overview = 0
+    case migrate = 1
+    case health = 2
+    case data = 3
+}
+
 /// 应用委托：迁移进行中拦截退出，杜绝半完成状态的最后一个人为入口
 final class AppDelegate: NSObject, NSApplicationDelegate {
     // 仅主线程读写（applicationShouldTerminate 与 AppState.init 均在主线程）
@@ -52,10 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch sender.tag {
         case 0:
             Task { await state.scanApps() }
-        case 1: state.activePanel = 0
-        case 2: state.activePanel = 1
-        case 3: state.activePanel = 2
-        case 4: state.activePanel = 3
+        case 1: state.activePanel = .overview
+        case 2: state.activePanel = .migrate
+        case 3: state.activePanel = .health
+        case 4: state.activePanel = .data
         default: break
         }
     }
@@ -91,13 +99,13 @@ struct SuishouqianApp: App {
 
                 Divider()
 
-                Button("总览面板") { appState.activePanel = 0 }
+                Button("总览面板") { appState.activePanel = .overview }
                     .keyboardShortcut("0", modifiers: .command)
-                Button("迁移面板") { appState.activePanel = 1 }
+                Button("迁移面板") { appState.activePanel = .migrate }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("体检面板") { appState.activePanel = 2 }
+                Button("体检面板") { appState.activePanel = .health }
                     .keyboardShortcut("2", modifiers: .command)
-                Button("数据面板") { appState.activePanel = 3 }
+                Button("数据面板") { appState.activePanel = .data }
                     .keyboardShortcut("3", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
@@ -123,15 +131,17 @@ class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var migrationTask: MigrationTask?
     @Published var builtinDrive: DriveInfo?
-    /// 右侧面板 0 总览 / 1 迁移 / 2 体检 / 3 数据（⌘0~⌘3 可切，ContentView 绑定）
-    @Published var activePanel = 0
-    
+    /// 右侧面板（⌘0~⌘3 可切，ContentView 绑定）
+    @Published var activePanel: Panel = .overview
+
     let scanner = AppScanner()
     let migrator = AppMigrator()
     let diskMonitor = DiskMonitor()
     let notificationManager = NotificationManager()
     let healthChecker = HealthChecker()
     let dataMigrator = DataMigrator()
+    /// 检查引擎：体检页与总览页共用的唯一编排（v2.14.0）
+    let checkEngine = CheckEngine()
     /// 启动监听令牌：addObserver(forName:) 的返回值必须持有，
     /// 否则令牌释放后回调静默失效（经典坑，编译器不报）
     private var launchObserver: NSObjectProtocol?
@@ -238,9 +248,9 @@ class AppState: ObservableObject {
         }
 
         // Time Machine 目标盘缓存：只认本地挂载点。tmutil 是阻塞调用，
-        // 放后台预热；之后 DiskMonitor 选盘时只读缓存，不阻塞主线程
-        Task.detached(priority: .utility) {
-            _ = VolumeClassifier.refreshTimeMachineCache()
+        // 走 OffPool（v2.14.0 修正：Task.detached 占的是协作线程池）
+        Task {
+            await OffPool.run { _ = VolumeClassifier.refreshTimeMachineCache() }
         }
 
         // v2.9.0 使用频率顾问：只记「住在外置盘上的应用」的启动时刻。

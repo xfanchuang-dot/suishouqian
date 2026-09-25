@@ -18,10 +18,10 @@ struct ContentView: View {
                     .padding(.vertical, 12)
 
                 Picker("", selection: $appState.activePanel) {
-                    Text("总览").tag(0)
-                    Text("迁移").tag(1)
-                    Text("体检").tag(2)
-                    Text("数据").tag(3)
+                    Text("总览").tag(Panel.overview)
+                    Text("迁移").tag(Panel.migrate)
+                    Text("体检").tag(Panel.health)
+                    Text("数据").tag(Panel.data)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 20)
@@ -29,10 +29,10 @@ struct ContentView: View {
 
                 Group {
                     switch appState.activePanel {
-                    case 0: OverviewPanel().padding(.horizontal, 20)
-                    case 1: MigrationPanel().padding(.horizontal, 20)
-                    case 2: HealthCheckView().padding(.horizontal, 20)
-                    default: DataPanelView().padding(.horizontal, 20)
+                    case .overview: OverviewPanel().padding(.horizontal, 20)
+                    case .migrate: MigrationPanel().padding(.horizontal, 20)
+                    case .health: HealthCheckView().padding(.horizontal, 20)
+                    case .data: DataPanelView().padding(.horizontal, 20)
                     }
                 }
                 // 面板切换淡入过渡；系统开启"减弱动态效果"时自动跳过
