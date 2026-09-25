@@ -4,12 +4,13 @@
 
 ### 工程化收官（v3.0 的代码部分）：一条 tag 出一版正式包
 
-把「代码 → 用户手上」这条链路补齐。**App 行为零变化**，改的全是构建/发布基建。
+把「代码 → 用户手上」这条链路补齐。**App 行为只动了一处**（见下面「检查更新」那条），其余全是构建/发布基建。
 
-- **发布流水线**（`.github/workflows/release.yml`）：推 `v*` tag 即自动 校验 tag↔VERSION → 跑全量测试 → 构建签名 → 公证装订 → 打 DMG → 生成 appcast → 发 GitHub Release。
-  **双路径**：配了 Apple Developer secrets 就走 Developer ID 分层签名 + `notarytool` 公证 + `stapler` 装订；没配就退回自签/临时签名，照样产出可下载的 DMG（首次打开需右键「打开」）。两条路径都产出 appcast，更新通道从第一版起就能跑通
+- **发布流水线**（`.github/workflows/release.yml`）：推 `v*` tag 即自动 校验 tag↔VERSION → 跑全量测试 → 检查更新通道可达性 → 构建签名 → 公证装订 → 打 DMG → 生成 appcast → 发 GitHub Release。
+  **双路径**：配了 Apple Developer secrets 就走 Developer ID 分层签名 + `notarytool` 公证 + `stapler` 装订；没配就退回自签/临时签名，照样产出可下载的 DMG（首次打开需右键「打开」）。两条路径都产出 appcast
 - **DMG 打包**（`scripts/package_dmg.sh`）：hdiutil UDZO，镜像里 .app + `/Applications` 软链（拖拽安装惯例）；打包前先验一次签名，签名不过直接拒绝打包
-- **Sparkle 更新通道**（`scripts/sparkle_keys.sh` + `scripts/make_appcast.sh`）：EdDSA 密钥对一次性生成；公钥提交进仓库（`sparkle_public_key.txt`，构建时自动写进 `Info.plist` 的 `SUPublicEDKey`），私钥导出供 CI 用；`generate_appcast` 以 `releases/latest/download/` 为下载前缀生成 `appcast.xml`，每次发版自动成为最新，App 端「检查更新」不需要任何配置。更新弹窗的版本说明从 `CHANGELOG.md` 自动抽
+- **Sparkle 更新通道**（`scripts/sparkle_keys.sh` + `scripts/make_appcast.sh`）：EdDSA 密钥对一次性生成；公钥提交进仓库（`sparkle_public_key.txt`，构建时自动写进 `Info.plist` 的 `SUPublicEDKey`），私钥导出供 CI 用；`appcast.xml` 的下载地址**钉在本次 tag 上**（`/releases/download/v<版本>/`），而 feed 本身走 `releases/latest/download/appcast.xml`，所以每次发版自动成为最新，App 端「检查更新」不需要任何配置。更新弹窗的版本说明从 `CHANGELOG.md` 自动抽并**内嵌**进 appcast
+- **「检查更新」不再把原始报错抛给用户**（本轮唯一的 App 行为变化）：Sparkle 拉 feed 时不带任何凭证，所以**仓库私有时匿名请求一律 404**，用户只会看到一个看不懂的错误。现在点「检查更新」会先探一次 feed，404 就明说「更新源不可用 + 常见原因（仓库私有 / 还没发过 Release）+ 可去 Releases 手动下载」；连点也不会叠出多个弹窗
 - **版本号收敛为单一来源**：新增 `VERSION` 文件。此前 `build.sh` 写死 2.15.0、`Makefile` 写死 2.0.0、根 `Info.plist` 写 2.0、`build.sh` 里的 Info.plist 又写一遍——**四处各写各的**，发版必有一处忘记改。现在只有 `VERSION` 一处；`build.sh` 校验它与 `CHANGELOG.md` 顶部一致，CI 再校验 git tag 与它一致
 - **`Makefile` 收编**：它自带的那套 `release` recipe（写死 2.0.0、Apple 已废弃的 `codesign --deep`、`rm -rf /Applications/随手迁.app` 后 cp）与 `build.sh` 形成**两套入口互相打架**，产出的还是版本号假的包。现全部转发给 `build.sh` / `scripts/`，只有一处实现
 - **`build.sh` 参数化**：新增 `--dist-only`（只构建+签名，产物留在 `dist/`，CI 用）与 `--no-open`；签名身份可用 `SIGN_IDENTITY` 覆盖，Developer ID 自动带安全时间戳（公证硬要求）、自签仍用 `--timestamp=none`；签名后**强制 `codesign --verify --strict`**，不过就拒绝交付（「`|| true` 吞错让产物启动即 SIGKILL」的同款教训）
@@ -21,6 +22,20 @@
 - **SwiftPM 的嵌套 sandbox**：`swift build` 在本机自动化沙箱里报 `sandbox-exec: sandbox_apply: Operation not permitted`，在 manifest 编译阶段就挂。`build.sh` 改为带 `--disable-sandbox`（关的是 SwiftPM 自己套的那层，不是系统沙箱）
 - **bash 3.2 吞变量名**：`"生成 Info.plist（v$VERSION）"` 里 `$VERSION` 会连全角括号一起被当成变量名 → `unbound variable: VERSION（`。全脚本改用 `${VAR}`（共 8 处，已用脚本全量扫描确认零残留）
 - **safe-delete 钩子拦批量删除**：`rm -rf dist` 在 dist 里已有构建产物时必被拦（一个带 Sparkle 的 .app 近百个文件，越过阈值），配 `set -e` 会直接中断、表现为「构建只做了一半」。改为把旧 `dist` / 已安装副本 `mv` 进 `_bak/`（同卷 rename、瞬间完成；`_bak/` 已进 `.gitignore`，攒多了在 Finder 里拖进废纸篓）
+- **CI 里不用 step 级 `if: ${{ env.X != '' }}`**：能否在 `if` 里引用某个上下文取决于 GitHub 的上下文可用性表（`secrets` 就明确不可用），**写错了不报错、只会把整步静默跳过**——这是最难查的一类 CI 事故。全部改为 shell 里的 `[ -n "${X}" ]`，本地能逐行照跑照验，少一层魔法
+- **macOS 自带的 `base64` 解码开关不稳定**（`-D` / `--decode` 随系统版本变），改用 `openssl base64 -d`，没有这个歧义
+- **`enclosure` 的 `latest` + 版本号是死链组合**：若下载前缀写成 `/releases/latest/download/随手迁-2.16.0.dmg`，发了 v2.17.0 之后这条 2.16.0 的地址就指向 v2.17.0 的 Release（里面没有 2.16.0 的资产）→ 404。改为钉在 tag 上（`/releases/download/v2.16.0/…`），feed 本身仍走 `latest`，两头都对
+- **更新说明必须内嵌**：`generate_appcast` 默认只生成 `<sparkle:releaseNotesLink>` 指过去，而那个 `.md` **并不会随 Release 上传** → 更新弹窗里的说明永远是 404。加 `--embed-release-notes` 把内容以 CDATA 内嵌进 appcast，少一个"必须记得上传"的隐式前提
+- **BSD grep 不支持 `\|` 交替**（本机排查陷阱）：`grep "A\|B"` 在这里是**字面量**搜索，会静默返回空——本轮据此误判过"源码里没有 Sparkle 集成"。查多模式一律 `grep -E "A|B"`
+
+### ⚠️ 前置条件：更新通道要求仓库公开
+
+Sparkle 匿名拉 appcast，而**本仓库当前是 Private**（匿名 `GET https://api.github.com/repos/xfanchuang-dot/suishouqian` → 404）。所以：
+
+- ✅ DMG 分发、手动下载新版：不受影响
+- ❌ 自动更新：**在仓库改公开（或改用公开的 releases-only 仓库）之前不可用**
+
+CI 已加「检查更新通道可达性」一步，每次发版都会做匿名探测并在非 200 时告警。两条出路的操作步骤见 `docs/RELEASING.md` §1.4。
 
 ## 2.15.0 — 2026-09-26
 

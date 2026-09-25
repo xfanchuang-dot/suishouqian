@@ -94,6 +94,7 @@ Sources/Suishouqian/
 
 - **v3.0 工程化收官**
   - ✅ **已完成**（2.16.0）：GitHub Actions 测试 CI + 发布流水线（推 tag 即产 DMG / appcast / Release）、DMG 打包、Sparkle 更新通道（EdDSA 密钥 + `appcast.xml`）、版本号单一来源、发布手册
+  - ⚠️ **前置条件：自动更新要求仓库公开**。Sparkle 匿名拉 appcast，仓库私有时一律 404 —— 此时 DMG 分发照旧，但已安装的用户收不到更新。修法见 [docs/RELEASING.md](docs/RELEASING.md) §1.4
   - ⏳ **待 Apple Developer 账号**（$99/年）：Developer ID 签名 + 公证。流水线已按双路径写好——配好 secrets 即自动升级为正式签名 + 公证；没有账号也能发布（首次打开需右键「打开」）。详见 [docs/RELEASING.md](docs/RELEASING.md)
 - 备选：任意大目录的手动链接迁移（当前仅清单内目录）、数据分叉的内容合并向导、多盘支持
 

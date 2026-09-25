@@ -23,9 +23,14 @@ DIST_DIR="$PROJECT_DIR/dist"
 VERSION="$(tr -d ' \t\r\n' < "$PROJECT_DIR/VERSION")"
 
 REPO_SLUG="${REPO_SLUG:-xfanchuang-dot/suishouqian}"
-# SUFeedURL 指向 releases/latest/download/appcast.xml，所以 enclosure 也走同一前缀，
-# 保证"feed 里声明的下载地址"永远解析得到（不依赖具体 tag）。
-URL_PREFIX="https://github.com/$REPO_SLUG/releases/latest/download/"
+# enclosure 用**钉在本次 tag 上**的地址，不是 /latest/：
+#   · appcast.xml 本身走 /releases/latest/download/appcast.xml（SUFeedURL 就是它），
+#     所以每次发版天然成为最新；而它内部的下载地址钉在自己那个 tag 上，
+#     于是"声明某版本的地址"永远指向那个版本自己 —— 重跑旧 tag 也不会变成死链。
+#   · 若用 /latest/ 前缀，appcast 里就会出现「版本号 2.16.0 + latest」这种组合：
+#     发 v2.17.0 之后它会指向 v2.17.0 的 Release，而那里没有 2.16.0 的资产 → 404。
+# 需要换托底仓库（如公开的 releases-only 仓库）时用 APPCAST_URL_PREFIX 覆盖。
+URL_PREFIX="${APPCAST_URL_PREFIX:-https://github.com/$REPO_SLUG/releases/download/v$VERSION/}"
 
 # ── 找 Sparkle 工具 ─────────────────────────────────────────────────────────
 SCRATCH="${SUISHOUQIAN_SCRATCH:-$HOME/Library/Caches/suishouqian-scratch}"
@@ -69,10 +74,16 @@ echo "=== 生成 appcast · v$VERSION ==="
 for d in "${DMGS[@]}"; do echo "  纳入: $(basename "$d")"; done
 
 # KEY_ARGS 走「有则展开、无则完全省略」的写法：
-# bash 3.2（本机 /bin/bash）在 set -u 下展开**空数组**会直接报 unbound variable，
-# 而指定了私钥文件时要把它变成 --ed-key-file 两个参数，所以两者都得兼顾。
+# bash 3.2（本机 /bin/bash，GitHub runner 上也是同一个）在 set -u 下展开**空数组**
+# 会直接报 unbound variable，而指定了私钥文件时要把它变成 --ed-key-file 两个参数，
+# 所以两者都得兼顾。
+#
+# --embed-release-notes：把更新说明**内嵌**进 appcast（CDATA），而不是留一个
+# `<sparkle:releaseNotesLink>` 指过去。不留链接就不会 404 —— 否则还得记得把
+# 与安装包同名的 .md 一起上传为 Release 资产，漏了就"更新弹窗里没有说明"。
 "$GEN_APPCAST" \
     ${KEY_ARGS[@]+"${KEY_ARGS[@]}"} \
+    --embed-release-notes \
     --download-url-prefix "$URL_PREFIX" \
     -o "$DIST_DIR/appcast.xml" \
     "$DIST_DIR"

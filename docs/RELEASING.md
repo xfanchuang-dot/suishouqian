@@ -66,6 +66,53 @@ Developer ID 签名与公证都要求付费账号（Apple Developer Program，**
 base64 -i cert.p12 | pbcopy   # 粘贴到 APPLE_CERTIFICATE_P12
 ```
 
+### 1.4 更新通道的前提：feed 必须**匿名**可达 ⚠️
+
+这一条比签名、公证都更容易被忽略，而且**失败是静默的**。
+
+Sparkle 拉 appcast 时**不带任何凭证**（`UpdateManager` 里就是一个 `SPUStandardUpdaterController`，
+没有 token、没有认证）。而 `SUFeedURL` 指向的是：
+
+```
+https://github.com/<owner>/<repo>/releases/latest/download/appcast.xml
+```
+
+于是：
+
+| 仓库可见性 | 匿名拉 appcast | 结果 |
+|---|---|---|
+| **Public** | 200 | ✅ 更新通道可用 |
+| **Private** | **404** | ❌ 已安装的用户**永远收不到更新**，且 App 端只会弹一个看不懂的错误 |
+
+**本仓库当前是 Private**（2026-09-26 实测：匿名 `GET https://api.github.com/repos/xfanchuang-dot/suishouqian` → `404`）。
+所以：**在改公开之前，更新通道是纸面上的。** 这不影响 DMG 分发，只影响自动更新。
+
+两条出路，选一条即可：
+
+**A. 把源码仓库改成 Public**（最省事）
+
+GitHub → 仓库 → Settings → General → 最下方 Danger Zone → Change visibility → Public。
+之后 `releases/latest/download/appcast.xml` 匿名可读，**不用改任何代码或配置**。
+代价：源码公开。
+
+**B. 另建一个**只放发布物的 Public 仓库（源码保持私有）
+
+1. 新建公开仓库，例如 `suishouqian-releases`（空仓库即可，不放源码）
+2. `make_appcast.sh` 的下载前缀已经是可覆盖的：
+
+   ```bash
+   REPO_SLUG="xfanchuang-dot/suishouqian-releases" bash scripts/make_appcast.sh
+   ```
+
+3. `build.sh` 里写入的 `Info.plist` → `SUFeedURL`，以及
+   `Sources/Suishouqian/UpdateManager.swift` 的 `feedURL`，两处一起改成新仓库地址
+   （**三处必须同步**：`UpdateManager.feedURL` / `build.sh` 的 `Info.plist` / `make_appcast.sh` 的 `URL_PREFIX`）
+4. release.yml 里 `gh release create` 加 `--repo xfanchuang-dot/suishouqian-releases`，
+   并把 `GH_TOKEN` 换成对该仓库有写权限的 PAT（默认 `GITHUB_TOKEN` 只能操作本仓库）
+
+> CI 的第 3 步「检查更新通道可达性」会做匿名探测并在非 200 时打 `::warning::`，
+> 就是为了让这件事**每次都出现在日志里**，而不是等到用户来问"为什么没更新"。
+
 ## 2. 发一版
 
 ### 2.1 本地发版（能出 DMG，不发布）
@@ -103,15 +150,20 @@ git push origin main --tags
 
 1. 校验 tag 与 `VERSION` 一致
 2. `swift test` 全量回归（**不过就不发**）
-3. 导入 Developer ID 证书（配了 secrets 才有这一步）
-4. `build.sh --dist-only` 构建 + 分层签名
-5. 公证并装订 `.app`
-6. 打 DMG → 公证并装订 DMG
-7. 从 `CHANGELOG.md` 抽出该版本说明 → 生成 `appcast.xml`
-8. `gh release create` 发布 Release（DMG + appcast.xml 一起上传）
+3. **检查更新通道可达性**（匿名拉仓库 API；非 200 就告警，见 1.4）
+4. 准备签名身份（配了 `APPLE_CERTIFICATE_P12` 才导入证书，否则走自签；结果写进 `SIGNED` 变量）
+5. `build.sh --dist-only` 构建 + 分层签名
+6. 公证并装订 `.app`（需 `SIGNED=yes` 且配了 `APPLE_ID`）
+7. 打 DMG → 公证并装订 DMG
+8. 从 `CHANGELOG.md` 抽出该版本说明（抽不到直接报错，不会发出空说明）→ 生成 `appcast.xml`
+9. `gh release create` 发布 Release（DMG + appcast.xml 一起上传）
+
+> 条件判断全部写在 shell 里，不用 `if: ${{ env.X != '' }}`。理由见文件头注释：
+> 某些上下文（如 `secrets`）在 step 级 `if` 里不可用，写错**不报错、只静默跳过**，
+> 是最难查的一类 CI 事故。`[ -n "${X}" ]` 没有这个歧义，本地还能照跑照验。
 
 `SUFeedURL` 指向 `.../releases/latest/download/appcast.xml`，所以**每次发版都会自动成为最新**，
-App 端「检查更新」不需要改任何配置。
+App 端「检查更新」不需要改任何配置 —— **前提是仓库公开（见 1.4）**。
 
 ## 3. 有账号 / 没账号的差别
 
@@ -119,8 +171,10 @@ App 端「检查更新」不需要改任何配置。
 |---|---|---|
 | 首次打开 | 双击即可 | 需右键 →「打开」，或到「系统设置 → 隐私与安全性」放行 |
 | 公证票据 | 已装订，离线也能验 | 无 |
-| Sparkle 自动更新 | 完整可用 | 可用，但新版本首次启动同样需要放行 |
+| Sparkle 自动更新 | 完整可用 | 通道本身可用，但新版本首次启动同样需要放行 |
 | 签名身份 | Developer ID Application（带安全时间戳） | 自签 `Suishouqian CodeSign` / ad-hoc |
+
+**这两列都还有个共同前提**：仓库必须是公开的，否则 appcast 匿名拉不到（见 1.4）。
 
 流水线是**双路径**的：配好上面那 5 个 secrets 就自动走正式签名 + 公证，没配也照样出可下载的 DMG。
 所以「先发起来」和「以后升级到正式签名」之间不需要改代码。
@@ -163,6 +217,16 @@ SwiftPM 会给自己套一层 sandbox-exec，在受限执行环境里会被拒�
 
 **Q: 版本漂移报错？**
 `VERSION` 与 `CHANGELOG.md` 顶部版本不一致。改版本号时两处一起改。
+
+**Q: 用户「检查更新」报错 / 一直说已是最新，但明明发了新版？**
+先按 1.4 验一下 feed 能不能匿名拉：
+
+```bash
+curl -sI https://github.com/xfanchuang-dot/suishouqian/releases/latest/download/appcast.xml | head -1
+```
+
+`404` = 仓库还是私有的（或还没发过任何 Release）。`200` 才是正常。
+注意 `releases/latest` 只认**最新的非预发布** Release；如果发了 prerelease，它不会成为 latest。
 
 **Q: 能改已发布版本的 DMG 吗？**
 不要。appcast 里每个 enclosure 都带签名，改了文件签名就对不上，已安装的 App 会拒绝更新。

@@ -2,6 +2,9 @@
 .build/
 dist/
 
+# 发布流水线/本地复刻时从 CHANGELOG 抽出的版本说明（临时文件，不提交）
+/release_notes.md
+
 # 构建脚本挪开的旧产物（不用 rm -rf，见 build.sh 第 1 步）
 _bak/
 
