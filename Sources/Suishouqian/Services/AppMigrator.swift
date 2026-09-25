@@ -618,7 +618,9 @@ class AppMigrator: @unchecked Sendable {
     }
     
     func moveItem(from src: String, to dst: String) async -> Bool {
-        return await Task.detached {
+        // 跨卷 move 实为整树复制，大应用要跑几分钟：必须 OffPool，
+        // Task.detached 占的是协作线程池（冻结事故根因类别，2026-09-23 审查修）
+        return await OffPool.run {
             try? FileManager.default.removeItem(atPath: dst)
             do {
                 try FileManager.default.moveItem(atPath: src, toPath: dst)
@@ -626,7 +628,7 @@ class AppMigrator: @unchecked Sendable {
             } catch {
                 return false
             }
-        }.value
+        }
     }
     
     /// 应用是否正在运行（读 Bundle ID 后查 NSRunningApplication，穿透软链接）
@@ -651,7 +653,9 @@ class AppMigrator: @unchecked Sendable {
     /// 删除与建链放在同一次授权里完成，用户只输一次密码。
     private func authenticatedRemove(source: String, linkTarget: String,
                                      createLink: Bool) async -> (success: Bool, error: String?) {
-        return await Task.detached {
+        // osascript 会阻塞等待用户输密码（可能很久）：必须 OffPool，
+        // 协作线程池被占死就是两次冻结事故的根因（2026-09-23 审查修）
+        return await OffPool.run {
             // 两层转义：先按 shell 单引号串转义，再按 AppleScript 双引号串转义。
             // 路径要穿过 AppleScript → shell 两层，只做一层会在含引号的路径上拼坏命令
             func escShell(_ s: String) -> String {
@@ -698,6 +702,6 @@ class AppMigrator: @unchecked Sendable {
             } catch {
                 return (false, error.localizedDescription)
             }
-        }.value
+        }
     }
 }

@@ -171,12 +171,25 @@ final class DataMigrator: @unchecked Sendable {
             return (false, reason)
         }
 
+        return await linkMigrate(title: item.title, site: site, externalPath: externalPath,
+                                 drivePath: drivePath,
+                                 sizeBytes: item.sizeBytes,
+                                 manifestName: Self.manifestName(for: item.id),
+                                 progress: progress)
+    }
+
+    /// 链接迁移共享核心（清单条目与自选文件夹走同一条路）：
+    /// 快照 → 复制 → 校验 → 备份原件 → 切换链接 → 记台账。
+    private func linkMigrate(title: String, site: String, externalPath: String,
+                             drivePath: String, sizeBytes: Int64, manifestName: String,
+                             progress: @escaping @Sendable (Double, String) -> Void)
+        async -> (success: Bool, error: String?) {
         // 快照保险（阻塞进程走 OffPool）
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
 
-        progress(0.1, "正在复制 \(item.title)...")
+        progress(0.1, "正在复制 \(title)...")
         guard await migrator.copyWithDitto(from: site, to: externalPath, progress: { pct in
-            progress(0.1 + pct * 0.6, "复制 \(item.title)...")
+            progress(0.1 + pct * 0.6, "复制 \(title)...")
         }) else {
             try? fileManager.removeItem(atPath: externalPath)
             return (false, "复制失败")
@@ -185,12 +198,12 @@ final class DataMigrator: @unchecked Sendable {
         progress(0.7, "正在校验完整性...")
         guard await migrator.verifyFiles(source: site, target: externalPath) else {
             try? fileManager.removeItem(atPath: externalPath)
-            AuditLog.append("数据迁移失败 \(item.title)：校验未通过，已回滚目标副本")
+            AuditLog.append("数据迁移失败 \(title)：校验未通过，已回滚目标副本")
             return (false, "文件校验失败，请重试")
         }
 
         progress(0.85, "备份原件并切换链接...")
-        let backupPath = "\(drivePath)/.suishouqian-backup/\(Self.manifestName(for: item.id))"
+        let backupPath = "\(drivePath)/.suishouqian-backup/\(manifestName)"
         try? fileManager.createDirectory(
             atPath: "\(drivePath)/.suishouqian-backup", withIntermediateDirectories: true)
         guard await migrator.moveItem(from: site, to: backupPath) else {
@@ -209,12 +222,12 @@ final class DataMigrator: @unchecked Sendable {
 
         if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {
             MigrationManifest.shared.record(
-                appName: Self.manifestName(for: item.id), linkPath: site,
+                appName: manifestName, linkPath: site,
                 volumeUUID: uuid,
                 relativePath: String(externalPath.dropFirst(drivePath.count + 1)),
                 kind: "data")
         }
-        AuditLog.append("数据迁移成功 \(item.title)：\(item.sizeBytes) 字节 → \(externalPath)")
+        AuditLog.append("数据迁移成功 \(title)：\(sizeBytes) 字节 → \(externalPath)")
         progress(1.0, "完成")
         return (true, nil)
     }
@@ -263,6 +276,129 @@ final class DataMigrator: @unchecked Sendable {
         AuditLog.append("数据回迁成功 \(item.title)：已恢复到内置盘并清理外置副本")
         progress(1.0, "完成")
         return (true, nil)
+    }
+
+    // MARK: - 自选文件夹迁移（v2.11.0）
+
+    /// 自选条目的 id 前缀，台账 appName = "Data-custom.<文件夹名>"
+    static let customIDPrefix = "custom."
+
+    /// 护栏（纯字符串逻辑，可测）：不允许自选迁移的路径给人话理由，允许则 nil。
+    ///
+    /// 自选入口是给「库外大文件夹」（~/Movies 的项目、下载的数据集这类）用的。
+    /// ~/Library 整个拒掉——偏好/沙盒/缓存/邮件那些高危目录的危险性是设计红线，
+    /// 该场景已由内置清单按"最稳做法"覆盖；桌面/文稿/下载是 TCC 保护 + 日常热用，
+    /// 链接化既会反复弹授权也拖慢日常，同样拒。
+    static func customFolderIssue(forPath path: String, home: String) -> String? {
+        let p = (path as NSString).standardizingPath
+        // standardizingPath 会把 /private/var/... 规范成 /var/...（符号链接的规范形），
+        // 系统根检查必须两种形态都跑，否则 /private 家族会被悄悄放行
+        let canonical = (path as NSString).resolvingSymlinksInPath
+        if p == "/" { return "不能迁移根目录" }
+        if p == home { return "不能迁移整个用户目录" }
+        if p.hasSuffix(".app") || p.hasSuffix(".bundle") {
+            return "应用请到「迁移」页处理，数据面板只搬普通文件夹"
+        }
+        let systemRoots = ["/System", "/private", "/var", "/etc", "/tmp",
+                           "/usr", "/bin", "/sbin",
+                           "/Library", "/Applications", "/Volumes"]
+        func hitsSystemRoot(_ q: String) -> Bool {
+            systemRoots.contains { q == $0 || q.hasPrefix($0 + "/") }
+        }
+        if hitsSystemRoot(p) || hitsSystemRoot(canonical) {
+            return "系统目录不能迁移"
+        }
+        // 前缀比对必须带 "/" 边界：/Volumes2 不能误伤 /Volumes 的规则，反之亦然
+        let homeLibrary = home + "/Library"
+        if p == homeLibrary || p.hasPrefix(homeLibrary + "/") {
+            return "资源库（Library）里的数据风险高，工具按内置清单处理，不开放自选"
+        }
+        for name in ["Desktop", "Documents", "Downloads"] {
+            let dir = home + "/" + name
+            if p == dir || p.hasPrefix(dir + "/") {
+                return "桌面/文稿/下载是日常热用目录，搬外置盘会拖慢日常且反复弹授权，不开放自选"
+            }
+        }
+        return nil
+    }
+
+    /// 迁移用户自选的任意文件夹到外置盘（复用清单迁移同一管线与台账约定）。
+    /// 先跑护栏与体检式预检，再进 linkMigrate 共享核心。
+    func migrateCustomFolder(at rawPath: String, drivePath: String,
+                             progress: @escaping @Sendable (Double, String) -> Void)
+        async -> (success: Bool, error: String?) {
+        let path = (rawPath as NSString).standardizingPath
+        let name = (path as NSString).lastPathComponent
+        let title = "自选 · \(name)"
+
+        // 护栏与体积预检含 du（阻塞子进程）：OffPool
+        let precheck = await OffPool.run { [self] () -> (reason: String?, size: Int64) in
+            guard let issue = Self.customFolderIssue(forPath: path, home: NSHomeDirectory()) else {
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
+                    return ("选中的不是文件夹", 0)
+                }
+                let attrs = try? fileManager.attributesOfItem(atPath: path)
+                if (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink {
+                    return ("这个位置已经是链接，无需迁移", 0)
+                }
+                guard fileManager.isReadableFile(atPath: path) else {
+                    return ("文件夹无法读取（可能受系统保护）", 0)
+                }
+                let size = duSize(path)
+                guard size >= 100 * 1_048_576 else {
+                    return ("体积小于 100MB，不值得迁移", size)
+                }
+                return (nil, size)
+            }
+            return (issue, 0)
+        }
+        if let reason = precheck.reason {
+            AuditLog.append("拒绝自选迁移 \(title)：\(reason)")
+            return (false, reason)
+        }
+        if let reason = migrator.validateTarget(drivePath: drivePath, appSize: precheck.size) {
+            AuditLog.append("拒绝自选迁移 \(title)：\(reason)")
+            return (false, reason)
+        }
+        let id = Self.customIDPrefix + name
+        let externalPath = "\(Self.dataRoot(on: drivePath))/\(Self.manifestName(for: id))"
+        // 外置盘目标重名 = 另一个同名文件夹已迁过：宁可拒绝也不含糊覆盖
+        if fileManager.fileExists(atPath: externalPath) {
+            return (false, "外置盘已有同名数据文件夹，请先处理旧数据或改用其他名称的文件夹")
+        }
+        return await linkMigrate(title: title, site: path, externalPath: externalPath,
+                                 drivePath: drivePath, sizeBytes: precheck.size,
+                                 manifestName: Self.manifestName(for: id),
+                                 progress: progress)
+    }
+
+    /// 已迁移的自选文件夹条目（台账 kind=data 且 id 以 custom. 开头）。
+    /// 与清单条目同型，回迁复用 restoreData。
+    func scanCustomItems() async -> [DataLocationItem] {
+        await OffPool.run { [self] in
+            MigrationManifest.shared.all().compactMap { entry in
+                guard entry.kind == "data",
+                      entry.appName.hasPrefix(Self.manifestPrefix + Self.customIDPrefix)
+                else { return nil }
+                let id = String(entry.appName.dropFirst(Self.manifestPrefix.count))
+                let path = entry.linkPath
+                guard let attrs = try? fileManager.attributesOfItem(atPath: path),
+                      let type = attrs[.type] as? FileAttributeType,
+                      type == .typeSymbolicLink else { return nil }
+                var linkBroken = false
+                if let dest = try? fileManager.destinationOfSymbolicLink(atPath: path) {
+                    linkBroken = !fileManager.fileExists(atPath: dest)
+                }
+                let folder = String(id.dropFirst(Self.customIDPrefix.count))
+                return DataLocationItem(
+                    id: id, title: "自选 · \(folder)", path: path,
+                    sizeBytes: duSize(path), isSymlink: true,
+                    linkBroken: linkBroken, accessible: true,
+                    managedByUs: true, ownerRunning: false,
+                    relocation: .symlink, note: "自选文件夹迁移")
+            }
+        }
     }
 
     // MARK: - 离线分叉对账（v2.3）

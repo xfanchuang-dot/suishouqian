@@ -27,7 +27,11 @@ struct HealthCheckView: View {
                 linkSection
                 if !usageSuggestions.isEmpty { usageSection }
                 if !launchAgents.isEmpty { launchAgentSection }
-                if spotlightIndexing == true { spotlightSection }
+                if spotlightIndexing == true {
+                    spotlightSection
+                } else if spotlightIndexing == false {
+                    spotlightOffSection
+                }
                 if !regressions.isEmpty { regressionSection }
                 if !backups.isEmpty { backupSection }
                 if !residues.isEmpty { residueSection }
@@ -141,7 +145,7 @@ struct HealthCheckView: View {
             HStack {
                 SectionHeader(title: "高频应用 · 建议搬回内置盘", systemImage: "speedometer")
                 Spacer()
-                Text("近 \(LaunchUsageTracker.suggestDays) 天经常启动，却要靠外置盘才能打开")
+                Text("近 \(LaunchUsageTracker.suggestDays) 天经常启动，却要靠外置盘才能打开（随手迁运行时的启动才会记账）")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -256,6 +260,27 @@ struct HealthCheckView: View {
                         .controlSize(.small)
                 }
             }
+        }
+        .cardStyle()
+    }
+
+    /// 索引已关闭态：一行收尾 + 恢复入口（关闭不该是单行道）
+    private var spotlightOffSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "Spotlight 索引已关闭", systemImage: "checkmark.seal")
+                Spacer()
+                if isTogglingSpotlight {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("恢复索引") { toggleSpotlight(true) }
+                        .controlSize(.small)
+                        .help("恢复后这块盘重新参与 Spotlight 搜索（会重新全盘扫描一段时间）")
+                }
+            }
+            Text("这块盘不参与 Spotlight 搜索，不再被后台扫描（省电护盘）。想恢复随时点上面的按钮。")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
         }
         .cardStyle()
     }
@@ -589,6 +614,8 @@ struct HealthCheckView: View {
             isTogglingSpotlight = false
             if result.success {
                 spotlightIndexing = enable
+                // 用户主动改了系统行为，进操作台账
+                AuditLog.append("Spotlight 索引已\(enable ? "恢复" : "关闭")：\(drive)")
             } else if result.error != "已取消授权" {
                 let alert = NSAlert()
                 alert.messageText = "没能修改索引设置"

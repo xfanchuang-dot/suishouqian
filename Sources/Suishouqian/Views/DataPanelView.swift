@@ -5,12 +5,16 @@ struct DataPanelView: View {
     @EnvironmentObject var appState: AppState
 
     @State private var items: [DataMigrator.DataLocationItem] = []
+    @State private var customItems: [DataMigrator.DataLocationItem] = []
     @State private var divergences: [DataMigrator.DataDivergence] = []
     @State private var isScanning = false
     @State private var activeTaskTitle: String?
     @State private var lastError: String?
 
     private let dataMigrator = DataMigrator()
+
+    /// 清单条目 + 已迁移的自选文件夹（排在后面）
+    private var displayItems: [DataMigrator.DataLocationItem] { items + customItems }
 
     var body: some View {
         ScrollView {
@@ -20,11 +24,11 @@ struct DataPanelView: View {
 
                 if !divergences.isEmpty { divergenceSection }
 
-                ForEach(items) { item in
+                ForEach(displayItems) { item in
                     row(item)
                 }
 
-                if items.isEmpty && !isScanning {
+                if displayItems.isEmpty && !isScanning {
                     emptyState
                 }
 
@@ -49,6 +53,8 @@ struct DataPanelView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             } else {
+                Button("迁移其他文件夹…") { pickAndMigrateCustomFolder() }
+                    .controlSize(.small)
                 Button("重新扫描") { rescan() }
                     .controlSize(.small)
             }
@@ -56,7 +62,7 @@ struct DataPanelView: View {
     }
 
     private var hint: some View {
-        Text("只列出已知安全的数据目录，搬迁走两条路：优先用应用自带的位置设置（零风险），苹果没给入口的才用链接迁移。浏览器、聊天工具等日常热用的数据不建议搬，外置盘会拖慢它们。")
+        Text("列出已知安全的数据目录，优先用应用自带的位置设置（零风险），苹果没给入口的才用链接迁移；也可以用「迁移其他文件夹」自选库外的大文件夹（≥100MB），系统目录、资源库、桌面/文稿/下载会被拦下。浏览器、聊天工具等日常热用的数据不建议搬。")
             .font(.system(size: 11))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -205,12 +211,53 @@ struct DataPanelView: View {
         Task.detached {
             _ = dataMigrator.healDataLinks()   // 打开面板先尝试接上断掉的数据链接
             let scanned = await dataMigrator.scanDataLocations()
+            let custom = await dataMigrator.scanCustomItems()
             let diverged = await dataMigrator.checkDivergences()
             await MainActor.run {
                 items = scanned
+                customItems = custom
                 divergences = diverged
                 isScanning = false
             }
+        }
+    }
+
+    // MARK: - 自选文件夹迁移（v2.11.0）
+
+    /// 选一个库外大文件夹迁到外置盘。护栏在 migrateCustomFolder 里，
+    /// 这里只负责选目录、知情确认与进度显示。
+    private func pickAndMigrateCustomFolder() {
+        guard let drive = appState.externalDrive, activeTaskTitle == nil, !isScanning else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "选择要搬到外置盘的文件夹（≥100MB；系统目录、资源库、桌面/文稿/下载会被拦下）"
+        panel.prompt = "选择"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let path = url.path
+
+        let alert = NSAlert()
+        alert.messageText = "把这个文件夹搬到外置盘？"
+        alert.informativeText = """
+        \(path)
+
+        将复制到外置盘、校验后在原位置建链接指回外置盘，原件留底可回滚。
+        迁移前请确认没有程序正在往这个文件夹写数据。
+        """
+        alert.addButton(withTitle: "开始迁移")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        activeTaskTitle = "迁移 自选 · \(url.lastPathComponent)..."
+        Task { @MainActor in
+            let result = await dataMigrator.migrateCustomFolder(
+                at: path, drivePath: drive.mountPoint) { _, _ in }
+            await MainActor.run {
+                activeTaskTitle = nil
+                if !result.success { lastError = result.error }
+            }
+            rescan()
         }
     }
 
