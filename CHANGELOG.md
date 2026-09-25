@@ -1,5 +1,17 @@
 # 更新日志
 
+## 2.15.0 — 2026-09-26
+
+### 架构重构（续）：拆分体检页上帝视图（行为零变化，120 → 122 测试）
+
+HealthCheckView 此前 814 行、40 余个成员，是全项目最大文件。按职责拆为四份，最大 290 行：
+
+- **HealthCheckModel.swift（新，49 行）**：`@MainActor ObservableObject` 承载全部检查结果与装载逻辑（消费 CheckEngine 的 CheckReport）。注入 MockChecker 引擎即可脱离视图断言装载与标志复位——检查结果的消费路径首次可测
+- **HealthCheckView.swift（212 行）**：页面骨架 + 链接分区 + 链接修复动作 + 空状态
+- **HealthCheckView+Advisors.swift（290 行）**：建议类分区（高频应用/长期未用/开机自启/Spotlight 开关）及其动作
+- **HealthCheckView+Issues.swift（278 行）**：问题类分区（迁移被撤销/备份审计/卸载残留/大文件）及其清理动作
+- 坑记：跨文件 extension 引用的成员不能 private（usageSection/backupSection/model/isTogglingSpotlight/runCheck 共 5 处去过 private）；全部动作为原文搬运，仅状态引用改经 model，行为零变化
+
 ## 2.14.0 — 2026-09-25
 
 ### 架构重构场（行为零变化，115 → 120 测试全绿）
