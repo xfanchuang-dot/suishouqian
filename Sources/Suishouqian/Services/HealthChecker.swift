@@ -163,6 +163,15 @@ class HealthChecker: @unchecked Sendable {
         return results
     }
 
+    /// v2.10.0 开机自启体检：launchd 配置里引用了 /Volumes 的条目。
+    /// 挂载名单读 /Volumes 目录——判断"卷在线"对照名单，不 stat 路径本身
+    /// （离线卷上 stat 得到的"不存在"与"路径写错"无法区分）。
+    func checkLaunchAgents() -> [LaunchAgentIssue] {
+        let mounted = Set((try? fileManager.contentsOfDirectory(atPath: "/Volumes")) ?? [])
+        return BootAgentScanner.scan(roots: BootAgentScanner.defaultRoots,
+                                     mountedVolumes: mounted)
+    }
+
     /// 备份保留天数（设置页可调）。此前体检里硬编码 7 天，
     /// 用户把保留期设成 90 天后仍会被报"超过 7 天可清理"，口径必须与设置一致
     var backupRetentionDays: Int {

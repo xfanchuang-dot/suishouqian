@@ -1,5 +1,16 @@
 # 更新日志
 
+## 2.10.0 — 2026-09-23
+
+### 新增：开机自启体检 + Spotlight 排除指引（链路体感三期）
+
+- **开机自启体检**：扫描 `~/Library/LaunchAgents`、`/Library/LaunchAgents`、`/Library/LaunchDaemons`（/System 下的苹果项不碰），解析 plist 的 Program / ProgramArguments / WatchPaths / QueueDirectories，凡引用了 `/Volumes/...` 的条目进体检页新分区「开机自启指向外置盘」，按在线状态与类型给一句话诊断——守护项（开机即运行、早于任何盘挂载）标"必然启动失败"，自启项标"登录时失败并可能弹错误框"。**只陈列与指路**（Finder 定位 / 打开登录项设置 / 拷贝路径），不代用户删改别的应用的 launchd 配置；坏 plist 跳过不让体检中断
+- **Spotlight 指引**：外置盘被索引时（`mdutil -s` 判定）体检页出现分区，讲清代价（搜索混入外置副本、后台扫描耗盘耗电）并给一键「关闭这块盘的索引」——知情确认后走 osascript 管理员提权执行 `mdutil -i off`，与迁移同一套提权管道纪律（stdout 丢弃、stderr 先读后等）；另附「复制关闭命令」。代价同样讲明：盘上内容不再进 Spotlight 搜索
+- 测试 82 → **93**：引用抽取（四类键、非卷路径过滤、坏数据不崩、二进制 plist）、卷名提取与在线判定、目录扫描（只报卷引用项、坏文件跳过、离线判定）、守护项文案严重度、Spotlight 状态解析与命令行转义
+
+### 基建
+- **build.sh 构建 scratch 迁至内置盘**（`~/Library/Caches/suishouqian-scratch`）：SwiftPM 的 build.db（SQLite）在 Samsung990 USB 盘上收尾落盘必报 disk I/O error 且退出码 1（"Build complete!" 是假象），`set -e` 导致编译后静默跳过打包安装；直接 sqlite3/dd 写同盘正常，纯 SwiftPM 触发，随删随建只救一次。改用内置盘 scratch 后构建安装链路稳定且更快
+
 ## 2.9.0 — 2026-09-23
 
 ### 新增：使用频率顾问（链路体感二期）

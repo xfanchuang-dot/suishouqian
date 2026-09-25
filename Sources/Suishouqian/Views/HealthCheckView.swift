@@ -10,6 +10,9 @@ struct HealthCheckView: View {
     @State private var bigFiles: [BigFileItem] = []
     @State private var regressions: [RegressionItem] = []
     @State private var usageSuggestions: [UsageSuggestion] = []
+    @State private var launchAgents: [LaunchAgentIssue] = []
+    @State private var spotlightIndexing: Bool?
+    @State private var isTogglingSpotlight = false
     @State private var isChecking = false
     @State private var repairedCount = 0
     @State private var healedCount = 0
@@ -23,13 +26,16 @@ struct HealthCheckView: View {
 
                 linkSection
                 if !usageSuggestions.isEmpty { usageSection }
+                if !launchAgents.isEmpty { launchAgentSection }
+                if spotlightIndexing == true { spotlightSection }
                 if !regressions.isEmpty { regressionSection }
                 if !backups.isEmpty { backupSection }
                 if !residues.isEmpty { residueSection }
                 if !bigFiles.isEmpty { bigFileSection }
                 if links.isEmpty && backups.isEmpty && residues.isEmpty
                     && bigFiles.isEmpty && regressions.isEmpty
-                    && usageSuggestions.isEmpty && !isChecking { emptyState }
+                    && usageSuggestions.isEmpty && launchAgents.isEmpty
+                    && !isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
@@ -165,6 +171,90 @@ struct HealthCheckView: View {
                         .help("搬回后应用就在内置盘本地，不再依赖外置盘")
                 }
                 .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
+    }
+
+    /// 开机自启体检（v2.10.0）：launchd 配置里引用了外置盘的条目。
+    /// 只陈列与指路，不代用户删改别的应用的启动配置。
+    private var launchAgentSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "开机自启指向外置盘", systemImage: "powerplug.fill")
+                Spacer()
+                Text("盘没插时这些自启会失败，守护项更是开机必失败")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(launchAgents) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: item.kind == .daemon
+                          ? "gearshape.fill" : "person.crop.circle")
+                        .foregroundColor(item.volumesOnline ? .orange : .red)
+                        .font(.system(size: 11))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.label)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Text("\(item.kind.label) → \(item.references.first ?? "")")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Text(item.verdict.text)
+                        .font(.system(size: 11))
+                        .foregroundColor(item.verdict.severe ? .red : .orange)
+                    Menu("处理") {
+                        Button("在 Finder 中显示配置文件") {
+                            NSWorkspace.shared.activateFileViewerSelecting(
+                                [URL(fileURLWithPath: item.plistPath)])
+                        }
+                        Button("打开系统设置 · 登录项") {
+                            if let url = URL(string:
+                                "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        Button("拷贝配置路径") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(item.plistPath, forType: .string)
+                        }
+                    }
+                    .controlSize(.small)
+                    .help("随手迁不代改别人的启动配置：可在登录项设置里关闭，或在 Finder 里自行处理")
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
+    }
+
+    /// Spotlight 索引指引（v2.10.0）：外置盘被全量索引时给出关闭入口
+    private var spotlightSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "Spotlight 正在索引外置盘", systemImage: "magnifyingglass")
+                Spacer()
+                Button("复制关闭命令") { copySpotlightCommand() }
+                    .controlSize(.small)
+            }
+
+            Text("搜索应用名时外置盘副本会和内置入口一起出现（两个结果点哪个看运气），后台持续扫描也白耗盘和电。关掉这块盘的索引是外置 SSD 的标准养护；代价是盘上的东西不再出现在 Spotlight 搜索里。")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            HStack {
+                Spacer()
+                if isTogglingSpotlight {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("关闭这块盘的索引（需管理员授权）") { toggleSpotlight(false) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                }
             }
         }
         .cardStyle()
@@ -380,6 +470,8 @@ struct HealthCheckView: View {
         var regressions: [RegressionItem] = []
         var residues: [ResidueItem] = []
         var bigFiles: [BigFileItem] = []
+        var launchAgents: [LaunchAgentIssue] = []
+        var spotlightIndexing: Bool?
         var healedCount = 0
     }
 
@@ -399,9 +491,12 @@ struct HealthCheckView: View {
                 if let drive {
                     result.backups = checker.checkBackups(drivePath: drive)
                     result.regressions = checker.checkRegressions(drivePath: drive)
+                    // mdutil 是阻塞子进程，和其它体检项一起在 OffPool 跑
+                    result.spotlightIndexing = SpotlightCheck.status(for: drive)
                 }
                 result.residues = checker.checkResidues(drivePath: drive)
                 result.bigFiles = checker.scanBigFiles()
+                result.launchAgents = checker.checkLaunchAgents()
                 return result
             }
             await MainActor.run {
@@ -410,6 +505,8 @@ struct HealthCheckView: View {
                 regressions = snapshot.regressions
                 residues = snapshot.residues
                 bigFiles = snapshot.bigFiles
+                launchAgents = snapshot.launchAgents
+                spotlightIndexing = snapshot.spotlightIndexing
                 healedCount = snapshot.healedCount
                 isChecking = false
             }
@@ -463,6 +560,49 @@ struct HealthCheckView: View {
             // 应用已不在外置盘，重新对账——它应当从建议列表里消失
             computeUsage()
         }
+    }
+
+    // MARK: - Spotlight 动作（v2.10.0）
+
+    /// 关闭/恢复外置盘索引：先知情确认（改的是系统行为，必须讲清代价），
+    /// 再提权执行。osascript 会阻塞等密码输入，放 OffPool 不占协作池。
+    private func toggleSpotlight(_ enable: Bool) {
+        guard let drive = appState.externalDrive?.mountPoint, !isTogglingSpotlight else { return }
+        let alert = NSAlert()
+        alert.messageText = enable ? "恢复这块盘的 Spotlight 索引？"
+                                   : "关闭这块盘的 Spotlight 索引？"
+        alert.informativeText = enable
+            ? "恢复后 Spotlight 会重新扫描整块盘（期间盘会持续读写），盘上内容重新可被搜索。"
+            : "关闭后，这块盘上的内容不再出现在 Spotlight 搜索结果里，搜索也不再混入外置盘副本；后台扫描停止。想恢复随时可以再来这里操作。"
+        alert.addButton(withTitle: enable ? "恢复索引" : "关闭索引")
+        alert.addButton(withTitle: "取消")
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        isTogglingSpotlight = true
+        // osascript 会阻塞等用户输密码（可能很久）：必须走 OffPool，
+        // Task.detached 占的是协作线程池——那是冻结事故的根因类别
+        Task {
+            let result = await OffPool.run {
+                SpotlightCheck.setIndexing(enable, mountPoint: drive)
+            }
+            isTogglingSpotlight = false
+            if result.success {
+                spotlightIndexing = enable
+            } else if result.error != "已取消授权" {
+                let alert = NSAlert()
+                alert.messageText = "没能修改索引设置"
+                alert.informativeText = result.error ?? "未知错误"
+                alert.runModal()
+            }
+        }
+    }
+
+    private func copySpotlightCommand() {
+        guard let drive = appState.externalDrive?.mountPoint else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            SpotlightCheck.commandLine(enabled: false, mountPoint: drive), forType: .string)
     }
 
     /// 重新迁移被撤销的应用（镜像 AppRowView 的单应用迁移流程）
