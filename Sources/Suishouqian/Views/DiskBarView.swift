@@ -5,6 +5,9 @@ struct DiskBarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// mountPoint → 链路体检结果（协议/格式/结论）
     @State private var linkInfo: [String: LinkInfo] = [:]
+    /// mountPoint → 实测速度文案（手动触发，不随扫描自动跑——测速要写几百 MB）
+    @State private var speedText: [String: String] = [:]
+    @State private var speedRunning: [String: Bool] = [:]
 
     var body: some View {
         HStack(spacing: 12) {
@@ -26,6 +29,7 @@ struct DiskBarView: View {
         .onChange(of: appState.externalDrive?.mountPoint) { _, new in
             guard let new, !new.isEmpty else { return }
             probeLink(mount: new)
+            speedText[new] = nil   // 可能换了设备，旧速度数字作废
         }
     }
 
@@ -102,6 +106,11 @@ struct DiskBarView: View {
                 .foregroundColor(v.positive ? .secondary : .orange)
                 .help(v.text)   // 行宽不够截断时，悬停看全文
             }
+
+            // 实测速度行（仅外置盘）：协议不等于体感，数字才有依据
+            if drive.isExternal {
+                speedRow(mount: drive.mountPoint)
+            }
         }
         .padding(12)
         .background(
@@ -113,6 +122,48 @@ struct DiskBarView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.06))
         )
+    }
+
+    // MARK: - 实测盘速（v2.12.0）
+
+    @ViewBuilder
+    private func speedRow(mount: String) -> some View {
+        HStack(spacing: 5) {
+            if let text = speedText[mount] {
+                Image(systemName: "speedometer")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                Text(text)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+                    .foregroundColor(.secondary)
+                    .help(text)
+            }
+            Spacer()
+            if speedRunning[mount] == true {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Button("测速") { runSpeedTest(mount: mount) }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 10))
+                    .help("写 256MB 临时文件并读回实测，测完即删；点一次磨一次盘，按需点")
+            }
+        }
+    }
+
+    /// dd 是阻塞子进程：OffPool 跑（铁律），回主线程只做赋值
+    private func runSpeedTest(mount: String) {
+        guard speedRunning[mount] != true else { return }
+        speedRunning[mount] = true
+        speedText[mount] = nil
+        Task {
+            let result = await OffPool.run { DiskSpeedTest.run(mountPoint: mount) }
+            speedRunning[mount] = false
+            speedText[mount] = result.map {
+                "写入 \(Int($0.writeMBps)) · 读取 \(Int($0.readMBps)) MB/s"
+            } ?? "测速失败（盘可能只读或已满）"
+        }
     }
 
     // MARK: - 外置盘未连接

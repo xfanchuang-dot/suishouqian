@@ -12,6 +12,7 @@ struct HealthCheckView: View {
     @State private var usageSuggestions: [UsageSuggestion] = []
     @State private var launchAgents: [LaunchAgentIssue] = []
     @State private var spotlightIndexing: Bool?
+    @State private var unusedApps: [UnusedAppInfo] = []
     @State private var isTogglingSpotlight = false
     @State private var isChecking = false
     @State private var repairedCount = 0
@@ -26,6 +27,7 @@ struct HealthCheckView: View {
 
                 linkSection
                 if !usageSuggestions.isEmpty { usageSection }
+                if !unusedApps.isEmpty { unusedSection }
                 if !launchAgents.isEmpty { launchAgentSection }
                 if spotlightIndexing == true {
                     spotlightSection
@@ -39,7 +41,7 @@ struct HealthCheckView: View {
                 if links.isEmpty && backups.isEmpty && residues.isEmpty
                     && bigFiles.isEmpty && regressions.isEmpty
                     && usageSuggestions.isEmpty && launchAgents.isEmpty
-                    && !isChecking { emptyState }
+                    && unusedApps.isEmpty && !isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
@@ -176,6 +178,52 @@ struct HealthCheckView: View {
                 }
                 .padding(.vertical, 2)
             }
+        }
+        .cardStyle()
+    }
+
+    /// 长期未用（v2.12.0）：住在外置盘、很久没打开的应用。
+    /// 数据来自系统的 kMDItemLastUsedDate；关了盘的 Spotlight 索引后拿不到，自动跳过。
+    private var unusedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "长期未用 · 外置盘", systemImage: "moon.zzz")
+                Spacer()
+                Text("超过 \(UnusedAppsCheck.unusedDays) 天没打开，占着盘面却想不起来用")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(unusedApps) { info in
+                HStack(spacing: 8) {
+                    if let icon = info.app.icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .frame(width: 18, height: 18)
+                    } else {
+                        Image(systemName: "app")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 11))
+                    }
+                    Text(info.app.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text("上次打开 \(info.daysSinceUse) 天前 · \(info.app.sizeFormatted)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("搬回内置盘") { moveBackExternal(info.app) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(appState.isMigrationActive || appState.externalDrive == nil)
+                        .help("既然不常用，搬回内置盘把外置盘空间腾出来")
+                }
+                .padding(.vertical, 2)
+            }
+
+            Text("数据来自系统记录的最近使用时间。若关闭了这块盘的 Spotlight 索引，系统会停止记账，此处以后将不再出现建议。")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
         }
         .cardStyle()
     }
@@ -497,12 +545,14 @@ struct HealthCheckView: View {
         var bigFiles: [BigFileItem] = []
         var launchAgents: [LaunchAgentIssue] = []
         var spotlightIndexing: Bool?
+        var unusedApps: [UnusedAppInfo] = []
         var healedCount = 0
     }
 
     private func runCheck() {
         isChecking = true
         let drive = appState.externalDrive?.mountPoint
+        let apps = appState.apps
         Task.detached {
             // 体检要跑大量 du / find（阻塞子进程）。整体放 OffPool，
             // 不占 Swift 协作线程池——那是 2026-08-26 冻结事故的根因类别
@@ -522,6 +572,8 @@ struct HealthCheckView: View {
                 result.residues = checker.checkResidues(drivePath: drive)
                 result.bigFiles = checker.scanBigFiles()
                 result.launchAgents = checker.checkLaunchAgents()
+                // 每个外置盘应用跑一次 mdls，同为子进程慢活
+                result.unusedApps = UnusedAppsCheck.scanSync(apps: apps)
                 return result
             }
             await MainActor.run {
@@ -532,6 +584,7 @@ struct HealthCheckView: View {
                 bigFiles = snapshot.bigFiles
                 launchAgents = snapshot.launchAgents
                 spotlightIndexing = snapshot.spotlightIndexing
+                unusedApps = snapshot.unusedApps
                 healedCount = snapshot.healedCount
                 isChecking = false
             }
@@ -576,6 +629,8 @@ struct HealthCheckView: View {
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)
                 await state.scanApps()
+                // 应用已回内置盘：两个建议分区都要立即摘掉它，不等下次体检
+                unusedApps.removeAll { $0.app.path == app.path }
             } else if var t = state.migrationTask {
                 t.status = .failed(result.error ?? "未知错误")
                 state.migrationTask = t

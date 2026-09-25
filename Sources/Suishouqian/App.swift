@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu(title: "随手迁")
         let defs: [(title: String, tag: Int)] = [
-            ("立即扫描", 0), ("迁移面板", 1), ("体检面板", 2), ("数据面板", 3),
+            ("立即扫描", 0), ("总览面板", 1), ("迁移面板", 2), ("体检面板", 3), ("数据面板", 4),
         ]
         for (title, tag) in defs {
             let item = NSMenuItem(title: title,
@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case 1: state.activePanel = 0
         case 2: state.activePanel = 1
         case 3: state.activePanel = 2
+        case 4: state.activePanel = 3
         default: break
         }
     }
@@ -90,11 +91,13 @@ struct SuishouqianApp: App {
 
                 Divider()
 
-                Button("迁移面板") { appState.activePanel = 0 }
+                Button("总览面板") { appState.activePanel = 0 }
+                    .keyboardShortcut("0", modifiers: .command)
+                Button("迁移面板") { appState.activePanel = 1 }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("体检面板") { appState.activePanel = 1 }
+                Button("体检面板") { appState.activePanel = 2 }
                     .keyboardShortcut("2", modifiers: .command)
-                Button("数据面板") { appState.activePanel = 2 }
+                Button("数据面板") { appState.activePanel = 3 }
                     .keyboardShortcut("3", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
@@ -120,7 +123,7 @@ class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var migrationTask: MigrationTask?
     @Published var builtinDrive: DriveInfo?
-    /// 右侧面板 0 迁移 / 1 体检（⌘1/⌘2 菜单可切，ContentView 绑定）
+    /// 右侧面板 0 总览 / 1 迁移 / 2 体检 / 3 数据（⌘0~⌘3 可切，ContentView 绑定）
     @Published var activePanel = 0
     
     let scanner = AppScanner()
