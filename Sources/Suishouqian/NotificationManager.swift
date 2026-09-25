@@ -23,6 +23,16 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
             sound: .default
         )
     }
+
+    /// 卸载完成通知（v2.13.0）：不能用迁移完成的文案——那会告诉用户
+    /// "已迁移到外置硬盘"，而卸载恰恰是把它从盘上拿走
+    func notifyUninstalled(appName: String) {
+        send(
+            title: "卸载完成",
+            body: "「\(appName)」已卸载，应用与备份在废纸篓里，反悔可拖回",
+            sound: .default
+        )
+    }
     
     /// 迁移失败通知
     func notifyMigrationFailed(appName: String, error: String) {

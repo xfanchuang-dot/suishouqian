@@ -71,10 +71,14 @@ final class DataMigrationTests: XCTestCase {
         for location in DataMigrator.catalog {
             XCTAssertTrue(location.homeRelativePath.hasPrefix("~/"),
                           "清单路径必须以 ~ 开头（只碰用户目录）：\(location.id)")
-            // 红线：任何清单条目不得直接指向偏好设置或缓存目录
+            // 红线：链接迁移（symlink）条目不得指向偏好设置/缓存/沙盒容器——那是工具要动手搬的；
+            // native 指引条目只指路不动手，允许指进容器（docker-disk、wechat-data），
+            // 旧 id 白名单已泛化为按 relocation 类型判断
             let forbidden = ["Preferences", "/Caches", "Containers/"]
-            let violations = forbidden.filter { location.homeRelativePath.contains($0) && location.id != "docker-disk" }
-            XCTAssertTrue(violations.isEmpty, "清单条目触碰保护目录：\(location.id)")
+            let violations = forbidden.filter {
+                location.homeRelativePath.contains($0) && !location.relocation.isNativeGuide
+            }
+            XCTAssertTrue(violations.isEmpty, "链接迁移条目触碰保护目录：\(location.id)")
         }
     }
 

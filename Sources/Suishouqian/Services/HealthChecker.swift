@@ -606,20 +606,61 @@ class HealthChecker: @unchecked Sendable {
         for dir in dirs {
             for item in (try? fileManager.contentsOfDirectory(atPath: dir)) ?? []
             where item.hasSuffix(".app") {
-                let name = String(item.dropLast(4)).lowercased()
-                signatures.insert(name)
-                signatures.insert(name.replacingOccurrences(of: " ", with: ""))
-                if let plist = NSDictionary(contentsOfFile: "\(dir)/\(item)/Contents/Info.plist"),
-                   let bid = plist["CFBundleIdentifier"] as? String {
-                    signatures.insert(bid.lowercased())
-                    let parts = bid.lowercased().split(separator: ".")
-                    if parts.count >= 2 {
-                        signatures.insert("\(parts[0]).\(parts[1])")
-                    }
-                }
+                let name = String(item.dropLast(4))
+                let bid = (NSDictionary(contentsOfFile: "\(dir)/\(item)/Contents/Info.plist")
+                    as? [String: Any])?["CFBundleIdentifier"] as? String
+                signatures.formUnion(Self.appSignatures(name: name, bundleID: bid))
             }
         }
         return signatures
+    }
+
+    /// 单个应用的特征集（纯逻辑，可测）：名字及其去空格变体 + BundleID + 其前两段。
+    /// 在装应用认领目录（checkResidues）与卸载后找残留（residues(forUninstalledApp:)）
+    /// 用的是同一套匹配定义，改一处两边同步。
+    static func appSignatures(name: String, bundleID: String?) -> Set<String> {
+        var signatures = Set<String>()
+        let key = name.lowercased()
+        signatures.insert(key)
+        signatures.insert(key.replacingOccurrences(of: " ", with: ""))
+        if let bid = bundleID?.lowercased(), !bid.isEmpty {
+            signatures.insert(bid)
+            let parts = bid.split(separator: ".")
+            if parts.count >= 2 {
+                signatures.insert("\(parts[0]).\(parts[1])")
+            }
+        }
+        return signatures
+    }
+
+    /// 卸载一条龙（v2.13.0）：应用刚被卸载，找出它在 ~/Library 留下的数据目录。
+    /// 与体检的残留扫描不同：阈值降到 10MB（卸载场景用户有明确意图，小残留也有价值），
+    /// 且只报匹配被卸载应用自己的目录。清理仍由用户确认后逐项入废纸篓。
+    func residues(forUninstalledApp name: String, bundleID: String?) -> [ResidueItem] {
+        let signatures = Self.appSignatures(name: name, bundleID: bundleID)
+        guard !signatures.isEmpty else { return [] }
+
+        let home = NSHomeDirectory()
+        var results: [ResidueItem] = []
+        for (location, base) in [
+            ("Application Support", "\(home)/Library/Application Support"),
+            ("Caches", "\(home)/Library/Caches"),
+        ] {
+            let items = (try? fileManager.contentsOfDirectory(atPath: base)) ?? []
+            for item in items {
+                if item.lowercased().hasPrefix("com.apple.") { continue }
+                let full = "\(base)/\(item)"
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: full, isDirectory: &isDir),
+                      isDir.boolValue else { continue }
+                guard residueMatches(item, signatures: signatures) else { continue }
+                let size = duSize(full)
+                guard size >= 10 * 1_048_576 else { continue }
+                results.append(ResidueItem(name: item, path: full,
+                                           sizeBytes: size, location: location))
+            }
+        }
+        return results.sorted { $0.sizeBytes > $1.sizeBytes }
     }
 
     /// 目录名是否可被在装应用认领：精确匹配不限长度；前缀互含仅对 ≥4 字符的键（防误匹配）

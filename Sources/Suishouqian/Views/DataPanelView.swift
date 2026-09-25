@@ -78,7 +78,7 @@ struct DataPanelView: View {
                 Text(item.title)
                     .font(.system(size: 13, weight: .medium))
 
-                Text(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+                Text(item.sizeDisplay)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
 

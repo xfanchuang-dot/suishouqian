@@ -78,6 +78,15 @@ struct AppRowView: View {
 
                 适合：看不出更新方式的应用，或曾经被更新顶掉过迁移的应用。
                 """)
+
+                Button("卸载") {
+                    uninstallApp()
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.red)
+                .font(.system(size: 11))
+                .disabled(appState.isMigrationActive)
+                .help("应用移入废纸篓（可恢复），并顺带排查它在资源库留下的数据")
             } else if app.status == .externalOnly {
                 Button("搬回内置盘") {
                     moveBack()
@@ -267,27 +276,65 @@ struct AppRowView: View {
         }
     }
 
+    /// 卸载一条龙（v2.13.0）：运行检测 → 应用/备份入废纸篓 → 残留排查（用户确认后清）
     private func uninstallApp() {
-        let alert = NSAlert()
-        if app.status == .externalOnly {
-            alert.messageText = "确认卸载"
-            alert.informativeText = "将删除外置盘上的「\(app.name)」。此操作不可撤销。"
-        } else {
-            alert.messageText = "确认卸载"
-            alert.informativeText = "将删除「\(app.name)」的符号链接和外置盘上的副本。此操作不可撤销。"
+        // 运行中的应用不能卸（会留下半删状态与失控的数据写入）
+        if let running = AppMigrator.runningAppName(matching: app.path) {
+            let alert = NSAlert()
+            alert.messageText = "「\(running)」正在运行"
+            alert.informativeText = "请先退出应用再卸载。"
+            alert.runModal()
+            return
         }
+
+        let alert = NSAlert()
+        alert.messageText = "确认卸载「\(app.name)」？"
+        alert.informativeText = """
+        应用本体与迁移备份将移入废纸篓（可恢复），台账同步清理。
+        卸载完成后还会帮你排查它在「资源库」里留下的数据，由你确认后再清。
+        """
         alert.addButton(withTitle: "卸载")
         alert.addButton(withTitle: "取消")
         alert.alertStyle = .warning
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            let result = appState.migrator.uninstall(
-                app: app, drivePath: appState.externalDrive?.mountPoint)
-            if result.success {
-                Task { @MainActor [weak appState] in
-                    await appState?.scanApps()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let drivePath = appState.externalDrive?.mountPoint
+        let checker = HealthChecker()
+        Task { @MainActor [weak appState] in
+            guard let appState else { return }
+            let result = await appState.migrator.uninstall(app: app, drivePath: drivePath)
+            guard result.success else {
+                let fail = NSAlert()
+                fail.messageText = "卸载未能完成"
+                fail.informativeText = result.error ?? "未知错误"
+                fail.runModal()
+                return
+            }
+
+            // 残留排查含 du（阻塞子进程）：OffPool；报给用户、用户点头才清
+            let leftovers = await OffPool.run {
+                checker.residues(forUninstalledApp: app.name, bundleID: app.bundleID)
+            }
+            if !leftovers.isEmpty {
+                let total = leftovers.reduce(Int64(0)) { $0 + $1.sizeBytes }
+                let names = leftovers.prefix(5)
+                    .map { "\($0.name)（\($0.sizeFormatted)）" }
+                    .joined(separator: "、")
+                let ask = NSAlert()
+                ask.messageText = "发现 \(leftovers.count) 项残留数据，共 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))"
+                ask.informativeText = "\(names)\n\n是「\(app.name)」留在资源库里的数据，一并移入废纸篓吗？"
+                ask.addButton(withTitle: "一并清理")
+                ask.addButton(withTitle: "保留")
+                ask.alertStyle = .warning
+                if ask.runModal() == .alertFirstButtonReturn {
+                    for item in leftovers {
+                        _ = await checker.recycleResidue(item)
+                    }
                 }
             }
+
+            appState.notificationManager.notifyUninstalled(appName: app.name)
+            await appState.scanApps()
         }
     }
 }

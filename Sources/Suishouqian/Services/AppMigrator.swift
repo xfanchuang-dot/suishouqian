@@ -274,21 +274,42 @@ class AppMigrator: @unchecked Sendable {
         return MigrationResult(success: true, error: nil, spaceSaved: -app.size)
     }
 
-    func uninstall(app: AppItem, drivePath: String? = nil) -> MigrationResult {
-        AuditLog.append("卸载 \(app.bundleName)（链接+\(app.symlinkTarget ?? "无外置副本")）")
-        try? fileManager.removeItem(atPath: app.path)
-        MigrationManifest.shared.remove(appName: app.bundleName)
-        
-        if let target = app.symlinkTarget {
-            try? fileManager.removeItem(atPath: target)
+    /// 卸载（v2.13.0 起为"一条龙"第一步）：链接、外置真身/内置本体、迁移备份
+    /// 全部**移入废纸篓**（可恢复）而不是永久删除——卸载是用户最需要"反悔"的时刻，
+    /// 废纸篓是唯一后悔药。台账同步移除；残留数据由调用方接着扫（residues(forUninstalledApp:)）。
+    func uninstall(app: AppItem, drivePath: String? = nil) async -> MigrationResult {
+        var failures: [String] = []
+        let checker = HealthChecker()
+
+        // 链接位无数据，直接摘（若已是断链也一并清掉）
+        if app.isSymlink {
+            try? fileManager.removeItem(atPath: app.path)
         }
-        
-        // P0: 顺带清掉对应备份，否则卸载后备份成为孤儿（如 4 个月前的豆包备份）
+        // 真身：链接态删的是外置盘上的目标，普通应用删的就是 /Applications 本体
+        let realBundle = app.symlinkTarget ?? app.path
+        if fileManager.fileExists(atPath: realBundle) {
+            if !(await checker.recycleToTrash(realBundle)) {
+                // root 所有的应用废纸篓可能收不动：如实上报，别假装成功
+                failures.append("应用本体移入废纸篓失败（可能需要管理员权限，可手动拖入废纸篓）")
+            }
+        }
+        // 迁移备份同样是数据，同样走废纸篓而不是抹掉
         if let drivePath {
-            try? fileManager.removeItem(atPath: "\(drivePath)/.suishouqian-backup/\(app.bundleName)")
+            let backup = "\(drivePath)/.suishouqian-backup/\(app.bundleName)"
+            if fileManager.fileExists(atPath: backup),
+               !(await checker.recycleToTrash(backup)) {
+                failures.append("迁移备份移入废纸篓失败")
+            }
         }
-        
-        return MigrationResult(success: true, error: nil, spaceSaved: app.size)
+        MigrationManifest.shared.remove(appName: app.bundleName)
+
+        if failures.isEmpty {
+            AuditLog.append("卸载 \(app.bundleName)：应用与备份已入废纸篓（可恢复）")
+            return MigrationResult(success: true, error: nil, spaceSaved: app.size)
+        }
+        let msg = failures.joined(separator: "；")
+        AuditLog.append("卸载 \(app.bundleName) 部分失败：\(msg)")
+        return MigrationResult(success: false, error: msg, spaceSaved: 0)
     }
     
     /// 备份是否已过保留期（纯逻辑，供测试）。

@@ -27,6 +27,13 @@ final class DataMigrator: @unchecked Sendable {
             case native(guide: String, launchAppName: String?)
             /// 苹果没给入口，链接迁移
             case symlink
+
+            /// native = 工具只指路不动手（路径可以指进沙盒容器）；
+            /// symlink = 工具真的要搬数据（路径必须避开保护目录，见清单安全测试）
+            var isNativeGuide: Bool {
+                if case .native = self { return true }
+                return false
+            }
         }
     }
 
@@ -83,6 +90,17 @@ final class DataMigrator: @unchecked Sendable {
                 guide: "Steam → 设置 → 存储 → 添加外置盘上的库文件夹，再把已装游戏「移动」过去。不要直接搬整个 Steam 目录。",
                 launchAppName: "Steam"),
               note: nil),
+        .init(id: "wechat-data", title: "微信聊天记录与文件",
+              homeRelativePath: "~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files",
+              ownerBundleID: "com.tencent.xinWeChat", ownerProcessNames: ["WeChat"],
+              relocation: .native(
+                guide: """
+                微信 → 设置 → 通用 → 文件存储位置 → 更改，选外置盘上的文件夹，微信会自己把聊天记录搬过去。
+
+                ⚠️ 想清楚再搬：聊天记录是每天要读写的热数据，搬外置盘后每次刷消息都走外置盘；盘没插时微信打不开历史。权衡后觉得值再动手。
+                """,
+                launchAppName: "WeChat"),
+              note: "聊天记录是日常热数据，搬前想清楚；沙盒受保护，此处体积可能显示为未知"),
     ]
 
     /// 数据目录在台账/备份目录里的命名前缀（checkBackups 据此跳过审计）
@@ -103,6 +121,13 @@ final class DataMigrator: @unchecked Sendable {
         let ownerRunning: Bool    // 属主应用在运行，暂不可迁移
         let relocation: DataLocation.Relocation
         let note: String?
+
+        /// 体积为 0 多半是"读不出来"（沙盒容器受 TCC 保护，能看见目录读不了内容），
+        /// 显示"体积未知"比误导性的"0 字节"诚实
+        var sizeDisplay: String {
+            sizeBytes > 0 ? ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
+                          : "体积未知"
+        }
 
         var isWorthMigrating: Bool {
             sizeBytes >= 100 * 1_048_576   // <100MB 不值得动

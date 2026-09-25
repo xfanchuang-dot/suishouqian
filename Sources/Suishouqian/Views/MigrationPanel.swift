@@ -3,6 +3,7 @@ import SwiftUI
 struct MigrationPanel: View {
     @EnvironmentObject var appState: AppState
     @State private var batchSummary: String?
+    private let dataMigrator = DataMigrator()
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -80,6 +81,19 @@ struct MigrationPanel: View {
                         .controlSize(.large)
                         .disabled(appState.migrationTask != nil)
                     }
+
+                    Button {
+                        retireWizard()
+                    } label: {
+                        Label("盘要退休…（全部迁回内置盘）",
+                              systemImage: "arrow.uturn.backward.square")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(.orange)
+                    .disabled(appState.migrationTask != nil)
+                    .help("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘")
                 }
             }
         }
@@ -198,11 +212,11 @@ struct MigrationPanel: View {
     private func restoreAll() {
         guard let drive = appState.externalDrive else { return }
         let migratedApps = appState.apps.filter { $0.status == .migrated }
-        
+
         Task { @MainActor in
             for app in migratedApps {
                 appState.migrationTask = MigrationTask(app: app, operation: .restore)
-                
+
                 let appState = self.appState  // 值类型捕获
                 let result = await appState.migrator.restore(
                     app: app, from: drive.mountPoint
@@ -214,7 +228,7 @@ struct MigrationPanel: View {
                         appState.migrationTask = t
                     }
                 }
-                
+
                 if result.success {
                     appState.notificationManager.notifyMigrationComplete(
                         appName: app.name, spaceSaved: result.spaceSaved)
@@ -223,9 +237,143 @@ struct MigrationPanel: View {
                         appName: app.name, error: result.error ?? "未知错误")
                 }
             }
-            
+
             appState.migrationTask = nil
             await appState.scanApps()
+        }
+    }
+
+    // MARK: - 盘要退休向导（v2.13.0）
+
+    /// 换盘/卖盘/盘出问题前的场景化打包：链接应用、外置原住民、数据目录（含自选）
+    /// 全部迁回内置盘，逐项执行互不打断；全部成功后可选清掉盘上的随手迁目录。
+    private func retireWizard() {
+        guard let drive = appState.externalDrive, appState.migrationTask == nil else { return }
+        guard let builtinFree = appState.builtinDrive?.freeSize else { return }
+        let migratedApps = appState.apps.filter { $0.status == .migrated }
+        let nativeApps = appState.apps.filter { $0.status == .externalOnly }
+
+        Task { @MainActor in
+            // 数据条目要扫一遍才知道有哪些（scanDataLocations 内部已走 OffPool）
+            let catalogData = await dataMigrator.scanDataLocations()
+                .filter { $0.managedByUs && $0.isSymlink }
+            let customData = await dataMigrator.scanCustomItems()
+            let dataItems = catalogData + customData
+
+            let totalCount = migratedApps.count + nativeApps.count + dataItems.count
+            guard totalCount > 0 else {
+                let alert = NSAlert()
+                alert.messageText = "这块盘上没有随手迁管理的内容"
+                alert.informativeText = "没有链接应用、外置盘原住民或已迁移的数据目录需要迁回。"
+                alert.runModal()
+                return
+            }
+
+            let totalBytes = migratedApps.reduce(Int64(0)) { $0 + $1.size }
+                + nativeApps.reduce(Int64(0)) { $0 + $1.size }
+                + dataItems.reduce(Int64(0)) { $0 + $1.sizeBytes }
+            let totalText = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+
+            // 内置盘放不下就不开始：逐项迁移各自的预检也都在，这里先给总量判断
+            guard builtinFree > totalBytes else {
+                let alert = NSAlert()
+                alert.messageText = "内置盘空间不够"
+                alert.informativeText = "全部迁回约需 \(totalText)，内置盘可用仅 \(ByteCountFormatter.string(fromByteCount: builtinFree, countStyle: .file))。请先清理内置盘或改用更大的盘。"
+                alert.runModal()
+                return
+            }
+
+            let confirm = NSAlert()
+            confirm.messageText = "把「\(drive.name)」上的内容全部迁回内置盘？"
+            confirm.informativeText = """
+            将逐项迁回（共 \(totalCount) 项，约 \(totalText)）：
+            · 链接迁移应用 \(migratedApps.count) 个
+            · 外置盘原住民应用 \(nativeApps.count) 个
+            · 数据目录（含自选）\(dataItems.count) 个
+
+            正在运行的应用会被跳过并在最后汇报。全部成功后可选择清掉盘上的随手迁目录。
+            """
+            confirm.addButton(withTitle: "开始迁回")
+            confirm.addButton(withTitle: "取消")
+            confirm.alertStyle = .warning
+            guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+            var failures: [(name: String, reason: String)] = []
+            var done = 0
+
+            // 任务占位：让顶部进度区显示"（i/N）正在处理谁"
+            let taskApp = AppItem(name: "盘要退休", bundleName: "retire.task",
+                                  path: drive.mountPoint, version: nil,
+                                  size: totalBytes, isSymlink: false,
+                                  symlinkTarget: nil, icon: nil)
+            appState.migrationTask = MigrationTask(app: taskApp, operation: .restore)
+
+            // 显式 @MainActor 闭包：嵌套 async 函数不继承隔离，读 migrationTask 会报错
+            let runRestore: @MainActor (
+                _ name: String,
+                _ op: @escaping @Sendable () async -> (success: Bool, error: String?)
+            ) async -> Void = { name, op in
+                done += 1
+                if let t = appState.migrationTask {
+                    var task = t
+                    task.currentFile = "（\(done)/\(totalCount)）\(name)"
+                    appState.migrationTask = task
+                }
+                let r = await op()
+                if !r.success { failures.append((name, r.error ?? "未知错误")) }
+            }
+
+            for app in migratedApps {
+                await runRestore(app.name) { [weak appState] in
+                    guard let appState else { return (false, "状态丢失") }
+                    let r = await appState.migrator.restore(
+                        app: app, from: drive.mountPoint) { _, _ in }
+                    return (r.success, r.error)
+                }
+            }
+            for app in nativeApps {
+                await runRestore(app.name) { [weak appState] in
+                    guard let appState else { return (false, "状态丢失") }
+                    let r = await appState.migrator.moveBackToInternal(
+                        app: app, drivePath: drive.mountPoint) { _, _ in }
+                    return (r.success, r.error)
+                }
+            }
+            for item in dataItems {
+                await runRestore(item.title) { [weak appState] in
+                    guard let appState else { return (false, "状态丢失") }
+                    let r = await appState.dataMigrator.restoreData(
+                        item: item, drivePath: drive.mountPoint) { _, _ in }
+                    return (r.success, r.error)
+                }
+            }
+
+            appState.migrationTask = nil
+            await appState.scanApps()
+
+            if failures.isEmpty {
+                AuditLog.append("盘退休：\(totalCount) 项全部迁回「\(drive.name)」")
+                let clean = NSAlert()
+                clean.messageText = "全部迁回完成（\(totalCount) 项）"
+                clean.informativeText = "要把盘上的随手迁目录也清掉吗？（迁移备份与外置数据正本，共两类目录；确认盘上没有你还需要的其他文件后再清）"
+                clean.addButton(withTitle: "清掉随手迁目录")
+                clean.addButton(withTitle: "保留")
+                clean.alertStyle = .warning
+                if clean.runModal() == .alertFirstButtonReturn {
+                    let checker = HealthChecker()
+                    _ = await checker.recycleToTrash("\(drive.mountPoint)/.suishouqian-backup")
+                    _ = await checker.recycleToTrash(DataMigrator.dataRoot(on: drive.mountPoint))
+                    AuditLog.append("盘退休：随手迁目录已入废纸篓")
+                }
+            } else {
+                let list = failures.prefix(8)
+                    .map { "· \($0.name)：\($0.reason)" }
+                    .joined(separator: "\n")
+                let alert = NSAlert()
+                alert.messageText = "迁回完成，但有 \(failures.count) 项未成功"
+                alert.informativeText = "\(list)\n\n多半是应用正在运行——退出后再跑一次「盘要退休」即可补齐。"
+                alert.runModal()
+            }
         }
     }
 }
