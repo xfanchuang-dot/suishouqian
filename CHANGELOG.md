@@ -2,6 +2,14 @@
 
 ## 未发布（发下一版时把这行改成 `## <版本号> — <日期>` 并同步 VERSION）
 
+### 修复：本地自签构建被 Hardened Runtime 库校验拒载（v2.16.0 发布流水线遗留雷）
+
+build.sh 给**所有**签名身份都加了 `--options runtime`。公证确实要求 Hardened Runtime，
+但本地自签证书没有 TeamID，开了 runtime 的库校验会以"different Team IDs"拒载同证书签的
+Sparkle → 装出来的 app dyld 直接起不来（实测三连崩溃报告）。现在 runtime 标志与
+runtime/adhoc 核对都只在 `Developer ID` 身份下启用；本地自签路径保持无 runtime。
+**教训：`--options runtime` 只该跟公证路径绑定，不是"更强的保护"就全局开。**
+
 ### v3.0 接线第三批：总览页健康分卡 + 最近操作时间线
 
 - **总览页新增「外置盘健康分」卡**：分数圆环 + 分级文案 + 最优先待办（"先处理 X，可回 N 分"），

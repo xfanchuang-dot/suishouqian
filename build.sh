@@ -219,23 +219,29 @@ case "$SIGN_IDENTITY" in
 esac
 # ad-hoc 与自签身份都实测支持 --options runtime，因此无条件带上：
 # Hardened Runtime 是公证硬要求，而它在非公证路径上也只是一层更强的保护。
-RUNTIME_FLAGS=(--options runtime)
+# --options runtime（Hardened Runtime）是公证硬性要求，但本地自签证书没有 TeamID，
+# 开了 hardened runtime 的库校验反而会拒载同证书签的 Sparkle（"different Team IDs"）。
+# 只有真 Developer ID 签名时才开。
+RUNTIME_FLAGS=()
+if [ "$SIGN_IDENTITY" != "-" ] && [[ "$SIGN_IDENTITY" == *"Developer ID"* ]]; then
+    RUNTIME_FLAGS=(--options runtime)
+fi
 
 if [ -d "$FW_DIR/Sparkle.framework" ]; then
     # 最内层：XPC 服务、内嵌 App、以及 Autoupdate（Sparkle 的独立可执行文件）
     # 先签它们，否则外层签名会失效
     while IFS= read -r -d '' nested; do
-        codesign --force "${RUNTIME_FLAGS[@]}" \
+        codesign --force ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
                  --sign "$SIGN_IDENTITY" "$TS" "$nested"
     done < <(find "$FW_DIR/Sparkle.framework" -depth \
                 \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) -print0)
     # 框架本体
-    codesign --force "${RUNTIME_FLAGS[@]}" \
+    codesign --force ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
              --sign "$SIGN_IDENTITY" "$TS" "$FW_DIR/Sparkle.framework"
 fi
 
 # 最外层：主 App（不带 --deep，嵌套代码已在上面各自签好）
-codesign --force "${RUNTIME_FLAGS[@]}" \
+codesign --force ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
          --sign "$SIGN_IDENTITY" "$TS" "$BUNDLE"
 
 # 验签：只信 codesign 自己的结论。`|| true` 吞错会让"构建成功"变成谎话，
@@ -245,7 +251,9 @@ if ! codesign --verify --strict "$BUNDLE"; then
     echo "错误: 签名校验未通过，拒绝交付"
     exit 1
 fi
-if [ "$SIGN_IDENTITY" != "-" ]; then
+# runtime/adhoc 核对只在 Developer ID 路径有意义（本地自签无 TeamID，
+# 开 runtime 反而拒载 Sparkle —— 见 RUNTIME_FLAGS 的注释）
+if [[ "$SIGN_IDENTITY" == *"Developer ID"* ]]; then
     while IFS= read -r -d '' nested; do
         flags="$(codesign -d --verbose=2 "$nested" 2>&1 | grep -m1 -E '^CodeDirectory' || true)"
         case "$flags" in
