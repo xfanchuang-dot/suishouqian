@@ -291,9 +291,17 @@ final class RegressionFixTests: XCTestCase {
             modifiedAt: now, now: now, retentionDays: 7), "刚建的备份绝不能过期")
     }
 
-    /// 端到端：跑一遍清理扫描，确认刚建的备份活下来、真超龄的被清掉
-    func testCleanOldBackupsKeepsFreshStampedBackup() throws {
+    /// 端到端：跑一遍清理扫描，确认三条规则同时成立
+    /// ① 刚建的备份活下来（原现场 bug：建好 6 秒后被当超龄清掉）
+    /// ② 超龄且"另有可用副本"的备份 → 允许自动清理
+    /// ③ 超龄且"可能是唯一副本"的备份 → 必须原样保留（v3.0.1：此前会被永久删除）
+    ///
+    /// 注意：这里只断言"保留/允许清理"的判定与最终文件状态，不断言真的进了废纸篓——
+    /// `swift test` 是无 GUI 会话的进程，NSWorkspace.recycle 未必可用，那会是环境相关的不稳定断言。
+    func testCleanOldBackupsKeepsFreshAndLastResortBackups() async throws {
         let drive = try makeDir("cleandrive")
+        // 冒充 /Applications：真身在不在，决定备份是不是"唯一副本"
+        let appsRoot = try makeDir("cleandrive-apps")
         let backupDir = "\(drive)/.suishouqian-backup"
         try FileManager.default.createDirectory(atPath: backupDir,
                                                 withIntermediateDirectories: true)
@@ -301,27 +309,77 @@ final class RegressionFixTests: XCTestCase {
         defer { UserDefaults.standard.removeObject(forKey: "backupRetentionDays") }
 
         let installed = Date(timeIntervalSinceNow: -60 * 86400)
+        let migrator = AppMigrator()
 
-        // 刚迁移出来的备份：目录 mtime 继承自原应用（60 天前），已按新逻辑打时间戳
+        // ① 刚迁移出来的备份：目录 mtime 继承自原应用（60 天前），已按新逻辑打时间戳
         let fresh = "\(backupDir)/Fresh.app"
         try FileManager.default.createDirectory(atPath: fresh, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.modificationDate: installed],
                                              ofItemAtPath: fresh)
-        let migrator = AppMigrator()
         migrator.stampBackupCreation(at: fresh)
 
-        // 真正超龄的备份（未打时间戳，mtime 就是 60 天前）
-        let stale = "\(backupDir)/Stale.app"
-        try FileManager.default.createDirectory(atPath: stale, withIntermediateDirectories: true)
+        // ② 超龄但应用仍有可用副本（/Applications 里的真身还在）→ 允许自动清理
+        let redundant = "\(backupDir)/Redundant.app"
+        try FileManager.default.createDirectory(atPath: redundant, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.modificationDate: installed],
-                                             ofItemAtPath: stale)
+                                             ofItemAtPath: redundant)
+        _ = try makeDir("cleandrive-apps/Redundant.app")
+        XCTAssertTrue(migrator.canAutoCleanBackup(named: "Redundant.app", drivePath: drive,
+                                                  applicationsRoot: appsRoot),
+                      "应用本体还在时，超龄备份可以自动清理")
 
-        migrator.cleanOldBackups(at: drive)
+        // ③ 超龄且哪里都没有可用副本（更新器把真身弄丢的形态）→ 备份就是唯一退路
+        let lastResort = "\(backupDir)/LastResort.app"
+        try FileManager.default.createDirectory(atPath: lastResort, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.modificationDate: installed],
+                                             ofItemAtPath: lastResort)
+        XCTAssertFalse(migrator.canAutoCleanBackup(named: "LastResort.app", drivePath: drive,
+                                                   applicationsRoot: appsRoot),
+                       "没有任何可用副本时，备份必须留给人工确认")
+
+        await migrator.cleanOldBackups(at: drive, applicationsRoot: appsRoot)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: fresh),
                       "刚建的备份必须留下——现场 bug 是 6 秒后被当超龄删掉")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: stale),
-                       "真正超龄的备份应被清理")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lastResort),
+                      "可能是唯一副本的备份绝不能被自动清理")
+    }
+
+    /// 纯逻辑：允许自动清理的唯一条件是"另有可用副本"
+    func testBackupAutoCleanRequiresAnotherUsableCopy() {
+        XCTAssertTrue(AppMigrator.backupCanBeAutoCleaned(appLinkUsable: true,
+                                                         externalCopyExists: false))
+        XCTAssertTrue(AppMigrator.backupCanBeAutoCleaned(appLinkUsable: false,
+                                                         externalCopyExists: true))
+        XCTAssertFalse(AppMigrator.backupCanBeAutoCleaned(appLinkUsable: false,
+                                                          externalCopyExists: false))
+    }
+
+    /// 空间预检必须按"两份"算：目标副本 + 同盘留底备份。
+    /// 此前按一份 + 5% 校验，会在第二步备份时把目标盘写满（迁移失败并把盘占满）。
+    func testRequiredTargetBytesCountsBothCopies() {
+        XCTAssertEqual(AppMigrator.requiredTargetBytes(appSize: 0), 0)
+        XCTAssertEqual(AppMigrator.requiredTargetBytes(appSize: 1_000), 2_050,
+                       "1 份目标副本 + 1 份同盘备份 + 5% 余量")
+        // 100GB 应用需要约 205GB，而不是 105GB
+        let hundredGB: Int64 = 100 * 1_073_741_824
+        XCTAssertEqual(AppMigrator.requiredTargetBytes(appSize: hundredGB),
+                       hundredGB * 2 + hundredGB / 20)
+    }
+
+    /// 硬护栏：源与目标是同一位置时，迁移必须直接拒绝。
+    /// copyWithDitto 的第一步是 removeItem(dst)，若 dst 就是应用自身，等于把应用删掉。
+    func testMigrateRefusesWhenSourceIsTheTarget() async throws {
+        let drive = try makeDir("selfdelete")
+        let appPath = try makeDir("selfdelete/Applications/SelfApp.app")
+        let app = AppItem(name: "SelfApp", bundleName: "SelfApp.app", path: appPath,
+                          version: nil, size: 1024, isSymlink: false,
+                          symlinkTarget: nil, icon: nil)
+
+        let result = await AppMigrator().migrate(app: app, to: drive) { _, _ in }
+        XCTAssertFalse(result.success)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appPath),
+                      "源应用必须原封不动——这条路径绝不能走到 removeItem(dst)")
     }
 
     // MARK: - ⑫ 更新失败致应用消失：从更新缓存恢复（2026-09-12 VS Code 实测事故）
@@ -410,10 +468,13 @@ final class RegressionFixTests: XCTestCase {
             return XCTFail("生成的 plist 无法解析")
         }
 
-        XCTAssertEqual(dict["WatchPaths"] as? [String], [tricky])
+        XCTAssertEqual(dict["WatchPaths"] as? [String], ["/Volumes"],
+                       "监视始终存在的父目录：卷拔掉后它自己的挂载点会消失，"
+                       + "而 launchd 对『监视不存在的路径』语义无保证")
         let args = dict["ProgramArguments"] as? [String] ?? []
         XCTAssertEqual(args.count, 6, "sh -c 脚本 + $0 + 卷路径 + 应用路径")
         XCTAssertEqual(args[4], tricky, "卷路径必须以原样经 argv 传入，而不是拼进脚本")
         XCTAssertTrue(args[2].contains("$1"), "脚本从 argv 取路径")
+        XCTAssertTrue(args[2].contains("tr -c"), "状态文件必须按卷区分，否则换盘后边沿检测失效")
     }
 }

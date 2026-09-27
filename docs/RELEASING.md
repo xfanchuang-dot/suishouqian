@@ -39,6 +39,19 @@ bash scripts/sparkle_keys.sh
 
 私钥要配到 GitHub Secret `SPARKLE_PRIVATE_KEY`（见 2.2）。
 
+> **换密钥后的自检（公钥与私钥必须是一对）。** appcast 用私钥签、App 用公钥验；
+> 两者不是一对时，**用户端全部报「更新签名不正确」，而 CI 全绿**。本机钥匙串里存着私钥，
+> 可以用它反推公钥来对账：
+>
+> ```bash
+> GEN_KEYS="$(find ~/Library/Caches/suishouqian-scratch .build -name generate_keys -type f -print -quit)"
+> "$GEN_KEYS" -p | grep -oE '[A-Za-z0-9+/]{43}=' | head -1 | diff - sparkle_public_key.txt && echo "一致"
+> ```
+>
+> `scripts/make_appcast.sh` 现在会自动核对「仓库 `sparkle_public_key.txt`」与
+> 「打进 App 的 `SUPublicEDKey`」是否一致（不一致直接报错退出），并在生成后确认
+> appcast 里确实带了 `edSignature`——但这仍查不出「私钥与公钥不是一对」，那一步靠上面的自检。
+
 ### 1.2 Apple Developer 账号（**唯一需要花钱的一项**）
 
 Developer ID 签名与公证都要求付费账号（Apple Developer Program，**$99/年**）。
@@ -148,15 +161,25 @@ git push origin main --tags
 
 `.github/workflows/release.yml` 会依次：
 
-1. 校验 tag 与 `VERSION` 一致
+1. 解析并校验发布 tag：tag 推送用 `v*`；`workflow_dispatch` 要显式给一个**已存在**的 tag
+   （手动触发不会在分支 HEAD 上现建 tag —— 那会让发布的代码和 tag 指向的代码不是一回事）。
+   两种触发方式都校验 tag ↔ `VERSION`
 2. `swift test` 全量回归（**不过就不发**）
 3. **检查更新通道可达性**（匿名拉仓库 API；非 200 就告警，见 1.4）
 4. 准备签名身份（配了 `APPLE_CERTIFICATE_P12` 才导入证书，否则走自签；结果写进 `SIGNED` 变量）
-5. `build.sh --dist-only` 构建 + 分层签名
-6. 公证并装订 `.app`（需 `SIGNED=yes` 且配了 `APPLE_ID`）
-7. 打 DMG → 公证并装订 DMG
-8. 从 `CHANGELOG.md` 抽出该版本说明（抽不到直接报错，不会发出空说明）→ 生成 `appcast.xml`
-9. `gh release create` 发布 Release（DMG + appcast.xml 一起上传）
+5. `build.sh --dist-only` 构建 + 分层签名（含 Hardened Runtime，Sparkle 的 `Autoupdate` 也签）
+6. 独立复核签名标志：正式签名路径下每件嵌套代码都必须带 runtime、且不得有 ad-hoc
+7. 公证并装订 `.app`（需 `SIGNED=yes` 且配了 `APPLE_ID`）
+8. 打 DMG → 公证并装订 DMG
+9. 从 `CHANGELOG.md` 抽出该版本说明（抽不到直接报错，不会发出空说明）→ 生成 `appcast.xml`
+   （生成后自动确认带了 `edSignature`，并核对公钥与 App 内 `SUPublicEDKey` 一致）
+10. `gh release create` 发布 Release（DMG + appcast.xml）。**可重跑**：Release 已存在时改为
+    `--clobber` 覆盖上传，并在最后自检两个资产都在——`appcast.xml` 缺失等于全体用户的
+    更新通道静默断掉，必须当场失败
+
+> `SPARKLE_PRIVATE_KEY` 只在第 9 步注入（不再挂在 workflow 级 env），
+> 免得 `swift test`、SwiftPM 解析 `Package.swift` 也继承这把私钥。
+> 没配它时 `make_appcast.sh` 会在 CI 上**明确失败并说清原因**，而不是发出没有 appcast 的半成品。
 
 > 条件判断全部写在 shell 里，不用 `if: ${{ env.X != '' }}`。理由见文件头注释：
 > 某些上下文（如 `secrets`）在 step 级 `if` 里不可用，写错**不报错、只静默跳过**，
@@ -181,9 +204,19 @@ App 端「检查更新」不需要改任何配置 —— **前提是仓库公开
 
 ## 4. 为什么不能用 `codesign --deep`
 
-`build.sh` 是**由内向外分层签名**：先签 Sparkle 里的 XPC 服务与内嵌 App，再签框架本体，
-最后签主 App。`--deep` 是 Apple 明确不推荐用于签名的做法，对带 XPC/Helper 的框架可能漏签或错签。
-历史 `Makefile` 里那套 `codesign --force --deep --sign -` 已于 v2.16.0 移除。
+`build.sh` 是**由内向外分层签名**：先签 Sparkle 里的 XPC 服务、内嵌 App 与 `Autoupdate`，
+再签框架本体，最后签主 App。`--deep` 是 Apple 明确不推荐用于签名的做法，对带 XPC/Helper
+的框架可能漏签或错签。历史 `Makefile` 里那套 `codesign --force --deep --sign -` 已于 v2.16.0 移除。
+
+**公证的两个硬条件（v3.0.1 补齐）**：
+
+1. **Hardened Runtime**：所有 `codesign` 都带 `--options runtime`。此前一个都没带，
+   配好 Developer ID 也会被 `notarytool` 拒；而 `codesign --verify --strict` 只验完整性，
+   本地根本发现不了。
+2. **包内每个可执行文件都要签**：`Autoupdate` 是 Mach-O 可执行文件，既不是 `.app`
+   也不是 `.xpc`，早先按扩展名枚举的 `find` 会漏掉它（SwiftPM 从网上拉下来的
+   Sparkle 是 ad-hoc 签名的，漏签就会把 ad-hoc 签名带进正式包）。
+   `build.sh` 现在会在签名后逐件复核 runtime/adhoc 标志，不通过直接拒绝交付。
 
 ## 5. 常见问题
 

@@ -46,10 +46,18 @@ VERSION_FILE="$PROJECT_DIR/VERSION"
 VERSION="$(tr -d ' \t\r\n' < "$VERSION_FILE")"
 [ -n "$VERSION" ] || { echo "错误: VERSION 文件为空"; exit 1; }
 
-# 防漂移：CHANGELOG 顶部版本必须与 VERSION 一致，否则发出去的包与更新日志对不上号
+# 防漂移：CHANGELOG 顶部版本必须与 VERSION 一致，否则发出去的包与更新日志对不上号。
+# 注意「没解析出来」也必须是错误：此前写成 `[ -n "$CHANGELOG_VER" ] && …`，
+# 顶部标题一旦变成 `## [2.17.0]` / `## v2.17.0` 就静默跳过校验，
+# 本地放行、CI 才报错——两处判定不一致最难查。
 CHANGELOG_VER="$(grep -m1 -E '^## [0-9]+\.[0-9]+\.[0-9]+' "$PROJECT_DIR/CHANGELOG.md" \
                  | sed -E 's/^## ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
-if [ -n "$CHANGELOG_VER" ] && [ "$CHANGELOG_VER" != "$VERSION" ]; then
+if [ -z "$CHANGELOG_VER" ]; then
+    echo "错误: 没能从 CHANGELOG.md 顶部解析出版本号"
+    echo "      期望格式：## ${VERSION} — YYYY-MM-DD（方括号、v 前缀都会导致解析失败）"
+    exit 1
+fi
+if [ "$CHANGELOG_VER" != "$VERSION" ]; then
     echo "错误: 版本漂移 —— VERSION=${VERSION}，但 CHANGELOG 顶部=$CHANGELOG_VER"
     echo "      VERSION 是机器可读来源、CHANGELOG 是人读记录，改版本时两处要一起改。"
     exit 1
@@ -63,8 +71,11 @@ echo "=== 随手迁 构建脚本 · v$VERSION ==="
 # 改成把旧 dist 挪进 _bak/ —— 同卷 rename、瞬间完成。_bak/ 已进 .gitignore，
 # 攒多了在 Finder 里拖进废纸篓即可（走废纸篓是为了可反悔）。
 BAK_ROOT="$PROJECT_DIR/_bak"
+# 必须无条件建：_bak/ 与 dist/ 都在 .gitignore 里，新 clone 两个都没有；
+# 此前 mkdir 只在「dist 已存在」分支里，导致新 clone 第一次构建时
+# 第 243 行的 mv 因父目录不存在而失败，set -e 直接在"已装进 /Applications"之后中断。
+mkdir -p "$BAK_ROOT"
 if [ -e "$DIST_DIR" ]; then
-    mkdir -p "$BAK_ROOT"
     mv "$DIST_DIR" "$BAK_ROOT/dist-$(date +%Y%m%d-%H%M%S)"
 fi
 mkdir -p "$MACOS_DIR" "$FW_DIR" "$RESOURCES_DIR"
@@ -167,6 +178,15 @@ if [ -n "$PUBKEY" ]; then
     /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $PUBKEY" \
         "$BUNDLE/Contents/Info.plist"
     echo "  已写入 SUPublicEDKey"
+else
+    # 不能静默：没有公钥的包永远收不到自动更新。CI 发布时用
+    # SUISHOUQIAN_REQUIRE_PUBKEY=1 把它变成硬错误，本机开发构建只告警。
+    echo "  ⚠️ 没有找到 Sparkle 公钥（环境变量 SPARKLE_PUBLIC_KEY 与 sparkle_public_key.txt 都为空）"
+    echo "     这个包无法自动更新；正式发布前请先跑 scripts/sparkle_keys.sh"
+    if [ "${SUISHOUQIAN_REQUIRE_PUBKEY:-0}" = "1" ]; then
+        echo "错误: 发布构建要求 SUPublicEDKey（SUISHOUQIAN_REQUIRE_PUBKEY=1）"
+        exit 1
+    fi
 fi
 
 # 6c. Fix rpath (Sparkle in Frameworks/)
@@ -181,6 +201,11 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$MACOS_DIR/$APP_NAM
 # --deep 是 Apple 明确不推荐用于签名的做法，对带 XPC/Helper 的框架可能漏签或错签
 # v3.0: 签名身份可用 SIGN_IDENTITY 覆盖（CI 里传 Developer ID）；
 #       Developer ID 必须带安全时间戳（公证硬要求），自签/ad-hoc 用 none 更快
+# v3.0.1: 补上 --options runtime（Hardened Runtime）——公证的硬性要求，
+#       此前全部 codesign 都没带，配好 Developer ID 也会被 notarytool 拒；
+#       同时把 Sparkle 的 Autoupdate 纳入签名范围（它是 Mach-O 可执行文件，
+#       既不是 .app 也不是 .xpc，之前的 find 会漏掉它，公证同样会拒）。
+#       公证要求"签名身份 + 时间戳 + Hardened Runtime"覆盖包内每一个可执行文件。
 echo "[6/6] 签名..."
 SIGN_IDENTITY="${SIGN_IDENTITY:-Suishouqian CodeSign}"
 if [ "$SIGN_IDENTITY" != "-" ] \
@@ -192,27 +217,52 @@ case "$SIGN_IDENTITY" in
     "Developer ID Application"*) TS="--timestamp" ;;
     *)                           TS="--timestamp=none" ;;
 esac
+# ad-hoc 与自签身份都实测支持 --options runtime，因此无条件带上：
+# Hardened Runtime 是公证硬要求，而它在非公证路径上也只是一层更强的保护。
+RUNTIME_FLAGS=(--options runtime)
 
 if [ -d "$FW_DIR/Sparkle.framework" ]; then
-    # 最内层：XPC 服务与内嵌 App（先签它们，否则外层签名会失效）
+    # 最内层：XPC 服务、内嵌 App、以及 Autoupdate（Sparkle 的独立可执行文件）
+    # 先签它们，否则外层签名会失效
     while IFS= read -r -d '' nested; do
-        codesign --force --sign "$SIGN_IDENTITY" "$TS" "$nested"
+        codesign --force "${RUNTIME_FLAGS[@]}" \
+                 --sign "$SIGN_IDENTITY" "$TS" "$nested"
     done < <(find "$FW_DIR/Sparkle.framework" -depth \
-                \( -name "*.xpc" -o -name "*.app" \) -print0)
+                \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) -print0)
     # 框架本体
-    codesign --force --sign "$SIGN_IDENTITY" "$TS" "$FW_DIR/Sparkle.framework"
+    codesign --force "${RUNTIME_FLAGS[@]}" \
+             --sign "$SIGN_IDENTITY" "$TS" "$FW_DIR/Sparkle.framework"
 fi
 
 # 最外层：主 App（不带 --deep，嵌套代码已在上面各自签好）
-codesign --force --sign "$SIGN_IDENTITY" "$TS" "$BUNDLE"
+codesign --force "${RUNTIME_FLAGS[@]}" \
+         --sign "$SIGN_IDENTITY" "$TS" "$BUNDLE"
 
 # 验签：只信 codesign 自己的结论。`|| true` 吞错会让"构建成功"变成谎话，
 # 产物启动时被 SIGKILL 而终端里一句错都没有（同项目姊妹工程的教训）。
+# 另外逐件核对签名标志：正式身份必须带 runtime（公证要求），且不允许混入 ad-hoc 嵌套件。
 if ! codesign --verify --strict "$BUNDLE"; then
     echo "错误: 签名校验未通过，拒绝交付"
     exit 1
 fi
-echo "  签名已校验（${SIGN_IDENTITY}）"
+if [ "$SIGN_IDENTITY" != "-" ]; then
+    while IFS= read -r -d '' nested; do
+        flags="$(codesign -d --verbose=2 "$nested" 2>&1 | grep -m1 -E '^CodeDirectory' || true)"
+        case "$flags" in
+            *runtime*) ;;
+            *) echo "错误: $nested 缺少 Hardened Runtime（公证会被拒）"; exit 1 ;;
+        esac
+        case "$flags" in
+            *adhoc*) echo "错误: $nested 仍是 ad-hoc 签名（公证会被拒）"; exit 1 ;;
+        esac
+    done < <(find "$BUNDLE" -depth \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) -print0)
+    main_flags="$(codesign -d --verbose=2 "$BUNDLE" 2>&1 | grep -m1 -E '^CodeDirectory' || true)"
+    case "$main_flags" in
+        *runtime*) ;;
+        *) echo "错误: 主 App 缺少 Hardened Runtime（公证会被拒）"; exit 1 ;;
+    esac
+fi
+echo "  签名已校验（${SIGN_IDENTITY}$([ "$SIGN_IDENTITY" = "-" ] || echo "，Hardened Runtime")）"
 
 echo ""
 echo "构建完成: $BUNDLE"
@@ -233,6 +283,14 @@ if [ -d "$INSTALLED" ]; then
     # 旧版移到废纸篓（通过 osascript，不弹权限确认）
     osascript -e "tell application \"Finder\" to delete POSIX file \"$INSTALLED\"" 2>/dev/null || true
     sleep 0.5
+    # 关键护栏：Finder 删除可能被拒（未授予自动化权限、Finder 未运行等），
+    # 此时旧包仍在原地——直接 cp -R 会把新包"拷进"旧包内部
+    # （/Applications/随手迁.app/随手迁.app），用户拿到半新半旧的应用。
+    # 这里改为挪进 _bak/：挪不动就让 set -e 在安装前中断，绝不制造嵌套包。
+    if [ -e "$INSTALLED" ]; then
+        echo "  Finder 删除失败，旧版挪进 _bak/ 后再安装"
+        mv "$INSTALLED" "$BAK_ROOT/app-previous-$(date +%Y%m%d-%H%M%S)"
+    fi
 fi
 # 覆盖安装
 cp -R "$BUNDLE" "/Applications/"

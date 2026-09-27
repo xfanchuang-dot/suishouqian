@@ -77,6 +77,19 @@ enum BigFileClassifier {
     struct Result: Equatable {
         let label: String          // 这是什么
         let systemManaged: Bool    // 系统管理的数据 → 禁用清理按钮
+        /// 工具**不提供**一键清理的高价值数据（不是系统数据，但不该由"省空间"
+        /// 这个入口顺手删掉）。iPhone 备份属于这一类：不可再生，且与残留扫描里
+        /// 的保护名单 MobileSync 必须是同一口径。
+        let protected: Bool
+
+        init(label: String, systemManaged: Bool, protected: Bool = false) {
+            self.label = label
+            self.systemManaged = systemManaged
+            self.protected = protected
+        }
+
+        /// 是否禁用"清理"按钮（系统数据与受保护数据都禁用）
+        var cleanupDisabled: Bool { systemManaged || protected }
     }
 
     static func classify(path: String) -> Result {
@@ -89,9 +102,12 @@ enum BigFileClassifier {
             || p.contains("library/cloudstorage") {
             return Result(label: "系统数据（建议保留）", systemManaged: true)
         }
-        // iPhone 备份：高价值数据
+        // iPhone 备份：不可再生的高价值数据。残留扫描已把 MobileSync 列进保护名单，
+        // 大文件面板此前却给了一个可点的「清理」按钮（只有通用确认文案），
+        // 同一份数据两套安全等级。这里统一为"工具不提供一键清理"。
         if p.contains("mobilesync") {
-            return Result(label: "iPhone 备份（误删代价高）", systemManaged: false)
+            return Result(label: "iPhone 备份（不可再生，本工具不提供清理）",
+                          systemManaged: false, protected: true)
         }
         // 开发缓存：可再生，清理无损
         let devCaches = ["deriveddata", "coresimulator", "node_modules",
@@ -212,22 +228,31 @@ class HealthChecker: @unchecked Sendable {
     }
 
     /// 修复断链：在所有已挂载卷的 Applications / Suishouqian_Apps（旧版目录）
-    /// 里找同名应用，找到则重建软链接
+    /// 里找同名应用，找到则重建软链接。
+    /// **优先按台账里的卷 UUID 定位**：同名应用可能同时存在于两块盘上
+    /// （换盘后旧盘仍有副本），只认"第一个找到的"会把链接指到错误的盘。
     func repair(_ link: LinkHealth) -> Bool {
-        guard let volumes = fileManager.mountedVolumeURLs(
-            includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) else {
-            return false
+        var searchRoots: [String] = []
+        if let entry = MigrationManifest.shared.entry(forAppName: link.appName),
+           let mount = MigrationManifest.mountPoint(forUUID: entry.volumeUUID) {
+            searchRoots.append(mount)
         }
-        for vol in volumes where vol.path.hasPrefix("/Volumes") {
+        let mounted = (fileManager.mountedVolumeURLs(
+            includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? [])
+            .map(\.path)
+            .filter { $0.hasPrefix("/Volumes") }
+        for path in mounted where !searchRoots.contains(path) { searchRoots.append(path) }
+
+        for volPath in searchRoots {
             for sub in ["Applications", "Suishouqian_Apps"] {
-                let candidate = "\(vol.path)/\(sub)/\(link.appName)"
+                let candidate = "\(volPath)/\(sub)/\(link.appName)"
                 guard fileManager.fileExists(atPath: candidate) else { continue }
                 try? fileManager.removeItem(atPath: link.linkPath)
                 do {
                     try fileManager.createSymbolicLink(
                         atPath: link.linkPath, withDestinationPath: candidate)
                     // v2.2: 修复后同步台账（新卷/新位置），后续断链可自愈
-                    if let uuid = MigrationManifest.volumeUUID(atPath: vol.path) {
+                    if let uuid = MigrationManifest.volumeUUID(atPath: volPath) {
                         MigrationManifest.shared.record(
                             appName: link.appName, linkPath: link.linkPath,
                             volumeUUID: uuid, relativePath: "\(sub)/\(link.appName)")
@@ -640,6 +665,12 @@ class HealthChecker: @unchecked Sendable {
         let signatures = Self.appSignatures(name: name, bundleID: bundleID)
         guard !signatures.isEmpty else { return [] }
 
+        // 先排掉"能被别的在装应用认领"的目录。前缀匹配会误伤：卸载微信
+        // （com.tencent.xinWeChat）时，com.tencent 这一段会命中 QQ / 腾讯会议等
+        // 其它在装应用的数据目录，用户一路确认就把别人的数据送进废纸篓。
+        // 判据用与体检残留扫描同一套特征集（含所有在装应用）。
+        let installedSignatures = installedAppSignatures(drivePath: nil)
+
         let home = NSHomeDirectory()
         var results: [ResidueItem] = []
         for (location, base) in [
@@ -654,6 +685,7 @@ class HealthChecker: @unchecked Sendable {
                 guard fileManager.fileExists(atPath: full, isDirectory: &isDir),
                       isDir.boolValue else { continue }
                 guard residueMatches(item, signatures: signatures) else { continue }
+                guard !residueMatches(item, signatures: installedSignatures) else { continue }
                 let size = duSize(full)
                 guard size >= 10 * 1_048_576 else { continue }
                 results.append(ResidueItem(name: item, path: full,

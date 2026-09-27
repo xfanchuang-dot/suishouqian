@@ -11,7 +11,11 @@ _bak/
 # Xcode / SwiftPM
 xcuserdata/
 *.xcodeproj.bak
-Package.resolved.lock
+
+# Sparkle 更新签名私钥：绝不允许进仓库
+# （sparkle_keys.sh 默认导出到 ~/Library/Caches，但它接受任意路径参数）
+private_key*.txt
+sparkle_private_key*
 
 # 系统文件
 .DS_Store

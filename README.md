@@ -22,9 +22,9 @@
 
 | 环节 | 措施 |
 |---|---|
-| 迁移前 | 目标盘挂载点 + 剩余空间校验；应用正在运行则拒绝迁移；APFS 本地快照整机保险（1 小时节流） |
+| 迁移前 | 目标盘挂载点 + 卷类型（排除 Time Machine / 网络共享 / 只读卷）+ 剩余空间校验（按「目标副本 + 同盘留底备份」两份算）；应用正在运行则拒绝迁移；APFS 本地快照整机保险（1 小时节流） |
 | 迁移中 | `ditto` 复制保留全部元数据 → 逻辑字节数对比 → 随机抽样 SHA256（≤32 文件全量哈希） |
-| 迁移后 | 校验通过才原子切换软链接；任一步失败自动回滚；外置盘 `.suishouqian-backup` 留底（保留期可调，过期自动清理）；卷 UUID 台账记账 |
+| 迁移后 | 校验通过才原子切换软链接；任一步失败自动回滚；外置盘 `.suishouqian-backup` 留底（保留期可调，过期自动清理——但只在应用另有可用副本时才清，可能是唯一副本的留底绝不被后台删除）；卷 UUID 台账记账 |
 | 使用期 | 卷改名断链按台账自动自愈（插盘/启动时触发）；应用升级撤销迁移会被体检发现并可一键重新迁移 |
 | 全程 | append-only 审计日志；迁移进行中强退需二次确认；拔盘时点名仍在盘上运行的应用 |
 
@@ -77,7 +77,7 @@ Sources/Suishouqian/
 │   ├── AppScanner.swift       # /Applications 扫描（并行 TaskGroup）
 │   ├── DiskMonitor.swift      # 磁盘容量与挂载/卸载监听
 │   └── HealthChecker.swift    # 链接三态/备份审计/残留扫描/大文件
-├── Utilities/                 # AuditLog / FileVerifier / OffPool / Permissions
+├── Utilities/                 # AuditLog / OffPool / SystemSnapshot
 └── Views/                     # Design.swift 设计系统 + 各面板
 ```
 

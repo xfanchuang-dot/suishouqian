@@ -27,4 +27,15 @@ final class DiskSpeedTestTests: XCTestCase {
         XCTAssertEqual(DiskSpeedTest.parseSpeed("100 bytes transferred in 0.1 secs (1000.5 bytes/sec)"),
                        1000.5)
     }
+
+    /// 测速前的落盘护栏：盘没挂上时 /Volumes/X 可能只是个残留目录，
+    /// 此时 dd 会把 256MB 真写进内置盘，结果还被当成外置盘速度展示。
+    func testSpeedTestRefusesPathsThatAreNotMountedVolumes() {
+        XCTAssertFalse(DiskSpeedTest.isWritableMount(mountPoint: "/Volumes/绝对不存在的卷",
+                                                     needBytes: 1),
+                       "不存在的挂载点不能测速")
+        XCTAssertFalse(DiskSpeedTest.isWritableMount(mountPoint: NSHomeDirectory(),
+                                                     needBytes: 1),
+                       "内置盘上的普通目录不是外置卷（设备名与根卷相同）")
+    }
 }

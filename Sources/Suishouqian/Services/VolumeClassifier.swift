@@ -14,6 +14,12 @@ enum VolumeClassifier {
     // 与 HealthChecker 的 duCache 同款写法：访问都由 lock 保护
     nonisolated(unsafe) private static var cachedMountPoints: Set<String> = []
     nonisolated(unsafe) private static var cachedAt: Date?
+    /// 上次读取失败的时刻（nil = 上次读取成功）。用来区分「确实没有 TM 目标」与「读不到」
+    nonisolated(unsafe) private static var lastFailureAt: Date?
+
+    /// 缓存有效期。此前 cachedAt 只写不读、也没有 TTL：应用启动后新设的 Time Machine
+    /// 目标盘永远进不了缓存，TM 护栏在运行时静默失效（迁到备份盘 = 应用会被系统清理掉）
+    static let cacheTTL: TimeInterval = 600
 
     /// 已缓存的结果（主线程可安全读，不做子进程调用）
     static var timeMachineMountPoints: Set<String> {
@@ -27,21 +33,47 @@ enum VolumeClassifier {
         return cachedAt != nil
     }
 
+    /// 上次读取是否成功。缓存为空但读取成功 = 确实没有 TM 目标；否则是"读不到"，不可当依据
+    static var lastReadSucceeded: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return lastFailureAt == nil
+    }
+
     /// 重新读取 Time Machine 目标盘并更新缓存。
-    /// tmutil 是阻塞子进程，调用方必须放到后台（Task.detached）或可接受阻塞的时机。
+    /// **读取失败时绝不覆盖已有结果**：此前失败会把缓存清成空集合，而
+    /// `isOnTimeMachineVolume` 对空缓存一律放行（fail-open）——一次读取失败就让
+    /// TM 护栏整轮失效，且再也不会自愈。现在失败只记录、保留上一次的已知结果。
+    /// tmutil 是阻塞子进程，调用方必须放到 OffPool。
     @discardableResult
     static func refreshTimeMachineCache() -> Set<String> {
-        let points = parseTimeMachineDestinations(plist: timeMachineDestinationPlist())
+        guard let plist = timeMachineDestinationPlist() else {
+            lock.lock()
+            let isFirstFailure = (lastFailureAt == nil)
+            lastFailureAt = Date()
+            let known = cachedMountPoints
+            lock.unlock()
+            if isFirstFailure {
+                AuditLog.append("读取 Time Machine 目标盘失败：本次无法确认哪些盘是备份盘，迁移预检缺少这一层")
+            }
+            return known
+        }
+        let points = parseTimeMachineDestinations(plist: plist)
         lock.lock()
         cachedMountPoints = points
         cachedAt = Date()
+        lastFailureAt = nil
         lock.unlock()
         return points
     }
 
-    /// 缓存未建立时补一次（迁移前的最后一道拦截用它，见 AppMigrator.validateTarget）
-    static func ensureCachePrimed() {
-        if !cacheIsPrimed { _ = refreshTimeMachineCache() }
+    /// 缓存不新鲜（未建立，或超过 maxAge）时补一次。
+    /// 读取失败不会更新 cachedAt，所以会自然重试到成功为止。
+    static func ensureCachePrimed(maxAge: TimeInterval = cacheTTL) {
+        lock.lock()
+        let at = cachedAt
+        lock.unlock()
+        let stale = at.map { Date().timeIntervalSince($0) >= maxAge } ?? true
+        if stale { refreshTimeMachineCache() }
     }
 
     /// 解析 `tmutil destinationinfo -X` 的 plist，取出本地目标的挂载点。

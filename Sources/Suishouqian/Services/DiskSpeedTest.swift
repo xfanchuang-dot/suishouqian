@@ -13,6 +13,11 @@ enum DiskSpeedTest {
 
     /// 实测写入与读取速度（MB/s）。任何一步失败返回 nil。
     static func run(mountPoint: String, sizeMB: Int = 256) -> (writeMBps: Double, readMBps: Double)? {
+        // 写盘前必须先确认"目标盘此刻真的挂在这条路径上"：盘已拔出而 /Volumes/X
+        // 只是个残留目录时（本项目历史上出现过这种残留），dd 会把 256MB 真写进内置盘，
+        // 结果还被当成外置盘速度展示。顺带预检只读与剩余空间。
+        guard isWritableMount(mountPoint: mountPoint,
+                              needBytes: Int64(sizeMB) * 1_048_576) else { return nil }
         let temp = mountPoint + "/.suishouqian-speedtest"
         defer { try? FileManager.default.removeItem(atPath: temp) }
         guard let write = dd(mbs: sizeMB, args: ["if=/dev/zero", "of=\(temp)", "bs=1m", "count=\(sizeMB)"]),
@@ -20,6 +25,23 @@ enum DiskSpeedTest {
         guard let read = dd(mbs: sizeMB, args: ["if=\(temp)", "of=/dev/null", "bs=1m"]),
               read > 0 else { return nil }
         return (write, read)
+    }
+
+    /// 该路径是否是一个"可写的、已挂载的非内置卷"（不是内置盘上的残留目录、不是只读卷、空间够）
+    static func isWritableMount(mountPoint: String, needBytes: Int64) -> Bool {
+        // 用卷属性而不是 statfs 设备名判断：APFS 的「系统卷 / 数据卷」是两个设备节点，
+        // 拿根卷设备名比对认不出 /Users 一类路径其实也在内置盘上。
+        guard let values = try? URL(fileURLWithPath: mountPoint).resourceValues(
+            forKeys: [.volumeIsInternalKey, .volumeIsRemovableKey,
+                      .volumeIsReadOnlyKey, .volumeIsLocalKey,
+                      .volumeAvailableCapacityKey]) else { return false }
+        // 内置卷（且不可移除）= 盘没挂上，路径只是内置盘上的普通目录
+        if values.volumeIsInternal == true && values.volumeIsRemovable != true { return false }
+        if values.volumeIsLocal == false { return false }
+        if values.volumeIsReadOnly == true { return false }
+        let need = needBytes + needBytes / 20
+        guard let free = values.volumeAvailableCapacity, Int64(free) >= need else { return false }
+        return true
     }
 
     /// 跑一次 dd，从 stderr 的统计行解析速率（dd 的统计走 stderr 不是 stdout）。

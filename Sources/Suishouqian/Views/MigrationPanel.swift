@@ -361,9 +361,16 @@ struct MigrationPanel: View {
                 clean.alertStyle = .warning
                 if clean.runModal() == .alertFirstButtonReturn {
                     let checker = HealthChecker()
-                    _ = await checker.recycleToTrash("\(drive.mountPoint)/.suishouqian-backup")
-                    _ = await checker.recycleToTrash(DataMigrator.dataRoot(on: drive.mountPoint))
-                    AuditLog.append("盘退休：随手迁目录已入废纸篓")
+                    // 忽略返回值会造成"审计日志说清掉了、实际还在盘上"的假成功
+                    var notTrashed: [String] = []
+                    for dir in ["\(drive.mountPoint)/.suishouqian-backup",
+                                DataMigrator.dataRoot(on: drive.mountPoint)] {
+                        guard FileManager.default.fileExists(atPath: dir) else { continue }
+                        if !(await checker.recycleToTrash(dir)) { notTrashed.append(dir) }
+                    }
+                    AuditLog.append(notTrashed.isEmpty
+                        ? "盘退休：随手迁目录已入废纸篓"
+                        : "盘退休：部分目录未能入废纸篓（\(notTrashed.joined(separator: "、"))）")
                 }
             } else {
                 let list = failures.prefix(8)

@@ -146,10 +146,10 @@ extension HealthCheckView {
 
             ForEach(model.bigFiles) { file in
                 HStack(spacing: 8) {
-                    Image(systemName: file.classification.systemManaged
+                    Image(systemName: file.classification.cleanupDisabled
                           ? "lock.shield" : "doc.fill")
                         .foregroundColor(file.classification.systemManaged
-                                         ? .secondary : .blue)
+                                         ? .secondary : (file.classification.protected ? .orange : .blue))
                         .font(.system(size: 11))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(file.name)
@@ -157,7 +157,7 @@ extension HealthCheckView {
                             .lineLimit(1)
                         Text("\(file.classification.label) · \(file.directory)")
                             .font(.system(size: 10))
-                            .foregroundColor(file.classification.systemManaged ? .orange : .secondary)
+                            .foregroundColor(file.classification.cleanupDisabled ? .orange : .secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -168,15 +168,25 @@ extension HealthCheckView {
                         .controlSize(.small)
                     Button("清理") { Task { await confirmRecycleBigFile(file) } }
                         .controlSize(.small)
-                        .disabled(file.classification.systemManaged)
+                        .disabled(file.classification.cleanupDisabled)
                 }
                 .padding(.vertical, 2)
-                .help(file.classification.systemManaged
-                      ? "这是系统管理的数据，随手迁不建议也不允许从这里清理。"
-                      : "\(file.path)\n分类：\(file.classification.label)。清理会移入废纸篓，可随时恢复。")
+                .help(bigFileHelp(file))
             }
         }
         .cardStyle()
+    }
+
+    /// 大文件条目的悬浮说明：把"为什么不能从这里清"讲清楚
+    private func bigFileHelp(_ file: BigFileItem) -> String {
+        if file.classification.protected {
+            return "\(file.path)\n\(file.classification.label)。这是不可再生的高价值数据，"
+                 + "随手迁不提供一键清理；确认确实不需要时请到 Finder 里自行删除。"
+        }
+        if file.classification.systemManaged {
+            return "这是系统管理的数据，随手迁不建议也不允许从这里清理。"
+        }
+        return "\(file.path)\n分类：\(file.classification.label)。清理会移入废纸篓，可随时恢复。"
     }
 
     private func confirmRecycleBigFile(_ file: BigFileItem) async {

@@ -3,10 +3,12 @@ name: release
 # 推 tag（如 v2.16.0）即出正式包：DMG + appcast.xml + GitHub Release。
 #
 # 双路径设计（v3.0 工程化）：
-#   · 配了 Apple 签名/公证 secrets → Developer ID 分层签名 + notarytool 公证 + stapler 装订
+#   · 配了 Apple 签名/公证 secrets → Developer ID 分层签名（含 Hardened Runtime）
+#                                   + notarytool 公证 + stapler 装订
 #   · 没配                       → 退回自签，照样产出可下载的 DMG
 #     （用户首次打开需右键「打开」；未公证时 Sparkle 自动更新的体验也略差）
-#   两条路径都产出 appcast.xml。
+#   两条路径都产出 DMG；**appcast 需要 SPARKLE_PRIVATE_KEY**（CI runner 上没有
+#   登录钥匙串，没有私钥就签不出 appcast，此时流水线会明确失败而不是发出半成品）。
 #
 # ⚠️ 前置条件：更新通道要求 feed 能被**匿名**拉取。仓库私有 → 已安装的用户
 #    永远收不到更新（详见 docs/RELEASING.md「更新通道的前提」）。
@@ -17,19 +19,28 @@ name: release
 #    写错了不会报错、只会静默把整步跳过。`[ -n "${X}" ]` 在任何情况下都成立，
 #    而且本地能逐行照跑照验。少一层魔法。
 #
-# 需要的 Secrets（全部可选，配了就自动升级到正式签名路径）:
+# ⚠️ secrets 只在**真正需要它的那一步**注入（v3.0.1）：此前挂在 workflow 级 env，
+#    等于 `swift test`、SwiftPM 解析 Package.swift 都继承了 Sparkle 私钥，
+#    仓库内任意可执行代码都能把它传出去。
+#
+# 需要的 Secrets（配了证书就自动升级到正式签名路径）:
+#   SPARKLE_PRIVATE_KEY           Sparkle EdDSA 私钥全文（scripts/sparkle_keys.sh 导出）
+#                                 **正式发版必填**：不配则 CI 生成不了 appcast
 #   APPLE_CERTIFICATE_P12         Developer ID Application 证书（.p12 的 base64）
 #   APPLE_CERTIFICATE_PASSWORD    .p12 的密码
 #   APPLE_ID                      Apple 开发者账号邮箱
 #   APPLE_TEAM_ID                 团队 ID
 #   APPLE_APP_PASSWORD            App 专用密码（appleid.apple.com 生成）
-#   SPARKLE_PRIVATE_KEY           Sparkle EdDSA 私钥全文（scripts/sparkle_keys.sh 导出）
-# 未配 SPARKLE_PRIVATE_KEY 时 appcast 会退回钥匙串——CI 上取不到，所以正式发布务必配置。
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag（例 v2.16.0，必须已经存在）'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -39,32 +50,41 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-  APPLE_ID: ${{ secrets.APPLE_ID }}
-  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-  APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-  SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-
 jobs:
   release:
     runs-on: macos-14
     steps:
+      # fetch-depth: 0 —— workflow_dispatch 手动发布时要能校验目标 tag 确实存在
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: 校验 tag 与 VERSION 一致
+      - name: 解析并校验发布 tag
         run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${{ inputs.tag }}"
+          fi
+          if [ -z "${TAG}" ]; then
+            echo "::error::缺少发布 tag（tag 推送或 workflow_dispatch 的 tag 输入）"
+            exit 1
+          fi
+          # tag 必须已经存在。此前 tag↔VERSION 校验被 `if GITHUB_REF_TYPE = tag` 包着，
+          # 手动触发时直接跳过，随后 gh release create 会在**分支 HEAD** 上现建一个 tag
+          # ——发出去的包和 tag 指向的代码不是一回事。
+          if ! git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
+            echo "::error::tag ${TAG} 不存在。手动发布请先 git push origin ${TAG}"
+            exit 1
+          fi
           VERSION="$(tr -d ' \t\r\n' < VERSION)"
           echo "VERSION=${VERSION}"
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            TAG="${GITHUB_REF_NAME#v}"
-            if [ "${TAG}" != "${VERSION}" ]; then
-              echo "::error::tag v${TAG} 与 VERSION=${VERSION} 不一致 —— 发版前先同步 VERSION 与 CHANGELOG"
-              exit 1
-            fi
+          if [ "${TAG#v}" != "${VERSION}" ]; then
+            echo "::error::tag ${TAG} 与 VERSION=${VERSION} 不一致 —— 发版前先同步 VERSION 与 CHANGELOG"
+            exit 1
           fi
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "PUBLISH_TAG=${TAG}" >> "${GITHUB_ENV}"
 
       - name: 跑全量测试
         run: swift test
@@ -73,8 +93,10 @@ jobs:
       # 因为 Sparkle 就是不带你任何凭证去拉 feed 的。
       - name: 检查更新通道可达性
         run: |
+          # 这一步只告警、不拦发版：curl 失败（网络抖动/DNS）不能让发版中断，
+          # 而 GitHub 的 run 步骤是 `bash -e`，所以必须显式兜底
           CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-                  "https://api.github.com/repos/${GITHUB_REPOSITORY}")"
+                  "https://api.github.com/repos/${GITHUB_REPOSITORY}" || echo 000)"
           echo "匿名访问 ${GITHUB_REPOSITORY} → HTTP ${CODE}"
           if [ "${CODE}" != "200" ]; then
             echo "::warning::仓库非公开（HTTP ${CODE}）。Sparkle 匿名拉取 \
@@ -83,6 +105,9 @@ jobs:
           fi
 
       - name: 准备签名身份
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           if [ -z "${APPLE_CERTIFICATE_P12}" ]; then
             echo "未配置 APPLE_CERTIFICATE_P12 —— 走自签路径"
@@ -120,9 +145,38 @@ jobs:
           echo "签名身份: ${IDENTITY}"
 
       - name: 构建 App
+        env:
+          # 发布构建不允许"没有公钥的包"——那种包永远收不到自动更新
+          SUISHOUQIAN_REQUIRE_PUBKEY: '1'
         run: bash build.sh --dist-only
 
+      # build.sh 内部已有同样的断言；这里再独立验一遍，防止那条断言被误删
+      - name: 校验签名标志（公证要求 Hardened Runtime）
+        run: |
+          if [ "${SIGNED:-no}" != "yes" ]; then
+            echo "自签路径：跳过 runtime 断言"
+            exit 0
+          fi
+          fail=0
+          while IFS= read -r -d '' f; do
+            flags="$(codesign -d --verbose=2 "$f" 2>&1 | grep -m1 '^CodeDirectory' || true)"
+            case "$flags" in
+              *runtime*) ;;
+              *) echo "::error::$f 缺少 Hardened Runtime（公证会被拒）"; fail=1 ;;
+            esac
+            case "$flags" in
+              *adhoc*) echo "::error::$f 仍是 ad-hoc 签名（公证会被拒）"; fail=1 ;;
+            esac
+          done < <(find "dist/随手迁.app" -depth \
+                     \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) -print0)
+          [ "${fail}" = "0" ] || exit 1
+          echo "签名标志校验通过"
+
       - name: 公证并装订 App
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           if [ "${SIGNED:-no}" != "yes" ] || [ -z "${APPLE_ID}" ]; then
             echo "未配 Developer ID 证书或 Apple 账号 —— 跳过公证"
@@ -138,6 +192,10 @@ jobs:
         run: bash scripts/package_dmg.sh --no-build
 
       - name: 公证并装订 DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           if [ "${SIGNED:-no}" != "yes" ] || [ -z "${APPLE_ID}" ]; then
             echo "未配 Developer ID 证书或 Apple 账号 —— 跳过公证"
@@ -166,17 +224,38 @@ jobs:
           cat release_notes.md
 
       - name: 生成 appcast.xml
+        env:
+          # 私钥只在这一步可见（CI 上没有登录钥匙串，必须靠它注入）
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: bash scripts/make_appcast.sh
 
-      - name: 发布 GitHub Release
+      - name: 发布 GitHub Release（可重跑）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "v${VERSION}" \
-            "dist/随手迁-${VERSION}.dmg" \
-            "dist/appcast.xml" \
-            --title "随手迁 v${VERSION}" \
-            --notes-file release_notes.md
+          set -euo pipefail
+          DMG="dist/随手迁-${VERSION}.dmg"
+          APPCAST="dist/appcast.xml"
+          if gh release view "${PUBLISH_TAG}" >/dev/null 2>&1; then
+            # 可重跑：此前用 gh release create，重跑必卡在 "release already exists"，
+            # 而如果上一次是 appcast 上传失败，更新通道就一直缺这个资产（用户端 404）
+            echo "Release ${PUBLISH_TAG} 已存在 → 覆盖上传资产"
+            gh release upload "${PUBLISH_TAG}" "${DMG}" "${APPCAST}" --clobber
+          else
+            gh release create "${PUBLISH_TAG}" "${DMG}" "${APPCAST}" \
+              --title "随手迁 ${PUBLISH_TAG}" \
+              --notes-file release_notes.md
+          fi
+
+          # 资产完整性自检：appcast 缺失 = 全体用户更新通道静默断掉，必须当场失败
+          ASSETS="$(gh release view "${PUBLISH_TAG}" --json assets --jq '.assets[].name')"
+          echo "${ASSETS}"
+          for want in "$(basename "${DMG}")" "appcast.xml"; do
+            if ! printf '%s\n' "${ASSETS}" | grep -qx "${want}"; then
+              echo "::error::Release ${PUBLISH_TAG} 缺少资产 ${want}"
+              exit 1
+            fi
+          done
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4

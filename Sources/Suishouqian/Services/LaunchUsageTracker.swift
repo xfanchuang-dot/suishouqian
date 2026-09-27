@@ -38,6 +38,15 @@ final class LaunchUsageTracker: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var entries: [LaunchUsageEntry] = []
 
+    /// 加锁快照。`entries` 是裸数组（@unchecked Sendable 类型上的可变状态），
+    /// 而 `CheckEngine.run` 是 nonisolated async（跑在协作线程池上），
+    /// 直接读它与主线程的 record 构成数据竞争。跨线程读一律走这里。
+    var entriesSnapshot: [LaunchUsageEntry] {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries
+    }
+
     /// 统计窗口 7 天、阈值 3 次：一周用不到 3 次的应用，等盘的耐心是值得的。
     static let suggestDays = 7
     static let suggestThreshold = 3

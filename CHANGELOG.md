@@ -1,5 +1,111 @@
 # 更新日志
 
+## 未发布（发下一版时把这行改成 `## <版本号> — <日期>` 并同步 VERSION）
+
+### 全量代码审查修复批次：数据安全护栏、目标盘判定、发布链路
+
+对整仓做了一次代码审查（核心迁移链路精读 + 发布链路/运行时服务并行审查 + 实机 `codesign` 验证），
+逐条修复。全部改动都有对应回归测试（126 个用例全绿）。
+
+**数据安全（北极星项）**
+
+- **过期备份不再被无差别永久删除**：`cleanOldBackups` 此前用 `removeItem`，只看 mtime，不看
+  备份对应的应用是否还有可用副本。更新器把真身弄丢、应用被绕过本工具删掉时，`.suishouqian-backup`
+  里的留底就是**唯一副本**——超过保留期就被后台静默抹掉（正是 v2.8.0 花力气救的场景）。
+  现在只在"应用另有可用副本（链接正常或外置盘还有正本）"时才自动清理，且一律走废纸篓；
+  可能是唯一副本的留底只记审计日志，留给体检页人工确认。
+- **空间预检按两份算**：目标盘上要落「目标副本 + 同盘留底备份」两份（needsAuth 是两次 ditto，
+  非 auth 是 ditto + 跨卷 move），此前只按一份 + 5% 校验 → 迁移到一半把盘写满、备份步骤失败。
+  新增 `AppMigrator.requiredTargetBytes`（2 份 + 5%）与对应测试。
+- **数据回迁补上属主运行检查**：迁移方向一直拦"应用正在运行"，回迁方向漏了——而回迁的第一步是
+  摘链接、再从外置盘复制回来，期间属主应用新建/写入的数据会被 `copyWithDitto` 开头的
+  `removeItem(dst)` 直接删掉。现在对称拦截，并在数据面板加了二次确认。
+- **数据任务纳入全局任务状态**：数据面板此前只设自己的 `activeTaskTitle`，`appState.migrationTask`
+  为空 → ①「迁移进行中强退需二次确认」对数据搬迁完全不生效 ②可以和迁移页的应用迁移并发跑。
+  现在数据迁移/回迁/自选文件夹迁移都会占用 `migrationTask`（占位任务显示在迁移面板）。
+- **卸载不再"半途不可逆"**：此前先摘链接 → 再删真身 → 最后删台账。root 所有的应用进不了废纸篓时，
+  结果是"没有入口、台账也没了、只剩外置盘一份真身"。现在真身成功入废纸篓**之后**才摘链接、删台账；
+  失败就整体保持原样并提示用手动方式处理。
+- **回滚顺序：先保住原件，再回收副本**：授权失败的回滚此前先删掉**唯一校验通过**的目标副本，
+  再从"从未校验过"的备份恢复。现在原件仍在时只回收本次新建的副本；原件确实被删时，先恢复成功
+  才回收目标副本（两份都保留的日志写清路径）。
+- **迁移硬护栏**：源与目标是同一位置（外置盘原住民误走"迁移"入口）时直接拒绝——`copyWithDitto`
+  第一步是 `removeItem(dst)`，那种情况等于删库。UI 分流之外，API 自己也要守住。
+- **ad-hoc 重签留痕并复核**：副本签名无效时的 `codesign --force --sign -` 会改掉应用代码身份
+  （keychain ACL / TCC / 带 Helper 的应用内部校验），此前无任何记录。现在重签前后都写审计日志，
+  签完复核并在失败时提示可用体检页回迁还原。
+- **台账损坏不再等于台账清空**：`load()` 解析失败会改名隔离坏文件（`migration-manifest.corrupt-*.json`）
+  并写审计日志，避免下一次 `record` 把历史条目整体覆盖。
+- **审计日志守住 append-only**：日志文件存在但不可写时，此前会落到"原子写整体替换"分支，
+  把整本历史换成一行。现在只在文件不存在时创建，存在则只能追加，打不开就 `NSLog` 并放弃本次记录。
+- **iPhone 备份禁止一键清理**：残留扫描一直把 `MobileSync` 当保护名单，大文件面板却给了可点的
+  「清理」按钮（只有通用确认文案）。分类器新增 `protected` 标记，面板禁用按钮并说明原因。
+- **残留匹配不再误伤别的在装应用**：卸载场景的前缀匹配会把 `com.tencent.qq` 这类目录算成
+  微信（`com.tencent.xinWeChat`）的残留。现在先排掉"能被其它在装应用认领"的目录。
+
+**目标盘判定**
+
+- **Time Machine 护栏不再 fail-open**：缓存无 TTL、启动后永不刷新，且读取失败会把缓存清成空集合
+  （空集合一律放行）。现在加 TTL、读取失败**保留**上一次已知结果并写审计日志，迁移预检按
+  60 秒新鲜度强制重读。
+- **网络共享/云盘卷与只读卷不再被当成"外置盘"**：`isExternal` 只看 removable/isInternal，
+  SMB/AFP 共享与磁盘映像都会被算成候选并成为迁移目标（断线即全部链接失效）。
+  `DiskMonitor` 增加 `volumeIsLocal` / `volumeIsReadOnly` 过滤；`validateTarget` 在写盘边界
+  再加一道同样的闸（并补上"目标落在内置盘上"的判定——APFS 系统卷与数据卷是两个设备节点，
+  以前只比设备名认不出来）。
+- **选定目标盘不被临时卷顶掉**：定时刷新也会写 `selectedExternalVolumeUUID`，一块 DMG 或网络卷
+  只要容量够大就会被持久化成"用户选定的盘"。现在只在"还没记住任何盘"或"选中的盘确实带着
+  随手迁足迹"时才更新。
+- **实测盘速不再误写内置盘**：盘拔出但 `/Volumes/X` 残留目录还在时，`dd` 会把 256MB 真写进内置盘、
+  结果还当成外置盘速度展示。新增 `isWritableMount` 预检（非内置、本地、可写、空间够）。
+
+**发布链路**
+
+- **公证路径修好两处硬伤**：所有 `codesign` 补 `--options runtime`；签名范围补上 Sparkle 的
+  `Autoupdate`（Mach-O，既不是 `.app` 也不是 `.xpc`，早先的 `find` 漏签，实测 dist 里它一直是
+  ad-hoc）。签名后逐件复核 runtime/adhoc 标志，不通过拒绝交付；release 流水线再加一道独立复核。
+- **新 clone 的默认构建不再中途失败**：`_bak/` 只在「dist 已存在」分支里创建，而 `_bak/`、`dist/`
+  都在 `.gitignore` —— 新 clone 第一次 `bash build.sh` 会在"已装进 /Applications"之后因 `mv` 失败
+  被 `set -e` 中断。改为无条件创建。
+- **不再拷成嵌套包**：旧版用 Finder 删除失败（未授予自动化权限）时，`cp -R` 会把新包拷进旧包内部。
+  现在检测到旧包仍在就挪进 `_bak/`，挪不动则在安装前中断。
+- **release 可重跑 + 资产自检**：`gh release create` 重跑必卡"already exists"，而 appcast 上传失败会
+  让全体用户更新通道静默断掉。现在已存在则 `--clobber` 覆盖上传，并在最后核对 DMG 与 appcast
+  都在，缺一个就失败。
+- **手动发布不再错源**：`workflow_dispatch` 此前跳过 tag↔VERSION 校验，随后在分支 HEAD 上现建 tag。
+  现在要求显式给一个**已存在**的 tag，并同样校验版本。
+- **secrets 收窄**：`SPARKLE_PRIVATE_KEY` 等从 workflow 级 env 移到各自那一步，`swift test` 与
+  SwiftPM 解析不再继承私钥。
+- **版本防漂移不再可绕过**：CHANGELOG 顶部解析不出（如写成 `## [2.17.0]`）从此是错误，而不是静默跳过。
+- **CI 增加发布脚本冒烟**：新增 `build-scripts` job 跑 `bash -n` + `build.sh --dist-only` +
+  `package_dmg.sh --no-build` + 签名覆盖校验——此前脚本完全不在 CI 里，上述问题只能在打 tag 时暴露。
+- **Sparkle 脚本不再"零输出退出"**：`set -euo pipefail` 下 `find … | head -1` 遇到不存在的目录会
+  直接终止脚本（新机器首次跑 `sparkle_keys.sh` 正是这个场景，而发布手册把它列为第一条命令）。
+- **appcast 死链与缺资产**：dist 里残留旧版 DMG 会生成指向 `v$VERSION` 不存在资产的 item，现在直接报错；
+  CI 缺 `SPARKLE_PRIVATE_KEY` 时明确失败并说清原因；生成后确认带 `edSignature`、
+  且「打进 App 的 `SUPublicEDKey`」与「仓库 `sparkle_public_key.txt`」一致。
+- **其它**：`SUPublicEDKey` 缺失时构建会明确告警（发布构建 `SUISHOUQIAN_REQUIRE_PUBKEY=1` 直接失败）；
+  `.gitignore` 增加 Sparkle 私钥文件名规则（`sparkle_keys.sh` 接受任意导出路径），并删掉写错的
+  `Package.resolved.lock` 一行。
+
+**其它行为修正**
+
+- **插盘守护状态文件按卷区分**：此前一个全局 `.suishouqian-watch-state`，换监听盘后旧盘留下的状态
+  文件让"未挂载→挂载"边沿永不成立（自动打开静默失效）。`WatchPaths` 改为监视始终存在的父目录
+  `/Volumes`（盘拔掉后它自己的挂载点会消失，而 launchd 对"监视不存在的路径"语义无保证）。
+- **插盘守护安装/卸载如实返回**：安装前先 `bootout` 同 label 的在册任务（否则 `bootstrap` 报
+  "service already loaded"，launchd 里仍是旧 WatchPaths），失败回滚 plist；卸载不再用"plist 删掉了"
+  冒充成功，launchctl 卸不掉就返回 false。
+- **更新源只留一个真相**：`UpdateManager` 此前用 `UserDefaults` 写 `SUFeedURL`，而 Sparkle 的查找顺序是
+  **用户域优先于 Info.plist**（`SUHost -objectForKey`），那一行压过了 `build.sh` 写进 Info.plist 的值，
+  还让 Sparkle 每次启动打一条 error 级弃用告警。现在清掉历史遗留值，探测也改为读 Info.plist 的实际值。
+- **使用记录跨线程读改为加锁快照**：`CheckEngine.run` 是 nonisolated async（跑在协作线程池），
+  直接读 `LaunchUsageTracker.entries` 与主线程的 `record` 构成数据竞争。
+- **修复断链优先按台账卷 UUID 定位**：只按"第一个同名应用"会把链接指到另一块盘上的副本。
+- **盘退休清理如实记账**：忽略 `recycleToTrash` 返回值造成"日志说清掉了、实际还在盘上"。
+- **文档**：README 项目结构里的 `Utilities/` 名单与实际文件对齐（`FileVerifier`、`Permissions`
+  并不存在）；根 `Info.plist` 标注为旧 Xcode 工程模板（当前流程不使用，不是版本来源）。
+
 ## 2.16.0 — 2026-09-26
 
 ### 工程化收官（v3.0 的代码部分）：一条 tag 出一版正式包

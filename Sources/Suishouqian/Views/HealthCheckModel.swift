@@ -40,7 +40,7 @@ final class HealthCheckModel: ObservableObject {
     /// 纯内存的即时重算（搬回成功后立刻摘人，不等下一轮体检）
     func computeUsage(apps: [AppItem]) {
         usageSuggestions = LaunchUsageTracker.suggestions(
-            apps: apps, entries: LaunchUsageTracker.shared.entries)
+            apps: apps, entries: LaunchUsageTracker.shared.entriesSnapshot)
     }
 
     func removeUnused(appPath: String) {

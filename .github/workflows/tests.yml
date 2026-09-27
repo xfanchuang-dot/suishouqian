@@ -18,3 +18,34 @@ jobs:
 
       - name: Run tests
         run: swift test
+
+  # 发布脚本冒烟：build.sh / package_dmg.sh 是"代码到用户手上"的必经之路，
+  # 而它们此前完全不在 CI 里 —— 新 clone 缺 _bak、签名漏项、覆盖安装拷成嵌套包
+  # 这类问题只能在打 tag 时才暴露（那时 release 流水线直接失败）。
+  build-scripts:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 语法检查全部脚本
+        run: |
+          for s in build.sh scripts/*.sh; do
+            echo "== ${s}"
+            bash -n "${s}"
+          done
+
+      - name: 构建 + 签名 + 打 DMG（--dist-only：不装进 /Applications、不启动）
+        run: |
+          bash build.sh --dist-only
+          bash scripts/package_dmg.sh --no-build
+
+      - name: 校验签名与可执行文件覆盖
+        run: |
+          codesign --verify --strict "dist/随手迁.app"
+          # 包内每个可执行文件都必须被签过（Sparkle 的 Autoupdate 曾经漏签，
+          # 而它正是公证会被拒的原因之一）
+          while IFS= read -r -d '' f; do
+            codesign --verify "$f" || { echo "::error::${f} 未签名或签名无效"; exit 1; }
+          done < <(find "dist/随手迁.app" -depth \
+                     \( -name "*.xpc" -o -name "*.app" -o -name "Autoupdate" \) -print0)
+          echo "签名覆盖检查通过"

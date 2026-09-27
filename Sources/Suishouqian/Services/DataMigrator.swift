@@ -191,7 +191,11 @@ final class DataMigrator: @unchecked Sendable {
         let site = item.path
         let externalPath = "\(Self.dataRoot(on: drivePath))/\(item.id)"
 
-        if let reason = migrator.validateTarget(drivePath: drivePath, appSize: item.sizeBytes) {
+        // validateTarget 里有 statfs + tmutil + resourceValues：阻塞调用走 OffPool
+        let targetIssue = await OffPool.run { [self] in
+            migrator.validateTarget(drivePath: drivePath, appSize: item.sizeBytes)
+        }
+        if let reason = targetIssue {
             AuditLog.append("拒绝数据迁移 \(item.title)：\(reason)")
             return (false, reason)
         }
@@ -263,6 +267,16 @@ final class DataMigrator: @unchecked Sendable {
         let site = item.path
         guard item.isSymlink, let target = try? fileManager.destinationOfSymbolicLink(atPath: site) else {
             return (false, "该位置不是链接，无需回迁")
+        }
+
+        // 与迁移方向对称的护栏：属主应用在运行时仍会往链接位写数据，而回迁的第一步是
+        // 摘掉链接、再把外置正本复制回来——期间应用新建的真目录、新写入的内容，
+        // 都会被 copyWithDitto 开头的 removeItem 直接删掉（数据分叉被静默丢弃）。
+        // 迁移方向一直有这道检查，回迁此前漏了。
+        if let location = Self.catalog.first(where: { $0.id == item.id }),
+           await OffPool.run({ [self] in isOwnerRunning(location) }) {
+            AuditLog.append("拒绝数据回迁 \(item.title)：属主应用正在运行")
+            return (false, "请先退出 \(location.title) 再回迁")
         }
 
         // 回迁写的是内置盘：预检必须针对内置盘空间（此前误用外置盘预检——
@@ -382,7 +396,11 @@ final class DataMigrator: @unchecked Sendable {
             AuditLog.append("拒绝自选迁移 \(title)：\(reason)")
             return (false, reason)
         }
-        if let reason = migrator.validateTarget(drivePath: drivePath, appSize: precheck.size) {
+        // validateTarget 里有 statfs + tmutil + resourceValues：阻塞调用走 OffPool
+        let targetIssue = await OffPool.run { [self] in
+            migrator.validateTarget(drivePath: drivePath, appSize: precheck.size)
+        }
+        if let reason = targetIssue {
             AuditLog.append("拒绝自选迁移 \(title)：\(reason)")
             return (false, reason)
         }

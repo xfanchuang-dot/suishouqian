@@ -166,7 +166,14 @@ class AppState: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.diskMonitor.refresh()
+                // 卷枚举 + 每个候选的 fileExists 都是阻塞 IO（网络卷上可能卡住），
+                // 连同 Time Machine 目的盘缓存一起放 OffPool，别占主线程。
+                // 顺序有意义：先刷 TM 缓存，目标盘过滤才不会拿旧快照做判断。
+                let monitor = self.diskMonitor
+                await OffPool.run {
+                    _ = VolumeClassifier.refreshTimeMachineCache()
+                    monitor.refresh()
+                }
                 self.refreshDrives()
                 self.checkLowDisk()
                 self.checkNewLargeApps()
@@ -238,19 +245,27 @@ class AppState: ObservableObject {
         // v2.2: 启动即尝试断链自愈 + 给历史迁移补台账
         // （补账后，卷改名场景在下次插盘时就能自动接上，无需用户打开体检）
         // v2.3.1: 数据链接（~/... 下的）同样纳入自愈
+        // v3.0.1: 这几步都是同步文件 IO，必须整体走 OffPool ——
+        // Task.detached 占的是协作线程池，正是两次冻结事故的根因类别
         let bootChecker = healthChecker
         let bootDataMigrator = dataMigrator
-        Task.detached(priority: .utility) {
-            _ = bootChecker.healBrokenLinks()
-            _ = bootDataMigrator.healDataLinks()
-            bootChecker.backfillManifest()
-            bootChecker.pruneStaleManifestEntries()
+        Task {
+            await OffPool.run {
+                _ = bootChecker.healBrokenLinks()
+                _ = bootDataMigrator.healDataLinks()
+                bootChecker.backfillManifest()
+                bootChecker.pruneStaleManifestEntries()
+            }
         }
 
-        // Time Machine 目标盘缓存：只认本地挂载点。tmutil 是阻塞调用，
-        // 走 OffPool（v2.14.0 修正：Task.detached 占的是协作线程池）
+        // Time Machine 目标盘缓存：只认本地挂载点。tmutil 是阻塞调用，走 OffPool。
+        // 缓存建立后再重算一次目标盘：DiskMonitor 初始化时缓存还是空的，
+        // 那一轮可能把 TM 备份盘当成候选（写盘边界还有第二道闸，但界面不该显示错目标）。
+        let bootMonitor = diskMonitor
         Task {
             await OffPool.run { _ = VolumeClassifier.refreshTimeMachineCache() }
+            await OffPool.run { bootMonitor.refresh() }
+            refreshDrives()
         }
 
         // v2.9.0 使用频率顾问：只记「住在外置盘上的应用」的启动时刻。
@@ -285,14 +300,14 @@ class AppState: ObservableObject {
             if drive != nil {
                 let checker = self.healthChecker
                 let dataMigrator = self.dataMigrator
-                Task.detached(priority: .utility) {
-                    let healed = checker.healBrokenLinks()
-                    let healedData = dataMigrator.healDataLinks()
-                    if !healed.isEmpty || !healedData.isEmpty {
-                        await MainActor.run {
-                            self.notificationManager.notifyLinksHealed(
-                                appNames: healed + healedData)
-                        }
+                Task {
+                    // 自愈是同步文件 IO：走 OffPool，不占协作线程池
+                    let healed = await OffPool.run { () -> ([String], [String]) in
+                        (checker.healBrokenLinks(), dataMigrator.healDataLinks())
+                    }
+                    if !healed.0.isEmpty || !healed.1.isEmpty {
+                        self.notificationManager.notifyLinksHealed(
+                            appNames: healed.0 + healed.1)
                     }
                 }
                 // v2.4.2: 插盘后重扫列表，外置盘原住民应用立即可见
@@ -340,7 +355,7 @@ class AppState: ObservableObject {
         // P0: 每次扫描顺带清理过期备份（此前 cleanOldBackups 从未被调用，
         // 外置盘上积累了 4 个月前的 1GB 陈旧备份）
         if let mountPoint = externalDrive?.mountPoint {
-            migrator.cleanOldBackups(at: mountPoint)
+            await migrator.cleanOldBackups(at: mountPoint)
         }
     }
     

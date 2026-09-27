@@ -102,7 +102,20 @@ final class MigrationManifest: @unchecked Sendable {
         guard let data = try? Data(contentsOf: fileURL) else { return ManifestFile() }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode(ManifestFile.self, from: data)) ?? ManifestFile()
+        do {
+            return try decoder.decode(ManifestFile.self, from: data)
+        } catch {
+            // 解析失败绝不能静默当空台账：下一次 record 会把历史条目整体覆盖掉，
+            // 所有迁移记录的卷 UUID 定位信息（卷改名自愈的依据）一次性消失。
+            // 改为把坏文件改名留档，人工还能捞回来。
+            let stamp = Int(Date().timeIntervalSince1970)
+            let quarantine = fileURL.deletingLastPathComponent()
+                .appendingPathComponent("migration-manifest.corrupt-\(stamp).json")
+            try? FileManager.default.moveItem(at: fileURL, to: quarantine)
+            AuditLog.append("台账文件解析失败，已隔离为 \(quarantine.lastPathComponent)"
+                + "（原记录未丢弃，可人工恢复；本次从空台账重新开始）")
+            return ManifestFile()
+        }
     }
 
     private func save(_ manifest: ManifestFile) {

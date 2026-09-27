@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  注意：这是旧 Xcode 工程（随手迁.xcodeproj.bak）的模板，里面的 $(...) 占位符
+  只有 Xcode 构建才会展开。当前 SwiftPM + build.sh 流程**不使用本文件**——
+  build.sh 会按根目录 VERSION 生成 App 包内的 Info.plist。
+  所以这里的版本号不是版本来源：改版本只改 VERSION（见 docs/RELEASING.md §0）。
+-->
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>

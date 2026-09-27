@@ -19,7 +19,11 @@ final class BigFileClassifierTests: XCTestCase {
     func testIPhoneBackupLabeled() {
         let r = BigFileClassifier.classify(
             path: "/Users/fan/Library/Application Support/MobileSync/Backup/xxx/3d0d.bin")
-        XCTAssertFalse(r.systemManaged)
+        // v3.0.1：残留扫描一直把 MobileSync 当保护名单，大文件面板却给了可点的
+        // 「清理」按钮（与项目自己的风险分级矛盾）。现在统一为"工具不提供清理"。
+        XCTAssertFalse(r.systemManaged, "iPhone 备份不是系统管理的数据")
+        XCTAssertTrue(r.protected, "iPhone 备份不可再生，必须禁止一键清理")
+        XCTAssertTrue(r.cleanupDisabled, "清理按钮必须禁用")
         XCTAssertTrue(r.label.contains("iPhone 备份"))
     }
 

@@ -31,7 +31,15 @@ enum AuditLog {
             df.dateFormat = "yyyy-MM-dd HH:mm:ss"
             let line = "[\(df.string(from: Date()))] \(event)\n"
             let url = logURL
-            if let handle = FileHandle(forWritingAtPath: url.path) {
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            if exists {
+                // 文件已存在就**只能追加**。此前打不开写句柄时会落到下面的原子写分支，
+                // 那是"临时文件 + rename 整体替换"——文件存在但不可写（root 所有 / ACL /
+                // 换机恢复）时会把整本历史日志换成这一行，append-only 契约被静默破坏。
+                guard let handle = FileHandle(forWritingAtPath: url.path) else {
+                    NSLog("[随手迁] 审计日志不可写，已跳过本次记录：%@", url.path)
+                    return
+                }
                 defer { try? handle.close() }
                 _ = try? handle.seekToEnd()
                 if let data = line.data(using: .utf8) {

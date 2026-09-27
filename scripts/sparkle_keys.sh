@@ -16,7 +16,15 @@ PUB_FILE="$PROJECT_DIR/sparkle_public_key.txt"
 KEY_OUT="${1:-$HOME/Library/Caches/suishouqian-sparkle/private_key.txt}"
 
 SCRATCH="${SUISHOUQIAN_SCRATCH:-$HOME/Library/Caches/suishouqian-scratch}"
-GEN_KEYS="$(find "$SCRATCH" "$PROJECT_DIR/.build" -name generate_keys -type f 2>/dev/null | head -1)"
+# 不要写成 `find … | head -1`：set -o pipefail 下 find 遇到不存在的目录返回 1，
+# 脚本会在打印下面的友好提示之前就退出（零输出）。新机器第一次跑本脚本时
+# 两个目录都还不存在，正是踩这个坑的场景（docs/RELEASING.md §1.1 的首条命令）。
+GEN_KEYS=""
+for root in "$SCRATCH" "$PROJECT_DIR/.build"; do
+    [ -d "$root" ] || continue
+    GEN_KEYS="$(find "$root" -name generate_keys -type f -print -quit 2>/dev/null)"
+    if [ -n "$GEN_KEYS" ]; then break; fi
+done
 if [ -z "$GEN_KEYS" ]; then
     echo "错误: 找不到 generate_keys。先跑一次构建（bash build.sh --dist-only）把 Sparkle 工具拉下来。"
     exit 1

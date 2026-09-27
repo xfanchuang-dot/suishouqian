@@ -53,12 +53,19 @@ private func probeUpdateFeed(_ feed: String) async -> String? {
 @MainActor
 final class UpdateManager: ObservableObject {
 
-    /// appcast 地址。仓库改名/转移时，**三处必须同步**改：
+    /// appcast 地址的**代码侧副本**（用于兜底探测；运行时以 Info.plist 的 SUFeedURL 为准）。
+    /// 仓库改名/转移时三处必须同步：
     ///   1. 这里
-    ///   2. `build.sh` 写进 Info.plist 的 `SUFeedURL`
+    ///   2. `build.sh` 写进 Info.plist 的 `SUFeedURL`（Sparkle 实际读这个）
     ///   3. `scripts/make_appcast.sh` 的 `URL_PREFIX`
     static let feedURL =
         "https://github.com/xfanchuang-dot/suishouqian/releases/latest/download/appcast.xml"
+
+    /// Sparkle 真正会使用的 feed。探测必须用同一个值，否则会出现
+    /// "预检说通道可用、Sparkle 却拉不到"的自相矛盾。
+    static var effectiveFeedURL: String {
+        (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String) ?? feedURL
+    }
 
     private let updaterController: SPUStandardUpdaterController
     private var started = false
@@ -66,9 +73,6 @@ final class UpdateManager: ObservableObject {
     private var probing = false
 
     init() {
-        // 程序化设置更新源，避免依赖 Info.plist（两条路都留着，改仓库时不必重建包）
-        UserDefaults.standard.set(Self.feedURL, forKey: "SUFeedURL")
-
         // 不在启动时启动 updater：通道未配置时只会静默失败并拖慢启动，
         // 改为用户手动点「检查更新」时才启动
         updaterController = SPUStandardUpdaterController(
@@ -76,6 +80,13 @@ final class UpdateManager: ObservableObject {
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+
+        // 历史版本用 `UserDefaults.set(feedURL, forKey: "SUFeedURL")` 来"避免依赖 Info.plist"。
+        // 但 Sparkle 的查找顺序是**用户域优先于 Info.plist**（SUHost -objectForKey），
+        // 那一行实际压过了 build.sh 写进 Info.plist 的 SUFeedURL，还让 SPUUpdater
+        // 每次启动打一条 error 级弃用告警。这里清掉历史遗留值，让 Info.plist 成为
+        // 唯一运行时来源（本类是 @MainActor，clearFeedURLFromUserDefaults 要求主线程）。
+        updaterController.updater.clearFeedURLFromUserDefaults()
     }
 
     /// 更新通道是否已配置（公钥存在且非空才算配好）
@@ -106,7 +117,7 @@ final class UpdateManager: ObservableObject {
         probing = true
         Task { [weak self] in
             guard let self else { return }
-            let failure = await probeUpdateFeed(Self.feedURL)
+            let failure = await probeUpdateFeed(Self.effectiveFeedURL)
             self.probing = false
 
             if let failure {

@@ -31,6 +31,15 @@ class AppMigrator: @unchecked Sendable {
         let targetPath = "\(targetDir)/\(appName)"
         let backupPath = "\(drivePath)/.suishouqian-backup/\(appName)"
 
+        // 硬护栏：源与目标不能是同一个位置。copyWithDitto 的第一步是 removeItem(dst)，
+        // 若 dst 就是应用自身（外置盘原住民被误走"迁移"入口），等于直接删库。
+        // UI 目前按 status 分流不会走到这里，但这条语义必须由 API 自己守住。
+        if (sourcePath as NSString).standardizingPath == (targetPath as NSString).standardizingPath {
+            return MigrationResult(success: false,
+                  error: "「\(appName)」已经在这个目录里，无需再次迁移（若要搬回内置盘请用「搬回内置盘」）",
+                  spaceSaved: 0)
+        }
+
         // 稳定性：应用正在运行时移动/替换会导致半完成状态，直接拒绝
         if let runningName = Self.runningAppName(matching: sourcePath) {
             AuditLog.append("拒绝迁移 \(appName)：应用正在运行")
@@ -39,8 +48,12 @@ class AppMigrator: @unchecked Sendable {
         }
 
         // P0: 目标必须是真实挂载的独立卷。历史上发生过目标卷未挂载时
-        // createDirectory 把数据全写进内置盘 /Volumes 的事故，此处硬性拦截
-        if let reason = validateTarget(drivePath: drivePath, appSize: app.size) {
+        // createDirectory 把数据全写进内置盘 /Volumes 的事故，此处硬性拦截。
+        // validateTarget 里有 statfs + tmutil + resourceValues，全部是阻塞调用 → OffPool
+        let targetIssue = await OffPool.run { [self] in
+            validateTarget(drivePath: drivePath, appSize: app.size)
+        }
+        if let reason = targetIssue {
             AuditLog.append("拒绝迁移 \(appName)：\(reason)")
             return MigrationResult(success: false, error: reason, spaceSaved: 0)
         }
@@ -100,14 +113,25 @@ class AppMigrator: @unchecked Sendable {
             let authResult = await authenticatedRemove(
                 source: sourcePath, linkTarget: targetPath, createLink: createLink)
             guard authResult.success else {
-                try? fileManager.removeItem(atPath: targetPath)
-                // 回滚原件：恢复成功才删备份；恢复失败必须保留备份兜底，
-                // 否则「原件已不在 + 备份被删」就是真丢数据
+                // 回滚顺序很重要：**先确认原件恢复/仍在，再回收我们建的副本**。
+                // 之前是先 removeItem(targetPath) 再复制，一旦复制失败就只剩一份
+                // 从未校验过的备份，而唯一校验通过的副本已经被自己删了。
+                if fileManager.fileExists(atPath: sourcePath) {
+                    // 最常见的情况：用户取消了密码框，提权动作根本没生效，原件完好。
+                    // 此时只回收本次新建的目标副本与留底备份，不再动原件。
+                    try? fileManager.removeItem(atPath: targetPath)
+                    try? fileManager.removeItem(atPath: backupPath)
+                    return MigrationResult(success: false,
+                          error: authResult.error ?? "权限操作失败", spaceSaved: 0)
+                }
                 let restored = await copyWithDitto(from: backupPath, to: sourcePath) { _ in }
                 if restored {
+                    try? fileManager.removeItem(atPath: targetPath)
                     try? fileManager.removeItem(atPath: backupPath)
                 } else {
-                    AuditLog.append("迁移失败 \(appName)：授权回滚未完成，原件备份保留于 \(backupPath)")
+                    // 回滚未完成：目标副本与备份都保留（两份都能拿来人工恢复）
+                    AuditLog.append("迁移失败 \(appName)：授权回滚未完成，"
+                        + "目标副本与原件备份都保留（\(targetPath) / \(backupPath)）")
                 }
                 return MigrationResult(success: false,
                       error: restored ? (authResult.error ?? "权限操作失败")
@@ -281,26 +305,38 @@ class AppMigrator: @unchecked Sendable {
         var failures: [String] = []
         let checker = HealthChecker()
 
-        // 链接位无数据，直接摘（若已是断链也一并清掉）
+        // 真身：链接态删的是外置盘上的目标，普通应用删的就是 /Applications 本体
+        let realBundle = app.symlinkTarget ?? app.path
+
+        // 第一步：真身进废纸篓。这一步失败就整体放弃——不动链接、不动台账。
+        // 此前是"先摘链接、再删真身、再删台账"，真身收不动时（root 所有的应用）
+        // 应用会变成"没有入口、台账也没了、只剩外置盘一份真身"的不可逆状态。
+        if fileManager.fileExists(atPath: realBundle) {
+            if !(await checker.recycleToTrash(realBundle)) {
+                AuditLog.append("卸载 \(app.bundleName) 失败：应用本体未能移入废纸篓（入口与台账保持原样）")
+                return MigrationResult(success: false,
+                      error: "应用本体移入废纸篓失败（可能需要管理员权限）。"
+                           + "可在 Finder 里手动拖入废纸篓后再重试；此时入口与台账都保持原样",
+                      spaceSaved: 0)
+            }
+        }
+
+        // 第二步：真身已收走，链接位（无数据）直接摘；若已是断链也一并清掉
         if app.isSymlink {
             try? fileManager.removeItem(atPath: app.path)
         }
-        // 真身：链接态删的是外置盘上的目标，普通应用删的就是 /Applications 本体
-        let realBundle = app.symlinkTarget ?? app.path
-        if fileManager.fileExists(atPath: realBundle) {
-            if !(await checker.recycleToTrash(realBundle)) {
-                // root 所有的应用废纸篓可能收不动：如实上报，别假装成功
-                failures.append("应用本体移入废纸篓失败（可能需要管理员权限，可手动拖入废纸篓）")
-            }
-        }
-        // 迁移备份同样是数据，同样走废纸篓而不是抹掉
+
+        // 第三步：迁移备份同样是数据，同样走废纸篓。失败只记账，
+        // 不改变"应用本体已卸载"这个事实（备份是额外兜底，不是入口）
         if let drivePath {
             let backup = "\(drivePath)/.suishouqian-backup/\(app.bundleName)"
             if fileManager.fileExists(atPath: backup),
                !(await checker.recycleToTrash(backup)) {
-                failures.append("迁移备份移入废纸篓失败")
+                failures.append("迁移备份移入废纸篓失败（仍留在 \(backup)）")
             }
         }
+
+        // 应用本体确实已经收走，台账条目才移除
         MigrationManifest.shared.remove(appName: app.bundleName)
 
         if failures.isEmpty {
@@ -308,7 +344,7 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: true, error: nil, spaceSaved: app.size)
         }
         let msg = failures.joined(separator: "；")
-        AuditLog.append("卸载 \(app.bundleName) 部分失败：\(msg)")
+        AuditLog.append("卸载 \(app.bundleName) 部分失败：应用已入废纸篓；\(msg)")
         return MigrationResult(success: false, error: msg, spaceSaved: 0)
     }
     
@@ -320,10 +356,20 @@ class AppMigrator: @unchecked Sendable {
         modifiedAt < now.addingTimeInterval(-Double(retentionDays) * 86400)
     }
 
-    func cleanOldBackups(at drivePath: String) {
+    /// 自动清理过期备份（每次扫描顺手跑）。
+    ///
+    /// 两条红线（v3.0.1 修正）：
+    /// 1. **绝不自动删除"可能是唯一副本"的备份**：对应应用已经没有可用入口时
+    ///    （更新器把真身弄丢、应用被绕过本工具删掉），这份留底就是最后的退路——
+    ///    此前用 removeItem 无差别永久删除，超过保留期就把唯一副本抹掉了。
+    ///    这种情况留给体检页的人工清理，不由后台静默处理。
+    /// 2. 删除走**废纸篓**，与 `HealthChecker.deleteBackup` 的口径一致
+    ///    （"删除会移入废纸篓"是对用户的承诺，不是可选项）。
+    func cleanOldBackups(at drivePath: String, applicationsRoot: String = "/Applications") async {
         let backupDir = "\(drivePath)/.suishouqian-backup"
         guard let contents = try? fileManager.contentsOfDirectory(atPath: backupDir) else { return }
         let now = Date()
+        let checker = HealthChecker()
 
         for item in contents {
             let fullPath = "\(backupDir)/\(item)"
@@ -331,11 +377,57 @@ class AppMigrator: @unchecked Sendable {
                   let modDate = attrs[.modificationDate] as? Date,
                   Self.isBackupExpired(modifiedAt: modDate, now: now,
                                        retentionDays: retentionDays) else { continue }
-            try? fileManager.removeItem(atPath: fullPath)
-            if !fileManager.fileExists(atPath: fullPath) {
-                AuditLog.append("清理过期备份：\(item)（超过 \(retentionDays) 天）")
+
+            guard canAutoCleanBackup(named: item, drivePath: drivePath,
+                                     applicationsRoot: applicationsRoot) else {
+                AuditLog.append("保留过期备份：\(item)（超过 \(retentionDays) 天，"
+                    + "但对应数据当前没有其它可用副本，可能是唯一退路，请在体检页人工确认）")
+                continue
+            }
+            if await checker.recycleToTrash(fullPath) {
+                AuditLog.append("清理过期备份：\(item)（超过 \(retentionDays) 天，已入废纸篓）")
+            } else {
+                AuditLog.append("清理过期备份失败：\(item)（超过 \(retentionDays) 天，未能移入废纸篓）")
             }
         }
+    }
+
+    /// 自动清理的判据（纯逻辑，供测试）：**只有当备份对应的数据另有可用副本时**才允许
+    /// 后台自动清理。否则这份留底可能就是唯一退路（更新器把真身弄丢、应用被绕过本工具
+    /// 删掉），必须留给体检页的人工清理，不能由后台静默抹掉。
+    static func backupCanBeAutoCleaned(appLinkUsable: Bool, externalCopyExists: Bool) -> Bool {
+        appLinkUsable || externalCopyExists
+    }
+
+    /// 探测某份备份是否"另有可用副本"（`attributesOfItem` 不跟随符号链接 = lstat 语义）
+    func canAutoCleanBackup(named appName: String, drivePath: String,
+                            applicationsRoot: String = "/Applications") -> Bool {
+        // 数据备份（Data-*）：判据是台账里记录的链接位
+        if appName.hasPrefix(DataMigrator.manifestPrefix) {
+            guard let entry = MigrationManifest.shared.entry(forAppName: appName) else {
+                return true     // 台账已无此条目：迁移/回迁早已收尾，备份是冗余的
+            }
+            guard (try? fileManager.attributesOfItem(atPath: entry.linkPath)) != nil else {
+                return false    // 链接位都没了：备份可能是唯一副本
+            }
+            return linkIsUsable(atPath: entry.linkPath)
+        }
+
+        let linkPath = "\(applicationsRoot)/\(appName)"
+        let linkUsable = linkIsUsable(atPath: linkPath)
+        let externalCopyExists = ["Applications", "Suishouqian_Apps"].contains {
+            fileManager.fileExists(atPath: "\(drivePath)/\($0)/\(appName)")
+        }
+        return Self.backupCanBeAutoCleaned(appLinkUsable: linkUsable,
+                                           externalCopyExists: externalCopyExists)
+    }
+
+    /// 该位置的数据是否可用：真目录算可用；软链接看目标是否存在；不存在则不可用
+    private func linkIsUsable(atPath path: String) -> Bool {
+        guard let attrs = try? fileManager.attributesOfItem(atPath: path) else { return false }
+        guard (attrs[.type] as? FileAttributeType) == .typeSymbolicLink else { return true }
+        guard let target = try? fileManager.destinationOfSymbolicLink(atPath: path) else { return false }
+        return fileManager.fileExists(atPath: target)
     }
 
     /// 给刚建立的备份打上"创建时刻"。
@@ -369,22 +461,53 @@ class AppMigrator: @unchecked Sendable {
             return "目标路径不是已挂载的外置硬盘（卷名可能已变更），已阻止迁移以免数据写入内置盘"
         }
 
+        // 写盘边界的第二道闸：网络共享/云盘卷、只读卷、内置盘都不能当目标。
+        // DiskMonitor 已把它们排除在候选外，但 drivePath 是外部传入的字符串，
+        // 真正的护栏要落在"即将写数据"的这一刻。
+        // 注意用卷属性判断而不是只看 statfs 设备名：APFS 的系统卷与数据卷是两个
+        // 设备节点，/Volumes 下残留目录的设备名未必等于根卷。
+        if let values = try? URL(fileURLWithPath: drivePath).resourceValues(
+                forKeys: [.volumeIsLocalKey, .volumeIsReadOnlyKey,
+                          .volumeIsInternalKey, .volumeIsRemovableKey]) {
+            if values.volumeIsInternal == true && values.volumeIsRemovable != true {
+                return "目标路径落在内置盘上（目标卷未挂载？），已阻止迁移以免数据写入内置盘"
+            }
+            if values.volumeIsLocal == false {
+                return "目标是网络共享/云盘卷：共享断线后所有链接会失效，不能用于存放应用"
+            }
+            if values.volumeIsReadOnly == true {
+                return "目标是只读卷，无法写入"
+            }
+        }
+
         // Time Machine 备份盘不能当目标：系统清理旧备份时会把放上去的应用一起销毁。
-        // 缓存没建立时补一次（tmutil 是阻塞调用，但迁移是一次性用户操作，可接受）
-        VolumeClassifier.ensureCachePrimed()
+        // 这里的缓存最多容忍 60 秒——迁移是低频且高代价的操作，宁可多跑一次 tmutil，
+        // 也不要拿"应用启动时的旧快照"去判断备份盘（TM 目标可能刚被改动）。
+        // tmutil 是阻塞调用，调用方已把整个 validateTarget 放进 OffPool。
+        VolumeClassifier.ensureCachePrimed(maxAge: 60)
         if VolumeClassifier.isOnTimeMachineVolume(path: drivePath) {
             return "目标是 Time Machine 备份盘，系统空间紧张时会自动清理其中的旧备份，不能用于存放应用"
         }
         
-        // 空间检查：需要 app 大小 + 5% 余量
+        // 空间检查：目标盘上要同时落【两份】——目标副本 + 同盘留底备份
+        // （needsAuth 分支是两次 ditto；非 auth 分支是 ditto + 跨卷 move，move 同样是整树复制）。
+        // 此前按一份体积 + 5% 校验，会在第二步备份时把盘写满、迁移失败。
+        let needed = Self.requiredTargetBytes(appSize: appSize)
         let freeBytes = Int64(st.f_bavail) * Int64(st.f_bsize)
-        if freeBytes < appSize + appSize / 20 {
+        if freeBytes < needed {
             let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+            let total = ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)
             let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
-            return "目标盘空间不足：需要约 \(need)，仅剩 \(free)"
+            return "目标盘空间不足：\(need) 的应用需要约 \(total)（含同盘留底备份），仅剩 \(free)"
         }
         
         return nil
+    }
+
+    /// 目标盘需要的可用空间（纯逻辑，供测试）：
+    /// 目标副本 1 份 + 同盘留底备份 1 份 + 5% 余量。
+    static func requiredTargetBytes(appSize: Int64) -> Int64 {
+        appSize * 2 + appSize / 20
     }
     
     /// 回迁预检：内置盘（根卷）剩余空间是否足够
@@ -502,13 +625,33 @@ class AppMigrator: @unchecked Sendable {
         verify.waitUntilExit()
         if verify.terminationStatus == 0 { return }
 
+        // 走到这里说明副本自带的签名已经无效。ad-hoc 重签能让它启动，但会**改掉应用的
+        // 代码身份**：keychain ACL、TCC 授权、带 Helper/XPC 的应用内部校验都可能失效。
+        // 这是有代价的动作，必须留痕，并在签完后复核（不能签完就走）。
+        AuditLog.append("迁移副本签名无效，按既有策略做 ad-hoc 重签：\(path)")
         let resign = Process()
         resign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
         resign.arguments = ["--force", "--sign", "-", path]
         resign.standardOutput = FileHandle.nullDevice
         resign.standardError = FileHandle.nullDevice
-        if (try? resign.run()) != nil {
-            resign.waitUntilExit()
+        guard (try? resign.run()) != nil else {
+            AuditLog.append("ad-hoc 重签无法启动：\(path)（应用可能无法启动）")
+            return
+        }
+        resign.waitUntilExit()
+
+        let reverify = Process()
+        reverify.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        reverify.arguments = ["--verify", path]
+        reverify.standardOutput = FileHandle.nullDevice
+        reverify.standardError = FileHandle.nullDevice
+        if (try? reverify.run()) != nil {
+            reverify.waitUntilExit()
+            if reverify.terminationStatus == 0 {
+                AuditLog.append("ad-hoc 重签完成并复核通过（代码身份已变，首次启动可能重新弹授权/要求重新登录）")
+            } else {
+                AuditLog.append("ad-hoc 重签后仍未通过校验：\(path)（应用可能无法启动，可在体检页回迁还原）")
+            }
         }
     }
 

@@ -33,8 +33,16 @@ REPO_SLUG="${REPO_SLUG:-xfanchuang-dot/suishouqian}"
 URL_PREFIX="${APPCAST_URL_PREFIX:-https://github.com/$REPO_SLUG/releases/download/v$VERSION/}"
 
 # ── 找 Sparkle 工具 ─────────────────────────────────────────────────────────
+# 不要写成 `find … | head -1`：在 set -o pipefail 下，find 碰到不存在的目录会返回 1，
+# 整条管道失败 → set -e 让脚本**在打印下面的友好错误之前**就退出（零输出）。
+# 改为逐目录 -print -quit。
 SCRATCH="${SUISHOUQIAN_SCRATCH:-$HOME/Library/Caches/suishouqian-scratch}"
-GEN_APPCAST="$(find "$SCRATCH" "$PROJECT_DIR/.build" -name generate_appcast -type f 2>/dev/null | head -1)"
+GEN_APPCAST=""
+for root in "$SCRATCH" "$PROJECT_DIR/.build"; do
+    [ -d "$root" ] || continue
+    GEN_APPCAST="$(find "$root" -name generate_appcast -type f -print -quit 2>/dev/null)"
+    if [ -n "$GEN_APPCAST" ]; then break; fi
+done
 if [ -z "$GEN_APPCAST" ]; then
     echo "错误: 找不到 generate_appcast。先跑一次构建（bash build.sh --dist-only）把 Sparkle 工具拉下来。"
     exit 1
@@ -59,7 +67,14 @@ elif [ -f "$HOME/Library/Caches/suishouqian-sparkle/private_key.txt" ]; then
     KEY_ARGS=(--ed-key-file "$HOME/Library/Caches/suishouqian-sparkle/private_key.txt")
     echo "私钥来源: ~/Library/Caches/suishouqian-sparkle/private_key.txt（sparkle_keys.sh 导出）"
 else
-    echo "私钥来源: 登录钥匙串（若报找不到密钥，先跑 scripts/sparkle_keys.sh）"
+    # CI 上没有登录钥匙串、也没有本地导出的私钥文件：必须**当场说清原因**，
+    # 否则 generate_appcast 会以一个看不懂的报错收场，整条发版流水线卡在 appcast 这一步。
+    if [ -n "${CI:-}" ]; then
+        echo "错误: CI 环境必须提供 SPARKLE_PRIVATE_KEY（runner 上没有登录钥匙串）"
+        echo "      配置见 docs/RELEASING.md §1.3。私钥丢失 = 已发布版本再也收不到更新。"
+        exit 1
+    fi
+    echo "私钥来源: 登录钥匙串（本地开发路径；若报找不到密钥，先跑 scripts/sparkle_keys.sh）"
 fi
 
 # ── 打包产物清单 ────────────────────────────────────────────────────────────
@@ -67,6 +82,23 @@ shopt -s nullglob
 DMGS=("$DIST_DIR"/*.dmg)
 if [ ${#DMGS[@]} -eq 0 ]; then
     echo "错误: dist/ 里没有 .dmg。先跑 bash scripts/package_dmg.sh"
+    exit 1
+fi
+
+# appcast 里每个 enclosure 的下载地址都钉死在 v$VERSION 上，而 generate_appcast
+# 会把目录里**所有**归档都收进去：dist 里残留旧版 DMG 时会生成指向不存在资产的
+# item（用户端 404 / 签名错配）。与其静默产出坏 appcast，不如让用户先清干净 dist。
+EXPECTED_DMG="$DIST_DIR/随手迁-$VERSION.dmg"
+for d in "${DMGS[@]}"; do
+    if [ "$d" != "$EXPECTED_DMG" ]; then
+        echo "错误: dist/ 里还有其它版本的 DMG：$(basename "$d")"
+        echo "      appcast 的下载前缀是 v$VERSION，收录它会产生死链。"
+        echo "      请先移走旧 DMG（重跑 bash build.sh --dist-only 会自动归档旧 dist）。"
+        exit 1
+    fi
+done
+if [ ! -f "$EXPECTED_DMG" ]; then
+    echo "错误: 没找到本版本的 DMG（$EXPECTED_DMG）"
     exit 1
 fi
 
@@ -88,6 +120,32 @@ for d in "${DMGS[@]}"; do echo "  纳入: $(basename "$d")"; done
     -o "$DIST_DIR/appcast.xml" \
     "$DIST_DIR"
 
+# ── 产物自检 ────────────────────────────────────────────────────────────────
+# ① 每个 enclosure 都必须带 edSignature：没有签名的 appcast 会被 Sparkle 直接拒绝，
+#    而"私钥没生效"以前要到用户端才暴露。
+if ! grep -q "edSignature" "$DIST_DIR/appcast.xml"; then
+    echo "错误: appcast.xml 里没有任何 edSignature —— 私钥可能没生效，拒绝交付"
+    exit 1
+fi
+
+# ② 公私钥一致性（能自动查的那部分）：仓库公钥必须与打进 App 的公钥一致。
+#    真正的密码学校验需要验证 Ed25519 签名，Sparkle CLI 没有 verify 子命令；
+#    换密钥后的手工自检步骤见 docs/RELEASING.md §1.1。
+APP_PLIST="$DIST_DIR/随手迁.app/Contents/Info.plist"
+REPO_KEY="$(tr -d ' \t\r\n' < "$PROJECT_DIR/sparkle_public_key.txt" 2>/dev/null || true)"
+APP_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP_PLIST" 2>/dev/null || true)"
+if [ -z "$APP_KEY" ]; then
+    echo "错误: dist/随手迁.app 的 Info.plist 里没有 SUPublicEDKey —— 用户端无法校验更新包"
+    exit 1
+fi
+if [ -n "$REPO_KEY" ] && [ "$REPO_KEY" != "$APP_KEY" ]; then
+    echo "错误: 打进 App 的 SUPublicEDKey 与仓库 sparkle_public_key.txt 不一致"
+    echo "      app:  ${APP_KEY}"
+    echo "      repo: ${REPO_KEY}"
+    exit 1
+fi
+
 echo ""
 echo "产物: $DIST_DIR/appcast.xml"
 echo "下载前缀: $URL_PREFIX"
+echo "公钥（人工核对用）: ${APP_KEY}"

@@ -63,7 +63,7 @@ final class CheckEngine: @unchecked Sendable {
         let healed = await OffPool.run { [checker] in checker.healBrokenLinks() }
         report.healedCount = healed.count
         await OffPool.run { [checker] in checker.backfillManifest() }
-        await OffPool.run { [checker] in checker.pruneStaleManifestEntries() }
+        _ = await OffPool.run { [checker] in checker.pruneStaleManifestEntries() }
         report.links = await OffPool.run { [checker] in checker.checkLinks() }
 
         // ── 并行段：互相独立的慢检查项 ──
@@ -101,9 +101,10 @@ final class CheckEngine: @unchecked Sendable {
         report.bigFiles = await bigFiles
         report.spotlightIndexing = await spotlight
 
-        // 使用频率建议是纯内存计数（要过 NSImage，不走 OffPool 边界），主线程算即可
+        // 使用频率建议是纯内存计数（要过 NSImage，不走 OffPool 边界），主线程算即可。
+        // 注意取加锁快照：本方法跑在协作线程池上，不能直接读 tracker.entries
         report.usageSuggestions = LaunchUsageTracker.suggestions(
-            apps: apps, entries: tracker.entries)
+            apps: apps, entries: tracker.entriesSnapshot)
         return report
     }
 }

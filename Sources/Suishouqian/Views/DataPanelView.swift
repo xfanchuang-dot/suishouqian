@@ -227,7 +227,8 @@ struct DataPanelView: View {
     /// 选一个库外大文件夹迁到外置盘。护栏在 migrateCustomFolder 里，
     /// 这里只负责选目录、知情确认与进度显示。
     private func pickAndMigrateCustomFolder() {
-        guard let drive = appState.externalDrive, activeTaskTitle == nil, !isScanning else { return }
+        guard let drive = appState.externalDrive, activeTaskTitle == nil,
+              !isScanning, !appState.isMigrationActive else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -249,14 +250,11 @@ struct DataPanelView: View {
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        activeTaskTitle = "迁移 自选 · \(url.lastPathComponent)..."
+        beginDataTask("迁移 自选 · \(url.lastPathComponent)...", operation: .migrate)
         Task { @MainActor in
             let result = await dataMigrator.migrateCustomFolder(
                 at: path, drivePath: drive.mountPoint) { _, _ in }
-            await MainActor.run {
-                activeTaskTitle = nil
-                if !result.success { lastError = result.error }
-            }
+            finishDataTask(error: result.success ? nil : result.error)
             rescan()
         }
     }
@@ -292,7 +290,7 @@ struct DataPanelView: View {
     }
 
     private func migrateData(_ item: DataMigrator.DataLocationItem) {
-        guard let drive = appState.externalDrive else { return }
+        guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
         let alert = NSAlert()
         alert.messageText = "迁移「\(item.title)」到外置硬盘"
         alert.informativeText = """
@@ -303,30 +301,58 @@ struct DataPanelView: View {
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        activeTaskTitle = "迁移 \(item.title)..."
+        beginDataTask("迁移 \(item.title)...", operation: .migrate)
         Task { @MainActor in
             let result = await dataMigrator.migrateData(
                 item: item, drivePath: drive.mountPoint) { _, _ in }
-            await MainActor.run {
-                activeTaskTitle = nil
-                if !result.success { lastError = result.error }
-            }
+            finishDataTask(error: result.success ? nil : result.error)
             rescan()
         }
     }
 
     private func restoreData(_ item: DataMigrator.DataLocationItem) {
-        guard let drive = appState.externalDrive else { return }
-        activeTaskTitle = "回迁 \(item.title)..."
+        guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
+        // 与迁移方向补上对称的知情确认：回迁会先摘掉原位置的链接，
+        // 期间属主应用若在运行，它新建/写入的数据会被复制流程的 removeItem 直接删掉
+        let alert = NSAlert()
+        alert.messageText = "把「\(item.title)」回迁到内置盘？"
+        alert.informativeText = """
+        将删除原位置的链接，把外置盘上的数据复制回内置盘，校验通过后清理外置副本。
+        回迁期间请勿使用相关应用（属主应用正在运行时，工具会直接拒绝回迁）。
+        """
+        alert.addButton(withTitle: "开始回迁")
+        alert.addButton(withTitle: "取消")
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        beginDataTask("回迁 \(item.title)...", operation: .restore)
         Task { @MainActor in
             let result = await dataMigrator.restoreData(
                 item: item, drivePath: drive.mountPoint) { _, _ in }
-            await MainActor.run {
-                activeTaskTitle = nil
-                if !result.success { lastError = result.error }
-            }
+            finishDataTask(error: result.success ? nil : result.error)
             rescan()
         }
+    }
+
+    // MARK: - 数据任务与全局任务状态
+
+    /// 数据任务同样要占用 `AppState.migrationTask`。这不是界面装饰：
+    /// 它是 ①强退保护（迁移中退出会二次确认）②与迁移页互斥 的唯一依据。
+    /// 此前数据面板只设自己的 activeTaskTitle，于是可以边搬 200GB 数据边发起应用迁移，
+    /// 数据搬迁期间强退也不受任何拦截。
+    private func beginDataTask(_ title: String,
+                               operation: MigrationTask.MigrationOperation) {
+        activeTaskTitle = title
+        let placeholder = AppItem(name: title, bundleName: "data.task", path: "",
+                                  version: nil, size: 0, isSymlink: false,
+                                  symlinkTarget: nil, icon: nil)
+        appState.migrationTask = MigrationTask(app: placeholder, operation: operation)
+    }
+
+    private func finishDataTask(error: String?) {
+        activeTaskTitle = nil
+        appState.migrationTask = nil
+        if let error { lastError = error }
     }
 
     private func isolate(_ divergence: DataMigrator.DataDivergence) {
