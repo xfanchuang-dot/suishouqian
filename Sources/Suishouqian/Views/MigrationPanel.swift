@@ -3,11 +3,15 @@ import SwiftUI
 struct MigrationPanel: View {
     @EnvironmentObject var appState: AppState
     @State private var batchSummary: String?
+    @State private var showPlanSheet = false
     private let dataMigrator = DataMigrator()
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionHeader(title: "操作", systemImage: "arrow.left.arrow.right")
+        // v3.0: 包上 ScrollView（与总览/体检/数据三面板一致）——
+        // 此前操作按钮越加越多，盘要退休按钮已贴着窗口下沿，新按钮直接被裁掉够不着
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(title: "操作", systemImage: "arrow.left.arrow.right")
 
             if let task = appState.migrationTask {
                 VStack(alignment: .leading, spacing: 12) {
@@ -94,8 +98,73 @@ struct MigrationPanel: View {
                     .tint(.orange)
                     .disabled(appState.migrationTask != nil)
                     .help("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘")
+
+                    // v3.0 一键腾空间：输入目标 → 方案 → 勾选 → 串行执行（可见性优先，不藏菜单）
+                    Button {
+                        showPlanSheet = true
+                    } label: {
+                        Label("一键腾空间…（按方案智能搬迁）",
+                              systemImage: "wand.and.stars")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(.teal)
+                    .disabled(appState.migrationTask != nil
+                              || appState.volumeStore.onlineVolumes.isEmpty)
+                    .help("告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由")
                 }
             }
+        }
+        .sheet(isPresented: $showPlanSheet) {
+            SpaceFreePlanSheet { planned in
+                executePlan(planned)
+            }
+        }
+        }
+    }
+
+    /// 方案执行链：与 migrateAll 同一套串行安全链（逐应用重跑护栏 + journal 埋点），
+    /// createLink 按"更新方式是否更适合不留链接"自动定（App Store 应用走纯搬迁）。
+    private func executePlan(_ planned: [(AppItem, String)]) {
+        guard appState.migrationTask == nil, !planned.isEmpty else { return }
+        let total = planned.count
+        Task { @MainActor in
+            var okCount = 0
+            var failCount = 0
+            for (index, pair) in planned.enumerated() {
+                let app = pair.0
+                let drivePath = pair.1
+                appState.migrationTask = MigrationTask(app: app, operation: .migrate)
+                let createLink = !app.updateMechanism.prefersNoLink
+                let result = await appState.migrator.migrate(
+                    app: app, to: drivePath, createLink: createLink) { progress, file in
+                    Task { @MainActor in
+                        guard var t = appState.migrationTask else { return }
+                        // 方案整体进度 = 已完成个数 + 当前应用进度，再除以总数
+                        t.progress = (Double(index) + progress) / Double(total)
+                        t.currentFile = file
+                        appState.migrationTask = t
+                    }
+                }
+                if result.success {
+                    okCount += 1
+                    if var t = appState.migrationTask {
+                        t.status = .completed
+                        appState.migrationTask = t
+                    }
+                } else {
+                    failCount += 1
+                    if var t = appState.migrationTask {
+                        t.status = .failed(result.error ?? "未知错误")
+                        appState.migrationTask = t
+                    }
+                }
+            }
+            batchSummary = failCount == 0
+                ? "方案执行完成：\(okCount)/\(total) 全部成功"
+                : "方案执行结束：\(okCount) 成功 / \(failCount) 失败"
+            appState.migrationTask = nil
         }
     }
 
