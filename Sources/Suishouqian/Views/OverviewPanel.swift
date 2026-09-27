@@ -18,8 +18,15 @@ struct OverviewPanel: View {
     @State private var isChecking = false
     /// 健康分（v3.0）：总览检查跑完顺带出分，只读派生
     @State private var healthScore: HealthScore.Result?
-    /// 最近操作（v3.0 OperationJournal）：只读陈列，撤销执行链另批接入
+    /// 最近操作（v3.0 OperationJournal）：时间线 + 撤销按钮
     @State private var recentOps: [JournalEntry] = []
+    /// 每条操作的撤销可行性（runCheck 时统一在 OffPool 算好，key=entry.id）
+    @State private var undoPlans: [UUID: UndoPlanner.UndoPlan] = [:]
+    /// TM 重复备份待排除的目录（nil=还没查过）
+    @State private var tmMissingDirs: [String]?
+    @State private var tmDismissed = UserDefaults.standard.bool(forKey: "tmExclusionDismissed")
+    @State private var isUndoing = false
+    @State private var isExcludingTM = false
 
     var body: some View {
         ScrollView {
@@ -28,6 +35,10 @@ struct OverviewPanel: View {
 
                 if let score = healthScore {
                     healthCard(score)
+                }
+
+                if let missing = tmMissingDirs, !missing.isEmpty, !tmDismissed {
+                    tmCard(missing)
                 }
 
                 if isChecking {
@@ -222,8 +233,56 @@ struct OverviewPanel: View {
             // v3.0 健康分：同一份报告顺带出分（只读派生，不落历史——落历史只在体检页全量跑时做）
             healthScore = HealthScore.score(HealthScoreInputFactory.input(from: report))
             // 最近操作：journal 是小文件，但仍是磁盘读，按铁律走 OffPool
-            recentOps = await OffPool.run { OperationJournal.shared.recent(limit: 10) }
+            let ops = await OffPool.run { OperationJournal.shared.recent(limit: 10) }
+            recentOps = ops
+            undoPlans = await computeUndoPlans(ops)
+            // TM 重复备份检查（每目录一次 tmutil 子进程，批量 OffPool）
+            if let drive = drive, !tmDismissed {
+                tmMissingDirs = await OffPool.run {
+                    TimeMachineCoordinator.missingExclusions(on: drive)
+                }
+            }
             isChecking = false
+        }
+    }
+
+    /// 批量算每条操作的撤销可行性。撤销是 TOCTOU 高发区：这里算的只是"按钮亮不亮"，
+    /// 执行前 executor 仍走完整安全链（migrate/restore 内部会再验一遍）
+    private func computeUndoPlans(_ ops: [JournalEntry]) async -> [UUID: UndoPlanner.UndoPlan] {
+        let runningNames = Set(
+            NSWorkspace.shared.runningApplications.compactMap(\.localizedName))
+        let apps = appState.apps
+        let builtinFree = appState.builtinDrive?.freeSize ?? 0
+        let externalFree = appState.volumeStore.primary?.info.freeSize
+            ?? appState.externalDrive?.freeSize ?? 0
+        let onlineUUIDs = Set(appState.volumeStore.onlineVolumes.map(\.id))
+        let externalMounts = appState.volumeStore.onlineVolumes.map(\.info.mountPoint)
+
+        return await OffPool.run {
+            var out: [UUID: UndoPlanner.UndoPlan] = [:]
+            for entry in ops {
+                let app = apps.first { $0.bundleName == entry.appName }
+                let ctx = UndoPlanner.UndoContext(
+                    appRunning: runningNames.contains(
+                        (entry.appName as NSString).deletingPathExtension),
+                    trashContainsApp: FileManager.default.fileExists(
+                        atPath: ("~/.Trash/" + entry.appName) as String),
+                    externalCopyExists: externalMounts.contains {
+                        FileManager.default.fileExists(atPath: "\($0)/\(entry.appName)")
+                    } || (app?.symlinkTarget.map { FileManager.default.fileExists(atPath: $0) } ?? false),
+                    internalCopyExists: {
+                        let p = "/Applications/\(entry.appName)"
+                        return FileManager.default.fileExists(atPath: p)
+                            && ((try? FileManager.default.destinationOfSymbolicLink(atPath: p)) == nil)
+                    }(),
+                    linkUsable: app?.isSymlink == true,
+                    originVolumeOnline: entry.params["fromUUID"].map { onlineUUIDs.contains($0) } ?? false,
+                    internalFreeBytes: builtinFree,
+                    externalFreeBytes: externalFree,
+                    appSize: app?.size ?? 0)
+                out[entry.id] = UndoPlanner.plan(entry: entry, context: ctx)
+            }
+            return out
         }
     }
 
@@ -303,6 +362,15 @@ struct OverviewPanel: View {
 
                     Spacer()
 
+                    // 撤销：可行性实时重验过才亮（uninstall 走废纸篓特殊路径也在此列）
+                    if let plan = undoPlans[entry.id], plan.feasible,
+                       !entry.isUndone, !isUndoing {
+                        Button("撤销") { undo(entry) }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .help(plan.message)
+                    }
+
                     Circle()
                         .fill(entry.isOK ? Color.green : Color.red)
                         .frame(width: 7, height: 7)
@@ -311,6 +379,135 @@ struct OverviewPanel: View {
                 .padding(.horizontal, 12)
                 .cardStyle()
             }
+        }
+    }
+
+    // MARK: - TM 重复备份卡
+
+    private func tmCard(_ missing: [String]) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "timemachine")
+                .foregroundColor(.orange)
+                .font(.system(size: 13))
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Time Machine 正在重复备份外置盘应用")
+                    .font(.system(size: 13, weight: .medium))
+                Text("这些目录在备份盘上还有一整份副本（应用本身已有快照+留底+台账三重保护），排除后省的是备份盘空间")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            if isExcludingTM {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("一键排除") { excludeTM(missing) }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                Button("不再提示") {
+                    tmDismissed = true
+                    UserDefaults.standard.set(true, forKey: "tmExclusionDismissed")
+                }
+                .controlSize(.small)
+                .buttonStyle(.plain)
+                .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .cardStyle()
+    }
+
+    private func excludeTM(_ missing: [String]) {
+        isExcludingTM = true
+        Task {
+            let ok = await TimeMachineCoordinator.authenticatedAddExclusions(missing)
+            AuditLog.append(ok
+                ? "TM 排除：已为 \(missing.count) 个目录加入 Time Machine 排除"
+                : "TM 排除失败（未授权或 tmutil 出错），不影响任何数据")
+            if ok { tmMissingDirs = nil } else { tmMissingDirs = missing }
+            isExcludingTM = false
+        }
+    }
+
+    // MARK: - 撤销执行链
+
+    /// 采集实时上下文并执行撤销。撤销本身就是一次受控迁移/回迁，走完整安全链。
+    private func undo(_ entry: JournalEntry) {
+        guard let plan = undoPlans[entry.id], plan.feasible,
+              let inverseOp = plan.inverseOp,
+              appState.migrationTask == nil else { return }
+
+        let app = appState.apps.first { $0.bundleName == entry.appName }
+        let primaryMount = appState.volumeStore.primary?.info.mountPoint
+            ?? appState.externalDrive?.mountPoint
+        let volumeMounts = Dictionary(uniqueKeysWithValues:
+            appState.volumeStore.volumes.map { ($0.id, $0.info.mountPoint) })
+
+        Task { @MainActor in
+            isUndoing = true
+            let result: AppMigrator.MigrationResult
+            switch inverseOp {
+            case .restore:
+                // 撤销迁移 = 回迁：从外置盘搬回来
+                guard let app, let from = app.symlinkTarget.map({
+                    (($0 as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+                }) else {
+                    isUndoing = false
+                    return
+                }
+                result = await appState.migrator.restore(app: app, from: from) { _, _ in }
+            case .migrate, .moveBack, .remigrate:
+                // 撤销回迁/搬回/重迁 = 再迁出到主盘
+                guard let app, let to = primaryMount else {
+                    isUndoing = false
+                    return
+                }
+                result = await appState.migrator.migrate(app: app, to: to, createLink: true) { _, _ in }
+            case .relocate:
+                // 撤销盘间迁移 = 反向搬回原盘（params: fromUUID=原盘 toUUID=现所在盘）
+                guard let app,
+                      let origin = entry.params["fromUUID"].flatMap({ volumeMounts[$0] }),
+                      let current = entry.params["toUUID"].flatMap({ volumeMounts[$0] }) else {
+                    isUndoing = false
+                    return
+                }
+                result = await appState.migrator.relocate(
+                    app: app, fromVolume: current, toVolume: origin) { _, _ in }
+            case .uninstall:
+                // 废纸篓恢复的执行链在撤销规划里已限定可行性；v1 暂不做自动恢复，
+                // 按钮不会亮（UndoPlanner 对 uninstall 返回 feasible 但 inverseOp=nil，
+                // guard 早已拦截走到这里的情况）
+                isUndoing = false
+                return
+            case .undo:
+                isUndoing = false
+                return
+            }
+
+            if result.success {
+                let undoID = OperationJournal.shared.record(
+                    op: .undo, appName: entry.appName,
+                    params: ["undoneID": entry.id.uuidString],
+                    result: "ok")
+                OperationJournal.shared.markUndone(id: entry.id, by: undoID)
+            }
+            // 失败时 journal 已由对应安全链入口记录，撤销可行性下次检查会重算
+            refreshTimeline()
+            isUndoing = false
+        }
+    }
+
+    /// 重载时间线与撤销可行性（撤销成功/失败后立即刷新）
+    private func refreshTimeline() {
+        Task {
+            let ops = await OffPool.run { OperationJournal.shared.recent(limit: 10) }
+            recentOps = ops
+            undoPlans = await computeUndoPlans(ops)
         }
     }
 

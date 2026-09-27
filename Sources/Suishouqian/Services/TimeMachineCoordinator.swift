@@ -46,6 +46,39 @@ enum TimeMachineCoordinator {
         }
     }
 
+    /// 提权批量排除（用户点了"一键排除"才调用；通常需要管理员权限）。
+    /// osascript 阻塞等密码：调用方已在 OffPool（本函数内部自己走 OffPool）。
+    /// 管道纪律：stdout 丢弃、stderr 先读后等。任何失败只返回 false，由调用方记日志。
+    static func authenticatedAddExclusions(_ paths: [String]) async -> Bool {
+        guard !paths.isEmpty else { return true }
+        return await OffPool.run {
+            func escShell(_ s: String) -> String {
+                s.replacingOccurrences(of: "'", with: "'\\''")
+            }
+            func escAppleScript(_ s: String) -> String {
+                s.replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+            }
+            let command = paths.map { "tmutil addexclusion '\(escShell($0))'" }
+                .joined(separator: " && ")
+            let script = "do shell script \"\(escAppleScript(command))\" with administrator privileges"
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", script]
+            let errPipe = Pipe()
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = errPipe
+            do {
+                try process.run()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            } catch {
+                return false
+            }
+        }
+    }
+
     // MARK: - Private
 
     private static func runTmutil(_ args: [String]) -> Bool {

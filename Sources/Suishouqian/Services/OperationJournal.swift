@@ -73,11 +73,13 @@ final class OperationJournal: @unchecked Sendable {
         return dir.appendingPathComponent("operation-journal.jsonl")
     }
 
-    /// 记录一条。失败静默放弃。
+    /// 记录一条。失败静默放弃。返回本条目的 id（撤销链用它回写 undoneBy）。
+    @discardableResult
     func record(op: JournalOperation, appName: String,
                 params: [String: String] = [:], result: String,
-                snapshotID: String? = nil, backupPath: String? = nil) {
-        let entry = JournalEntry(id: UUID(), at: Date(), op: op, appName: appName,
+                snapshotID: String? = nil, backupPath: String? = nil) -> UUID {
+        let id = UUID()
+        let entry = JournalEntry(id: id, at: Date(), op: op, appName: appName,
                                  params: params, result: result,
                                  snapshotID: snapshotID, backupPath: backupPath,
                                  undoneBy: nil)
@@ -96,6 +98,7 @@ final class OperationJournal: @unchecked Sendable {
                 try? data.write(to: fileURL, options: .atomic)
             }
         }
+        return id
     }
 
     /// 标记某条目已被撤销（撤销链）
