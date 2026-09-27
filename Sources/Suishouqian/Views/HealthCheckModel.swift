@@ -19,6 +19,8 @@ final class HealthCheckModel: ObservableObject {
     @Published var unusedApps: [UnusedAppInfo] = []
     @Published var healedCount = 0
     @Published var isChecking = false
+    /// 健康分（v3.0）：装载体检结果时顺带出分，纯只读派生
+    @Published var healthScore: HealthScore.Result?
 
     /// 跑一轮全量检查并装载结果。引擎内部处理 OffPool 与并行，这里只等。
     func refresh(engine: CheckEngine, drivePath: String?, apps: [AppItem]) async {
@@ -34,6 +36,16 @@ final class HealthCheckModel: ObservableObject {
         unusedApps = report.unusedApps
         usageSuggestions = report.usageSuggestions
         healedCount = report.healedCount
+
+        // v3.0 健康分：主盘口径。有真实主盘 UUID 才落历史（score 是只读派生，
+        // 绝不驱动自动动作）；drivePath 为 nil 时不落，测试注入不污染真实文件
+        let score = HealthScore.score(HealthScoreInputFactory.input(from: report))
+        healthScore = score
+        if let drivePath {
+            // resourceValues 是 IO：按铁律走 OffPool，别占主线程
+            let uuid = await OffPool.run { MigrationManifest.volumeUUID(atPath: drivePath) }
+            if let uuid { HealthHistory.append(volumeUUID: uuid, score: score.score) }
+        }
         isChecking = false
     }
 

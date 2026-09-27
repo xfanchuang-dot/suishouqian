@@ -98,6 +98,33 @@ enum HealthScore {
     }
 }
 
+/// 把 CheckReport 翻译成评分输入——映射关系全项目只写这一处，
+/// 体检链路改动时只需维护这里（v3.0 初版按主盘口径出分，多卷分卡在后续步骤）。
+enum HealthScoreInputFactory {
+
+    static func input(from report: CheckReport) -> HealthScore.Input {
+        var input = HealthScore.Input()
+        input.brokenLinks = report.links.filter { $0.state == .broken }.count
+        // 离线卷数按卷根去重：同一块盘上 5 个应用只算 1 块盘
+        input.offlineVolumesWithApps = Set(report.links
+            .filter { $0.state == .volumeOffline }
+            .compactMap { volumeRoot(of: $0.target) }).count
+        input.regressions = report.regressions.count
+        // 数据分叉目前在数据面板呈现，CheckReport 尚未携带——先不扣，接上再算（诚实欠账）
+        input.dataForks = 0
+        input.backupIssues = report.backups.count
+        input.residues = report.residues.count
+        return input
+    }
+
+    /// "/Volumes/X/…" → "/Volumes/X"；其余路径返回 nil
+    static func volumeRoot(of path: String) -> String? {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard parts.count >= 2, parts[0] == "Volumes" else { return nil }
+        return "/Volumes/\(parts[1])"
+    }
+}
+
 /// 健康分历史（每天首次体检追加一条，只留 90 天）。
 /// 文件损坏按空处理——丢得起的数据，沿用 LaunchUsageTracker 的哲学。
 enum HealthHistory {

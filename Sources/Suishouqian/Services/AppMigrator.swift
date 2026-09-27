@@ -22,7 +22,60 @@ class AppMigrator: @unchecked Sendable {
     ///   `false` = **纯搬迁**，不留任何替身。好处是从机制上消除"更新把软链接顶掉、
     ///   迁移被悄悄撤销"这件事；代价是应用不再出现在「应用程序」文件夹里
     ///   （靠 Spotlight / Dock / Launchpad 启动）。
+
+    // MARK: - 操作日志埋点（v3.0 OperationJournal）
+    // 埋点收敛在四个公开入口的出口处：内部实现改名 Internal，包装器记完日志原样返回。
+    // 记日志永不影响迁移结果（record 内部全 try? + 静默放弃）。
+    // 撤销依据就是这些条目——所以成功与失败都要记（失败条目让撤销界面能如实告知"无可撤销"）。
+
+    /// 迁移/纯搬迁（createLink 区分，params 记录）
     func migrate(app: AppItem, to drivePath: String, createLink: Bool = true,
+                 progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        let result = await migrateInternal(app: app, to: drivePath,
+                                           createLink: createLink, progress: progress)
+        OperationJournal.shared.record(
+            op: .migrate, appName: app.bundleName,
+            params: ["createLink": createLink ? "1" : "0",
+                     "volumeUUID": MigrationManifest.volumeUUID(atPath: drivePath) ?? ""],
+            result: result.success ? "ok" : "failed: \(result.error ?? "未知原因")")
+        return result
+    }
+
+    /// 回迁
+    func restore(app: AppItem, from drivePath: String,
+                 progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        let result = await restoreInternal(app: app, from: drivePath, progress: progress)
+        OperationJournal.shared.record(
+            op: .restore, appName: app.bundleName,
+            params: ["volumeUUID": MigrationManifest.volumeUUID(atPath: drivePath) ?? ""],
+            result: result.success ? "ok" : "failed: \(result.error ?? "未知原因")")
+        return result
+    }
+
+    /// 外置盘原住民搬回内置盘
+    func moveBackToInternal(app: AppItem, drivePath: String,
+                            progress: @escaping @Sendable (Double, String) -> Void)
+        async -> MigrationResult {
+        let result = await moveBackToInternalInternal(app: app, drivePath: drivePath,
+                                                      progress: progress)
+        OperationJournal.shared.record(
+            op: .moveBack, appName: app.bundleName,
+            params: ["volumeUUID": MigrationManifest.volumeUUID(atPath: drivePath) ?? ""],
+            result: result.success ? "ok" : "failed: \(result.error ?? "未知原因")")
+        return result
+    }
+
+    /// 卸载一条龙
+    func uninstall(app: AppItem, drivePath: String? = nil) async -> MigrationResult {
+        let result = await uninstallInternal(app: app, drivePath: drivePath)
+        OperationJournal.shared.record(
+            op: .uninstall, appName: app.bundleName,
+            params: [:],
+            result: result.success ? "ok" : "failed: \(result.error ?? "部分失败")")
+        return result
+    }
+
+    func migrateInternal(app: AppItem, to drivePath: String, createLink: Bool = true,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
 
         let appName = app.bundleName
@@ -188,7 +241,7 @@ class AppMigrator: @unchecked Sendable {
         await migrate(app: app, to: drivePath, createLink: false, progress: progress)
     }
     
-    func restore(app: AppItem, from drivePath: String,
+    func restoreInternal(app: AppItem, from drivePath: String,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         
         guard let target = app.symlinkTarget else {
@@ -253,7 +306,7 @@ class AppMigrator: @unchecked Sendable {
     }
 
     /// 把「一直住在外置盘」的应用搬回内置盘（无链接语义：复制→校验→删外置副本）
-    func moveBackToInternal(app: AppItem, drivePath: String,
+    func moveBackToInternalInternal(app: AppItem, drivePath: String,
                             progress: @escaping @Sendable (Double, String) -> Void)
         async -> MigrationResult {
         let sourcePath = app.path
@@ -301,7 +354,7 @@ class AppMigrator: @unchecked Sendable {
     /// 卸载（v2.13.0 起为"一条龙"第一步）：链接、外置真身/内置本体、迁移备份
     /// 全部**移入废纸篓**（可恢复）而不是永久删除——卸载是用户最需要"反悔"的时刻，
     /// 废纸篓是唯一后悔药。台账同步移除；残留数据由调用方接着扫（residues(forUninstalledApp:)）。
-    func uninstall(app: AppItem, drivePath: String? = nil) async -> MigrationResult {
+    func uninstallInternal(app: AppItem, drivePath: String? = nil) async -> MigrationResult {
         var failures: [String] = []
         let checker = HealthChecker()
 

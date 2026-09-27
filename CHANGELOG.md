@@ -2,6 +2,18 @@
 
 ## 未发布（发下一版时把这行改成 `## <版本号> — <日期>` 并同步 VERSION）
 
+### v3.0 接线第一批：VolumeStore 进 AppState + 操作日志埋点 + 健康分进体检链路
+
+- **AppState**：启动、10 分钟定时器、插盘三处都会刷新 `volumeStore`（TM 缓存先行，过滤口径正确）。
+  **VolumeStore 不再回写 `selectedExternalVolumeUUID`**——该键仍由 DiskMonitor 按单盘语义管理，
+  两边都写会互相覆盖；多盘的持久化入口只有用户显式 `setPrimary`（后续 UI）。
+- **OperationJournal 埋点**：migrate（含纯搬迁）/restore/moveBackToInternal/uninstall 四个公开入口
+  改为"内部实现 + 记日志包装器"，成功失败都记，params 带卷 UUID 与 createLink；
+  全部调用方均为用户意图操作，自愈/校准等自动路径不产生条目。
+- **健康分接入体检链路**：`HealthScoreInputFactory`（CheckReport→评分输入的唯一映射处）
+  + HealthCheckModel 装载时出分并按主盘卷 UUID 落当天历史；分数只读派生。
+  已知欠账如实标注：数据分叉尚未进 CheckReport，暂不扣分。
+
 ### v3.0 地基：多盘第一公民 + 五个新模块（纯新增，未接线）
 
 按 Muse v3.0 方案落地第一批：全部以"纯新增模块 + 纯逻辑测试"进入，不改任何既有行为

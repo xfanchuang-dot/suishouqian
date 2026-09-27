@@ -88,6 +88,9 @@ final class VolumeStore: ObservableObject {
     /// 回主线程后做纯合并（merge 是纯逻辑，可测）。
     /// 调用方须保证先刷过 Time Machine 目的盘缓存（VolumeClassifier.refreshTimeMachineCache），
     /// 否则过滤用的还是旧快照——顺序约定与 AppState 定时器一致。
+    /// 注意：refresh 只做内存中的主盘选举，**不写** selectedExternalVolumeUUID——
+    /// 该键仍由 DiskMonitor 按单盘口径管理（v2.x 语义），两边都写会互相覆盖；
+    /// 本类的持久化入口只有 setPrimary（用户显式指定）。
     func refresh() async {
         let (candidates, scores) = await OffPool.run { () -> ([DriveInfo], [String: Int]) in
             let candidates = DiskMonitor.enumerateVolumes().candidates
@@ -97,16 +100,9 @@ final class VolumeStore: ObservableObject {
             return (candidates, scores)
         }
         let persisted = UserDefaults.standard.string(forKey: Self.primaryUUIDKey)
-        let merged = Self.merge(old: volumes, candidates: candidates,
-                                footprintScores: scores,
-                                persistedPrimaryUUID: persisted, now: Date())
-        // 主盘变更才写持久化与审计（避免每次刷新都写盘）
-        let newPrimaryID = merged.first { $0.role == .primary }?.id
-        if newPrimaryID != persisted, let newPrimaryID {
-            UserDefaults.standard.set(newPrimaryID, forKey: Self.primaryUUIDKey)
-            AuditLog.append("迁移主盘变更 → \(merged.first { $0.id == newPrimaryID }?.info.name ?? newPrimaryID)")
-        }
-        volumes = merged
+        volumes = Self.merge(old: volumes, candidates: candidates,
+                             footprintScores: scores,
+                             persistedPrimaryUUID: persisted, now: Date())
     }
 
     /// 用户显式指定主盘（设置页/迁移面板）。这是唯一能改变主盘的人为入口，

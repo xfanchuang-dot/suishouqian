@@ -142,6 +142,9 @@ class AppState: ObservableObject {
     let dataMigrator = DataMigrator()
     /// 检查引擎：体检页与总览页共用的唯一编排（v2.14.0）
     let checkEngine = CheckEngine()
+    /// 多盘存储（v3.0）：DiskMonitor 管"单盘选定"，VolumeStore 管"多卷聚合"，
+    /// 枚举走同一个 enumerateVolumes() 口径；主盘只读 DiskMonitor 的键，不回写
+    let volumeStore = VolumeStore()
     /// 启动监听令牌：addObserver(forName:) 的返回值必须持有，
     /// 否则令牌释放后回调静默失效（经典坑，编译器不报）
     private var launchObserver: NSObjectProtocol?
@@ -174,6 +177,7 @@ class AppState: ObservableObject {
                     _ = VolumeClassifier.refreshTimeMachineCache()
                     monitor.refresh()
                 }
+                await self.volumeStore.refresh()
                 self.refreshDrives()
                 self.checkLowDisk()
                 self.checkNewLargeApps()
@@ -262,8 +266,11 @@ class AppState: ObservableObject {
         // 缓存建立后再重算一次目标盘：DiskMonitor 初始化时缓存还是空的，
         // 那一轮可能把 TM 备份盘当成候选（写盘边界还有第二道闸，但界面不该显示错目标）。
         let bootMonitor = diskMonitor
+        let bootStore = volumeStore
         Task {
             await OffPool.run { _ = VolumeClassifier.refreshTimeMachineCache() }
+            // v3.0 多盘聚合（内部自带 OffPool 枚举；TM 缓存已就绪，过滤口径正确）
+            await bootStore.refresh()
             await OffPool.run { bootMonitor.refresh() }
             refreshDrives()
         }
@@ -314,6 +321,9 @@ class AppState: ObservableObject {
                 Task { @MainActor [weak self] in
                     await self?.scanApps()
                 }
+                // v3.0: 插盘/拔盘后多卷列表要跟着变（离线卷灰显、新卷入列）
+                let store = self.volumeStore
+                Task { await store.refresh() }
             }
         }
 
