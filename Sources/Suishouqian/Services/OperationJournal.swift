@@ -25,7 +25,7 @@ enum JournalOperation: String, Codable {
     }
 }
 
-struct JournalEntry: Codable, Equatable {
+struct JournalEntry: Codable, Equatable, Identifiable {
     let id: UUID
     let at: Date
     let op: JournalOperation
