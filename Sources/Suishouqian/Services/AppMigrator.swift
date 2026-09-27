@@ -23,6 +23,193 @@ class AppMigrator: @unchecked Sendable {
     ///   迁移被悄悄撤销"这件事；代价是应用不再出现在「应用程序」文件夹里
     ///   （靠 Spotlight / Dock / Launchpad 启动）。
 
+    // MARK: - 盘间迁移（v3.0 能力一：多盘）
+
+    /// 原子替换符号链接：新链接先建在同目录临时名，再用 rename(2) 原子盖掉旧链接。
+    /// rename 的原子性保证不存在"链接指向半截/悬空"的中间态——盘间迁移的安全关键步。
+    /// 目标位若不是链接而是真目录，rename 会失败并抛错（调用方不删真目录）。
+    static func swapSymlink(at linkPath: String, to target: String) throws {
+        let dir = (linkPath as NSString).deletingLastPathComponent
+        let tmp = "\(dir)/.suishouqian-relink-\(UUID().uuidString)"
+        try FileManager.default.createSymbolicLink(atPath: tmp, withDestinationPath: target)
+        // Darwin.rename 原子覆盖已存在的目标；失败时清理临时链接再抛
+        if Darwin.rename(tmp, linkPath) != 0 {
+            try? FileManager.default.removeItem(atPath: tmp)
+            throw NSError(domain: NSPOSIXErrorDomain,
+                          code: Int(errno),
+                          userInfo: [NSLocalizedDescriptionKey:
+                                "无法替换链接 \(linkPath)（\(String(cString: strerror(errno)))）"])
+        }
+    }
+
+    /// 提权改写链接（链接位属 root 时 swapSymlink 会被 EPERM 挡）。
+    /// osascript 阻塞等密码：必须 OffPool。管道纪律与 authenticatedRemove 相同：
+    /// stdout 丢弃、stderr 先读后等。
+    private func authenticatedRewriteLink(linkPath: String, toTarget target: String) async
+        -> (success: Bool, error: String?) {
+        return await OffPool.run {
+            func escShell(_ s: String) -> String {
+                s.replacingOccurrences(of: "'", with: "'\\''")
+            }
+            func escAppleScript(_ s: String) -> String {
+                s.replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+            }
+            // ln -sfn：先摘旧链接再建新的（提权场景无 rename(2) 可用，窗口极小且
+            // 失败时旧链接仍在——ln 失败不会删源）
+            let command = "ln -sfn '\(escShell(target))' '\(escShell(linkPath))'"
+            let script = "tell application \"随手迁\" to activate\ndelay 0.3\n"
+                + "do shell script \"\(escAppleScript(command))\" with administrator privileges"
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", script]
+            let errPipe = Pipe()
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = errPipe
+            do {
+                try process.run()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                if process.terminationStatus == 0 { return (true, nil) }
+                let errMsg = String(data: errData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
+                if errMsg.contains("User canceled") { return (false, "已取消授权") }
+                return (false, errMsg)
+            } catch {
+                return (false, error.localizedDescription)
+            }
+        }
+    }
+
+    /// 盘间迁移（v3.0）：A 盘 → B 盘，**不经过内置盘中转**（中转要两份空间，违背省空间初衷）。
+    /// 流程：A→B 复制 → 字节校验 → 修属性 → 原子改写链接（有链接才改）→ 台账更新 → 删 A 副本。
+    /// 安全关键：A 副本在链接改写成功前**绝不删**——任一步失败，应用仍从 A 盘完整可用。
+    /// 失败清场只动 B 盘上的半截副本。
+    func relocate(app: AppItem, fromVolume: String, toVolume: String,
+                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        let appName = app.bundleName
+        let sourcePath = app.symlinkTarget ?? app.path
+        let from = (fromVolume as NSString).standardizingPath
+        let to = (toVolume as NSString).standardizingPath
+
+        func finish(_ success: Bool, _ error: String?, _ op: JournalOperation = .relocate) -> MigrationResult {
+            let result = MigrationResult(success: success, error: error, spaceSaved: 0)
+            let fromUUID = MigrationManifest.volumeUUID(atPath: from) ?? ""
+            let toUUID = MigrationManifest.volumeUUID(atPath: to) ?? ""
+            OperationJournal.shared.record(
+                op: op, appName: appName,
+                params: ["fromUUID": fromUUID, "toUUID": toUUID],
+                result: success ? "ok" : "failed: \(error ?? "未知原因")")
+            return result
+        }
+
+        // 硬护栏：源必须在 fromVolume 上。symlinkTarget 与 fromVolume 对不上
+        // 说明调用方给错了盘（或台账/链接已经漂移），绝不能按错路径删东西
+        guard sourcePath.hasPrefix(from + "/") || sourcePath == from else {
+            return finish(false, "应用副本不在源盘上（\(sourcePath) 不在 \(from)），已取消")
+        }
+        guard from != to else {
+            return finish(false, "源盘与目标盘相同，无需迁移")
+        }
+        if let runningName = Self.runningAppName(matching: sourcePath) {
+            return finish(false, "「\(runningName)」正在运行，请先退出后再搬")
+        }
+        guard fileManager.fileExists(atPath: sourcePath) else {
+            return finish(false, "源盘上的应用副本不存在（\(sourcePath)）")
+        }
+        // 目标盘三重验证（挂载点/空间两份+5%/TM 排除），阻塞调用走 OffPool
+        let targetIssue = await OffPool.run { [self] in
+            validateTarget(drivePath: to, appSize: app.size)
+        }
+        if let reason = targetIssue {
+            return finish(false, reason)
+        }
+        await OffPool.run { _ = SystemSnapshot.createThrottled() }
+
+        // 护栏全过后交给 core（core 是可测入口，自己记 journal——护栏路径用 finish 记，
+        // core 路径由 core 记，两边不会重复）
+        return await relocateCore(app: app, sourcePath: sourcePath,
+                                  fromVolume: from, toVolume: to, progress: progress)
+    }
+
+    /// 盘间迁移核心（可测入口：不做卷级护栏，路径全由调用方保证）。
+    /// 单一出口记 journal；测试注入 temp 目录即可全流程验证。
+    func relocateCore(app: AppItem, sourcePath: String, fromVolume: String, toVolume: String,
+                      progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        let appName = app.bundleName
+        let relative = (sourcePath as NSString).lastPathComponent
+        // 保持源盘上的相对布局（Applications/ 或 Suishouqian_Apps/ 原样带到目标盘）
+        let parentName = (sourcePath as NSString).deletingLastPathComponent
+            .replacingOccurrences(of: fromVolume + "/", with: "")
+        let targetPath = "\(toVolume)/\(parentName)/\(relative)"
+        let linkPath = "/Applications/\(appName)"
+        let hadLink = (try? fileManager.destinationOfSymbolicLink(atPath: linkPath)) != nil
+
+        func done(_ success: Bool, _ error: String?) -> MigrationResult {
+            let fromUUID = MigrationManifest.volumeUUID(atPath: fromVolume) ?? ""
+            let toUUID = MigrationManifest.volumeUUID(atPath: toVolume) ?? ""
+            OperationJournal.shared.record(
+                op: .relocate, appName: appName,
+                params: ["fromUUID": fromUUID, "toUUID": toUUID],
+                result: success ? "ok" : "failed: \(error ?? "未知原因")")
+            return MigrationResult(success: success, error: error, spaceSaved: 0)
+        }
+
+        progress(0.1, "正在复制 \(app.name) 到目标盘...")
+        let copyOk = await copyWithDitto(from: sourcePath, to: targetPath) { pct in
+            progress(0.1 + pct * 0.5, "复制 \(app.name)...")
+        }
+        guard copyOk else {
+            try? fileManager.removeItem(atPath: targetPath)   // 清半截副本，A 不动
+            return done(false, "复制到目标盘失败")
+        }
+
+        progress(0.65, "正在校验完整性...")
+        let verified = await verifyFiles(source: sourcePath, target: targetPath)
+        guard verified else {
+            try? fileManager.removeItem(atPath: targetPath)
+            return done(false, "文件校验失败，已回滚目标副本（源盘副本未动）")
+        }
+
+        progress(0.75, "修复文件属性...")
+        fixAttributes(at: targetPath)
+
+        // 链接改写（有 /Applications 链接才做；externalOnly 原住民跳过）
+        if hadLink {
+            progress(0.85, "改写应用链接...")
+            do {
+                try Self.swapSymlink(at: linkPath, to: targetPath)
+            } catch {
+                // 链接仍指向 A（应用可用）；常见原因是链接位属 root → 走提权
+                let auth = await authenticatedRewriteLink(linkPath: linkPath, toTarget: targetPath)
+                guard auth.success else {
+                    return done(false, "链接改写失败：\(auth.error ?? "未知错误")（应用仍从源盘运行，两盘副本都在）")
+                }
+            }
+        }
+
+        // 台账：有链接才记（与 migrate 的纯搬迁语义一致）
+        if hadLink, let uuid = MigrationManifest.volumeUUID(atPath: toVolume) {
+            MigrationManifest.shared.record(
+                appName: appName, linkPath: linkPath, volumeUUID: uuid,
+                relativePath: "\(parentName)/\(relative)",
+                volumeRole: nil)
+        }
+
+        progress(0.95, "清理源盘副本...")
+        do {
+            try fileManager.removeItem(atPath: sourcePath)
+        } catch {
+            // 链接已指向 B，应用可用；源盘残留如实上报
+            AuditLog.append("盘间迁移 \(appName)：源盘副本删除失败（\(error.localizedDescription)），"
+                + "链接已指向目标盘，可稍后手动清理 \(sourcePath)")
+        }
+
+        progress(1.0, "完成")
+        AuditLog.append("盘间迁移成功 \(appName)：\(fromVolume) → \(targetPath)")
+        return done(true, nil)
+    }
+
     // MARK: - 操作日志埋点（v3.0 OperationJournal）
     // 埋点收敛在四个公开入口的出口处：内部实现改名 Internal，包装器记完日志原样返回。
     // 记日志永不影响迁移结果（record 内部全 try? + 静默放弃）。

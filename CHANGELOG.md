@@ -2,6 +2,23 @@
 
 ## 未发布（发下一版时把这行改成 `## <版本号> — <日期>` 并同步 VERSION）
 
+### v3.0 接线第二批：盘间迁移 relocate（能力一核心，最危险步）
+
+- **AppMigrator.relocate(app:fromVolume:toVolume:)**：A 盘 → B 盘**不经过内置盘中转**。
+  流程：A→B 复制 → 字节校验 → 修属性 → 原子改写链接 → 台账更新 → 删 A 副本。
+  **安全关键：A 副本在链接改写成功前绝不删**——任一步失败应用仍从 A 盘完整可用，
+  失败清场只动 B 盘上的半截副本。
+- **链接改写是原子的**：新链接建在同目录临时名，`rename(2)` 原子盖掉旧链接，
+  不存在"链接指向半截"的中间态；目标位是真目录时拒绝（绝不覆盖真目录）。
+  链接位属 root（提权路径建的链）时 rename 会 EPERM → 自动降级走 osascript
+  `ln -sfn` 提权改写（用户取消则失败返回、两盘副本都在、链接仍指 A）。
+- **护栏**：源必须在 fromVolume 上（symlinkTarget 对不上直接拒绝，绝不按错路径删）、
+  源目标同盘拒绝、运行中拒绝、目标盘走既有 validateTarget 三重验证、迁移前拍快照。
+- **journal**：op=.relocate 记 fromUUID/toUUID；护栏拒绝路径也记（撤销界面如实展示"无可撤销"）。
+- 台账沿用"有链接才记"语义；保持源盘相对布局（Applications/ 与 Suishouqian_Apps/ 原样带到目标盘）。
+- 测试 7 例：swapSymlink 原子性/拒真目录、core 全流程（复制→校验→删源→journal 一条 ok）、
+  复制失败清场、B 盘残留重跑幂等、护栏两连。卷级 validateTarget 归真机两盘 E2E（本机仅一块合格盘）。
+
 ### v3.0 接线第一批：VolumeStore 进 AppState + 操作日志埋点 + 健康分进体检链路
 
 - **AppState**：启动、10 分钟定时器、插盘三处都会刷新 `volumeStore`（TM 缓存先行，过滤口径正确）。
