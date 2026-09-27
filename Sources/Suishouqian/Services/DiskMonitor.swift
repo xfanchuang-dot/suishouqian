@@ -73,22 +73,22 @@ class DiskMonitor: @unchecked Sendable {
     
     /// 重新枚举磁盘。
     ///
-    /// `notifyChanges` 是语义开关：**只有真实发生的挂载边沿才回调**。
-    /// 定时器与常规刷新必须传 false——此前 refresh() 无条件回调 onMountChange，
-    /// 导致每 10 分钟的定时刷新都误报一次"外置硬盘已连接"，并连带全量重扫与大文件自愈；
-    /// Time Machine 备份卷每次挂载/卸载也会各触发一轮。
-    func refresh(notifyChanges: Bool = false) {
+    /// v3.0 多盘：枚举全部符合条件的候选卷 + 内置盘信息。
+    /// 纯搬运自 refresh() 的枚举段，过滤语义一字未改：网络/只读卷排除、
+    /// TM 卷绝不入选、内置盘只留本机系统卷。阻塞 IO（网络卷上可能卡数秒），
+    /// 调用方必须走 OffPool；VolumeStore 多盘聚合与单盘 refresh 走同一口径。
+    static func enumerateVolumes() -> (candidates: [DriveInfo], builtin: DriveInfo?) {
         guard let urls = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: [.volumeNameKey, .volumeTotalCapacityKey,
                                              .volumeAvailableCapacityKey, .volumeIsRemovableKey,
                                              .volumeIsInternalKey, .volumeUUIDStringKey,
                                              .volumeIsLocalKey, .volumeIsReadOnlyKey],
             options: .skipHiddenVolumes
-        ) else { return }
-        
+        ) else { return ([], nil) }
+
         var candidates: [DriveInfo] = []
         var builtin: DriveInfo?
-        
+
         for url in urls {
             guard let resources = try? url.resourceValues(forKeys: [
                 .volumeNameKey, .volumeTotalCapacityKey,
@@ -96,11 +96,11 @@ class DiskMonitor: @unchecked Sendable {
                 .volumeIsInternalKey, .volumeUUIDStringKey,
                 .volumeIsLocalKey, .volumeIsReadOnlyKey
             ]) else { continue }
-            
+
             guard let name = resources.volumeName,
                   let total = resources.volumeTotalCapacity,
                   let free = resources.volumeAvailableCapacity else { continue }
-            
+
             // 网络共享/云盘卷（isLocal == false）与只读卷都**不是**可用目标：
             // 只按 removable/isInternal 判断会把 SMB/AFP 共享与磁盘映像也算成"外置盘"，
             // 而共享一断线，放在上面的应用链接就全部失效；只读卷则根本写不进去。
@@ -108,7 +108,7 @@ class DiskMonitor: @unchecked Sendable {
             let isReadOnly = resources.volumeIsReadOnly ?? false
             let isExternal = resources.volumeIsRemovable == true ||
                              resources.volumeIsInternal == false
-            
+
             let drive = DriveInfo(
                 name: name,
                 mountPoint: url.path,
@@ -117,7 +117,7 @@ class DiskMonitor: @unchecked Sendable {
                 isExternal: isExternal,
                 volumeUUID: resources.volumeUUIDString.map { String(describing: $0).uppercased() }
             )
-            
+
             if isExternal {
                 // 网络卷/只读卷直接排除在候选之外（迁移预检里还有第二道闸）
                 guard isLocal, !isReadOnly else { continue }
@@ -128,7 +128,18 @@ class DiskMonitor: @unchecked Sendable {
                 builtin = drive
             }
         }
-        
+        return (candidates, builtin)
+    }
+
+    /// 重新枚举磁盘。
+    ///
+    /// `notifyChanges` 是语义开关：**只有真实发生的挂载边沿才回调**。
+    /// 定时器与常规刷新必须传 false——此前 refresh() 无条件回调 onMountChange，
+    /// 导致每 10 分钟的定时刷新都误报一次"外置硬盘已连接"，并连带全量重扫与大文件自愈；
+    /// Time Machine 备份卷每次挂载/卸载也会各触发一轮。
+    func refresh(notifyChanges: Bool = false) {
+        let (candidates, builtin) = Self.enumerateVolumes()
+
         var footprintScores: [String: Int] = [:]
         for candidate in candidates {
             footprintScores[candidate.mountPoint] =

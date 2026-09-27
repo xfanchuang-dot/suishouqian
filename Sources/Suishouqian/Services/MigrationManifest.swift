@@ -17,6 +17,10 @@ final class MigrationManifest: @unchecked Sendable {
         var migratedAt: Date
         /// nil/"bundle"=应用本体（v2.2 旧台账缺此字段，解码即 nil）；"data"=数据目录
         var kind: String?
+        /// v3.0：哪一次"方案迁移"搬的（方案撤销按批次）；老台账缺字段即 nil
+        var batchID: String?
+        /// v3.0：搬入时目标盘的角色（primary/secondary），供分盘复盘；老台账即 nil
+        var volumeRole: String?
     }
 
     private let queue = DispatchQueue(label: "com.suishouqian.manifest")
@@ -45,14 +49,16 @@ final class MigrationManifest: @unchecked Sendable {
     }
 
     func record(appName: String, linkPath: String, volumeUUID: String,
-                relativePath: String, kind: String? = nil) {
+                relativePath: String, kind: String? = nil,
+                batchID: String? = nil, volumeRole: String? = nil) {
         queue.sync {
             var manifest = load()
             manifest.apps.removeAll { $0.appName == appName }
             manifest.apps.append(Entry(appName: appName, linkPath: linkPath,
                                        volumeUUID: volumeUUID.uppercased(),
                                        relativePath: relativePath, migratedAt: Date(),
-                                       kind: kind))
+                                       kind: kind, batchID: batchID,
+                                       volumeRole: volumeRole))
             save(manifest)
         }
     }
@@ -94,7 +100,9 @@ final class MigrationManifest: @unchecked Sendable {
     // MARK: - Private
 
     private struct ManifestFile: Codable {
-        var version = 1
+        /// v2：Entry 增加 batchID/volumeRole 可选字段（JSONDecoder 对缺失字段宽容，
+        /// v1 文件直接读；v3.0 写出的 v2 文件，老版本解码时忽略未知 key，降级不丢台账）
+        var version = 2
         var apps: [Entry] = []
     }
 
