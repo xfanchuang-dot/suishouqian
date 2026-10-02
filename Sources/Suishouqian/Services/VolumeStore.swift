@@ -71,9 +71,12 @@ enum LinkTier: String, Codable {
 final class VolumeStore: ObservableObject {
     @Published private(set) var volumes: [ManagedVolume] = []
 
-    /// 沿用 v2.x 的键：老用户选定的主盘 v3.0 自动继承，无感升级
-    /// （与 DiskMonitor.selectedUUIDKey 同键：单盘时代的"选定盘"就是主盘）
+    /// 老键：DiskMonitor 独管（单盘口径），本类只读不写——双写会互相覆盖打乒乓
     private static let primaryUUIDKey = "selectedExternalVolumeUUID"
+    /// P2-2（Muse 审查）：用户显式指定主盘的独立键。DiskMonitor.refresh 在
+    /// "picked 带足迹"时会改写老键，若显式指定也写老键，用户的选择会被自动逻辑
+    /// 静默推翻；独立键一旦存在就永远优先于老键
+    private static let explicitPrimaryKey = "primaryVolumeUUID.v3"
 
     /// 主盘（离线时仍返回，调用方看 isOnline 决定灰显；不要静默换盘）
     var primary: ManagedVolume? {
@@ -99,7 +102,8 @@ final class VolumeStore: ObservableObject {
             })
             return (candidates, scores)
         }
-        let persisted = UserDefaults.standard.string(forKey: Self.primaryUUIDKey)
+        let persisted = UserDefaults.standard.string(forKey: Self.explicitPrimaryKey)
+            ?? UserDefaults.standard.string(forKey: Self.primaryUUIDKey)
         volumes = Self.merge(old: volumes, candidates: candidates,
                              footprintScores: scores,
                              persistedPrimaryUUID: persisted, now: Date())
@@ -112,7 +116,7 @@ final class VolumeStore: ObservableObject {
         for i in volumes.indices {
             volumes[i].role = (volumes[i].id == uuid) ? .primary : .secondary
         }
-        UserDefaults.standard.set(uuid, forKey: Self.primaryUUIDKey)
+        UserDefaults.standard.set(uuid, forKey: Self.explicitPrimaryKey)
         AuditLog.append("用户指定迁移主盘：\(volumes.first { $0.id == uuid }?.info.name ?? uuid)")
     }
 

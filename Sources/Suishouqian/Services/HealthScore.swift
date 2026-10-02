@@ -102,7 +102,8 @@ enum HealthScore {
 /// 体检链路改动时只需维护这里（v3.0 初版按主盘口径出分，多卷分卡在后续步骤）。
 enum HealthScoreInputFactory {
 
-    static func input(from report: CheckReport) -> HealthScore.Input {
+    static func input(from report: CheckReport,
+                      usb2VolumeRoots: Set<String> = []) -> HealthScore.Input {
         var input = HealthScore.Input()
         input.brokenLinks = report.links.filter { $0.state == .broken }.count
         // 离线卷数按卷根去重：同一块盘上 5 个应用只算 1 块盘
@@ -114,6 +115,11 @@ enum HealthScoreInputFactory {
         input.dataForks = 0
         input.backupIssues = report.backups.count
         input.residues = report.residues.count
+        // P3-2：链路档位不在 CheckReport 里，由调用方传入 USB2 卷根集合；
+        // 只有真有应用住在上面的卷才参与扣分（与链接列表的卷根求交）
+        input.hasUSB2VolumeWithApps = !usb2VolumeRoots.isEmpty && !report.links.isEmpty
+            && Set(report.links.compactMap { volumeRoot(of: $0.target) })
+                .intersection(usb2VolumeRoots).isEmpty == false
         return input
     }
 

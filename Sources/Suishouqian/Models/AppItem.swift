@@ -86,6 +86,7 @@ struct MigrationTask: Identifiable {
         case migrate
         case restore
         case uninstall
+        case relocate   // 盘间迁移/撤销（v3.0）
     }
     
     enum TaskStatus: Equatable {

@@ -89,9 +89,21 @@ final class OperationJournal: @unchecked Sendable {
             text += "\n"
             guard let data = text.data(using: .utf8) else { return }
             if FileManager.default.fileExists(atPath: fileURL.path) {
+                // 中断恢复（Muse 审查用例 5）：上次进程若死在行中间，尾行没有换行符，
+                // 直接追加会黏住截断行把两条记录一起毁掉。写句柄上做字节级读不可靠，
+                // 用文本读判断尾部（文件 ≤1MB，写路径成本可接受）
+                let needsNewline: Bool = {
+                    guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                        return false
+                    }
+                    return !text.isEmpty && !text.hasSuffix("\n")
+                }()
                 guard let handle = FileHandle(forWritingAtPath: fileURL.path) else { return }
                 defer { try? handle.close() }
                 _ = try? handle.seekToEnd()
+                if needsNewline {
+                    try? handle.write(contentsOf: Data("\n".utf8))
+                }
                 try? handle.write(contentsOf: data)
                 Self.trimIfNeeded(fileURL: fileURL)
             } else {

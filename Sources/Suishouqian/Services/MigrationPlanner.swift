@@ -72,7 +72,9 @@ enum MigrationPlanner {
             let bestTier = request.volumes.map(\.tier).min { tierRank($0) < tierRank($1) }
                 ?? .unknown
             let score = valueScore(app: app, tier: bestTier, aggressive: request.aggressive)
-            scored.append((app, score, moveReason(app: app, tier: bestTier)))
+            // P3-3：理由先占位，实际落盘卷定下来后用该卷档位重算（否则"雷电可承受"
+            // 可能与实际去的慢盘不符）
+            scored.append((app, score, ""))
         }
 
         // 贪心：按"单位风险价值"从高到低拿，直到腾够
@@ -82,7 +84,7 @@ enum MigrationPlanner {
         var freed: Int64 = 0
         var seconds: Double = 0
 
-        for (app, score, reason) in scored {
+        for (app, score, _) in scored {
             if freed >= request.targetFreeBytes { break }
             // 选剩余空间最多的、装得下的卷（口径与执行侧一致：两份+5%）
             guard let idx = volumes.indices
@@ -100,7 +102,7 @@ enum MigrationPlanner {
             seconds += Double(app.size) / (mbps * 1_048_576) * 2.5
             moves.append(PlannedMove(
                 app: app, volumeUUID: volumes[idx].uuid, volumeName: volumes[idx].name,
-                reason: reason, score: score))
+                reason: moveReason(app: app, tier: volumes[idx].tier), score: score))
         }
 
         return MigrationPlan(moves: moves, excluded: excluded,

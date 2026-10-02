@@ -217,8 +217,6 @@ case "$SIGN_IDENTITY" in
     "Developer ID Application"*) TS="--timestamp" ;;
     *)                           TS="--timestamp=none" ;;
 esac
-# ad-hoc 与自签身份都实测支持 --options runtime，因此无条件带上：
-# Hardened Runtime 是公证硬要求，而它在非公证路径上也只是一层更强的保护。
 # --options runtime（Hardened Runtime）是公证硬性要求，但本地自签证书没有 TeamID，
 # 开了 hardened runtime 的库校验反而会拒载同证书签的 Sparkle（"different Team IDs"）。
 # 只有真 Developer ID 签名时才开。
@@ -270,7 +268,10 @@ if [[ "$SIGN_IDENTITY" == *"Developer ID"* ]]; then
         *) echo "错误: 主 App 缺少 Hardened Runtime（公证会被拒）"; exit 1 ;;
     esac
 fi
-echo "  签名已校验（${SIGN_IDENTITY}$([ "$SIGN_IDENTITY" = "-" ] || echo "，Hardened Runtime")）"
+case "$SIGN_IDENTITY" in
+    *"Developer ID"*) echo "  签名已校验（${SIGN_IDENTITY}，Hardened Runtime）" ;;
+    *)                echo "  签名已校验（${SIGN_IDENTITY}，无 Hardened Runtime——本地自签口径）" ;;
+esac
 
 echo ""
 echo "构建完成: $BUNDLE"

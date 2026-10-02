@@ -207,6 +207,7 @@ struct MigrationPanel: View {
         case .migrate: return "arrow.right.circle.fill"
         case .restore: return "arrow.left.circle.fill"
         case .uninstall: return "trash.circle.fill"
+        case .relocate: return "externaldrive.connected.to.line.below"
         }
     }
     
@@ -216,6 +217,7 @@ struct MigrationPanel: View {
         case .migrate: return .blue
         case .restore: return .orange
         case .uninstall: return .red
+        case .relocate: return .purple
         }
     }
     
@@ -226,6 +228,7 @@ struct MigrationPanel: View {
         case .migrate: return "迁移 \(name)"
         case .restore: return "回迁 \(name)"
         case .uninstall: return "卸载 \(name)"
+        case .relocate: return "盘间迁移 \(name)"
         }
     }
     

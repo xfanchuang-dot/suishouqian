@@ -231,7 +231,12 @@ struct OverviewPanel: View {
             unusedApps = report.unusedApps
             usageSuggestions = report.usageSuggestions
             // v3.0 健康分：同一份报告顺带出分（只读派生，不落历史——落历史只在体检页全量跑时做）
-            healthScore = HealthScore.score(HealthScoreInputFactory.input(from: report))
+            let usb2Roots = Set(appState.volumeStore.onlineVolumes
+                .filter { $0.linkTier == .usb2 }
+                .map { HealthScoreInputFactory.volumeRoot(of: $0.info.mountPoint) }
+                .compactMap { $0 })
+            healthScore = HealthScore.score(
+                HealthScoreInputFactory.input(from: report, usb2VolumeRoots: usb2Roots))
             // 最近操作：journal 是小文件，但仍是磁盘读，按铁律走 OffPool
             let ops = await OffPool.run { OperationJournal.shared.recent(limit: 10) }
             recentOps = ops
@@ -253,22 +258,35 @@ struct OverviewPanel: View {
             NSWorkspace.shared.runningApplications.compactMap(\.localizedName))
         let apps = appState.apps
         let builtinFree = appState.builtinDrive?.freeSize ?? 0
-        let externalFree = appState.volumeStore.primary?.info.freeSize
-            ?? appState.externalDrive?.freeSize ?? 0
-        let onlineUUIDs = Set(appState.volumeStore.onlineVolumes.map(\.id))
-        let externalMounts = appState.volumeStore.onlineVolumes.map(\.info.mountPoint)
+        let volumes = appState.volumeStore.volumes   // OffPool 前抓快照
+        let onlineUUIDs = Set(volumes.filter(\.isOnline).map(\.id))
+        let externalMounts = volumes.filter(\.isOnline).map(\.info.mountPoint)
+        let trashDir = (NSHomeDirectory() as NSString).appendingPathComponent(".Trash")
 
         return await OffPool.run {
             var out: [UUID: UndoPlanner.UndoPlan] = [:]
             for entry in ops {
                 let app = apps.first { $0.bundleName == entry.appName }
+                // P1-1c（Muse 审查）：relocate 撤销的空间门槛在源盘（fromUUID），不是主盘
+                let externalFree: Int64 = {
+                    if entry.op == .relocate, let fromUUID = entry.params["fromUUID"],
+                       let origin = volumes.first(where: { $0.id == fromUUID }) {
+                        return origin.info.freeSize
+                    }
+                    return volumes.first { $0.role == .primary }?.info.freeSize
+                        ?? appState.externalDrive?.freeSize ?? 0
+                }()
                 let ctx = UndoPlanner.UndoContext(
                     appRunning: runningNames.contains(
                         (entry.appName as NSString).deletingPathExtension),
+                    // P1-1a：FileManager 不展开 ~，必须用 NSHomeDirectory 拼真实路径
                     trashContainsApp: FileManager.default.fileExists(
-                        atPath: ("~/.Trash/" + entry.appName) as String),
-                    externalCopyExists: externalMounts.contains {
-                        FileManager.default.fileExists(atPath: "\($0)/\(entry.appName)")
+                        atPath: (trashDir as NSString).appendingPathComponent(entry.appName)),
+                    // P1-1b：副本住在卷的 Applications/ 或 Suishouqian_Apps/ 子目录，不在卷根
+                    externalCopyExists: externalMounts.contains { mount in
+                        AppMigrator.externalAppDirs.contains {
+                            FileManager.default.fileExists(atPath: "\(mount)/\($0)/\(entry.appName)")
+                        }
                     } || (app?.symlinkTarget.map { FileManager.default.fileExists(atPath: $0) } ?? false),
                     internalCopyExists: {
                         let p = "/Applications/\(entry.appName)"
@@ -437,58 +455,77 @@ struct OverviewPanel: View {
     // MARK: - 撤销执行链
 
     /// 采集实时上下文并执行撤销。撤销本身就是一次受控迁移/回迁，走完整安全链。
+    /// P1-2（Muse 审查）：走 migrationTask 通道 + 实时进度回写——几分钟的撤销
+    /// 不能让界面毫无动静；TOCTOU 纪律：按钮亮时的 plan 只作展示，执行前重算。
     private func undo(_ entry: JournalEntry) {
-        guard let plan = undoPlans[entry.id], plan.feasible,
-              let inverseOp = plan.inverseOp,
-              appState.migrationTask == nil else { return }
-
-        let app = appState.apps.first { $0.bundleName == entry.appName }
-        let primaryMount = appState.volumeStore.primary?.info.mountPoint
-            ?? appState.externalDrive?.mountPoint
-        let volumeMounts = Dictionary(uniqueKeysWithValues:
-            appState.volumeStore.volumes.map { ($0.id, $0.info.mountPoint) })
-
         Task { @MainActor in
+            let fresh = await computeUndoPlans([entry])
+            guard let plan = fresh[entry.id], plan.feasible,
+                  let inverseOp = plan.inverseOp,
+                  let app = appState.apps.first(where: { $0.bundleName == entry.appName }),
+                  appState.migrationTask == nil else { return }
+
+            let primaryMount = appState.volumeStore.primary?.info.mountPoint
+                ?? appState.externalDrive?.mountPoint
+            let volumeMounts = Dictionary(uniqueKeysWithValues:
+                appState.volumeStore.volumes.map { ($0.id, $0.info.mountPoint) })
+
+            let taskOp: MigrationTask.MigrationOperation
+            switch inverseOp {
+            case .restore: taskOp = .restore
+            case .relocate: taskOp = .relocate
+            default: taskOp = .migrate
+            }
+            appState.migrationTask = MigrationTask(app: app, operation: taskOp)
+            let progress: @Sendable (Double, String) -> Void = { pct, file in
+                Task { @MainActor in
+                    guard var t = appState.migrationTask else { return }
+                    t.progress = pct
+                    t.currentFile = file
+                    appState.migrationTask = t
+                }
+            }
+
             isUndoing = true
             let result: AppMigrator.MigrationResult
             switch inverseOp {
             case .restore:
-                // 撤销迁移 = 回迁：从外置盘搬回来
-                guard let app, let from = app.symlinkTarget.map({
+                guard let from = app.symlinkTarget.map({
                     (($0 as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
                 }) else {
+                    appState.migrationTask = nil
                     isUndoing = false
                     return
                 }
-                result = await appState.migrator.restore(app: app, from: from) { _, _ in }
+                result = await appState.migrator.restore(app: app, from: from, progress: progress)
             case .migrate, .moveBack, .remigrate:
-                // 撤销回迁/搬回/重迁 = 再迁出到主盘
-                guard let app, let to = primaryMount else {
+                guard let to = primaryMount else {
+                    appState.migrationTask = nil
                     isUndoing = false
                     return
                 }
-                result = await appState.migrator.migrate(app: app, to: to, createLink: true) { _, _ in }
+                result = await appState.migrator.migrate(
+                    app: app, to: to, createLink: true, progress: progress)
             case .relocate:
-                // 撤销盘间迁移 = 反向搬回原盘（params: fromUUID=原盘 toUUID=现所在盘）
-                guard let app,
-                      let origin = entry.params["fromUUID"].flatMap({ volumeMounts[$0] }),
+                guard let origin = entry.params["fromUUID"].flatMap({ volumeMounts[$0] }),
                       let current = entry.params["toUUID"].flatMap({ volumeMounts[$0] }) else {
+                    appState.migrationTask = nil
                     isUndoing = false
                     return
                 }
                 result = await appState.migrator.relocate(
-                    app: app, fromVolume: current, toVolume: origin) { _, _ in }
-            case .uninstall:
-                // 废纸篓恢复的执行链在撤销规划里已限定可行性；v1 暂不做自动恢复，
-                // 按钮不会亮（UndoPlanner 对 uninstall 返回 feasible 但 inverseOp=nil，
-                // guard 早已拦截走到这里的情况）
-                isUndoing = false
-                return
-            case .undo:
+                    app: app, fromVolume: current, toVolume: origin, progress: progress)
+            case .uninstall, .undo:
+                // 废纸篓恢复 v1 不做自动执行（按钮不亮的路径，防御性兜底）
+                appState.migrationTask = nil
                 isUndoing = false
                 return
             }
 
+            if var t = appState.migrationTask {
+                t.status = result.success ? .completed : .failed(result.error ?? "未知错误")
+                appState.migrationTask = t
+            }
             if result.success {
                 let undoID = OperationJournal.shared.record(
                     op: .undo, appName: entry.appName,
@@ -496,7 +533,7 @@ struct OverviewPanel: View {
                     result: "ok")
                 OperationJournal.shared.markUndone(id: entry.id, by: undoID)
             }
-            // 失败时 journal 已由对应安全链入口记录，撤销可行性下次检查会重算
+            appState.migrationTask = nil
             refreshTimeline()
             isUndoing = false
         }

@@ -60,9 +60,16 @@ struct SpaceFreePlanSheet: View {
                             .frame(maxWidth: .infinity)
                     }
                 } else {
-                    ForEach(plan.moves, id: \.app.bundleName) { move in
-                        moveRow(move)
+                    // P2-4（Muse 审查）：方案可能纳入十几个应用，必须可滚动，
+                    // 且"按方案执行"按钮保持在滚动区外永远够得着
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(plan.moves, id: \.app.bundleName) { move in
+                                moveRow(move)
+                            }
+                        }
                     }
+                    .frame(maxHeight: 320)
                 }
 
                 if !plan.excluded.isEmpty {

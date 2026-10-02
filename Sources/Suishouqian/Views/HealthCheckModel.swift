@@ -23,7 +23,8 @@ final class HealthCheckModel: ObservableObject {
     @Published var healthScore: HealthScore.Result?
 
     /// 跑一轮全量检查并装载结果。引擎内部处理 OffPool 与并行，这里只等。
-    func refresh(engine: CheckEngine, drivePath: String?, apps: [AppItem]) async {
+    func refresh(engine: CheckEngine, drivePath: String?, apps: [AppItem],
+                 usb2VolumeRoots: Set<String> = []) async {
         isChecking = true
         let report = await engine.run(drivePath: drivePath, apps: apps, scope: .full)
         links = report.links
@@ -39,7 +40,8 @@ final class HealthCheckModel: ObservableObject {
 
         // v3.0 健康分：主盘口径。有真实主盘 UUID 才落历史（score 是只读派生，
         // 绝不驱动自动动作）；drivePath 为 nil 时不落，测试注入不污染真实文件
-        let score = HealthScore.score(HealthScoreInputFactory.input(from: report))
+        let score = HealthScore.score(
+            HealthScoreInputFactory.input(from: report, usb2VolumeRoots: usb2VolumeRoots))
         healthScore = score
         if let drivePath {
             // resourceValues 是 IO：按铁律走 OffPool，别占主线程

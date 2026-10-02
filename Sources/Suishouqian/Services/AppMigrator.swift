@@ -135,6 +135,7 @@ class AppMigrator: @unchecked Sendable {
     /// 盘间迁移核心（可测入口：不做卷级护栏，路径全由调用方保证）。
     /// 单一出口记 journal；测试注入 temp 目录即可全流程验证。
     func relocateCore(app: AppItem, sourcePath: String, fromVolume: String, toVolume: String,
+                      linkDirectory: String = "/Applications",
                       progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let appName = app.bundleName
         let relative = (sourcePath as NSString).lastPathComponent
@@ -142,8 +143,17 @@ class AppMigrator: @unchecked Sendable {
         let parentName = (sourcePath as NSString).deletingLastPathComponent
             .replacingOccurrences(of: fromVolume + "/", with: "")
         let targetPath = "\(toVolume)/\(parentName)/\(relative)"
-        let linkPath = "/Applications/\(appName)"
+        let linkPath = "\(linkDirectory)/\(appName)"
         let hadLink = (try? fileManager.destinationOfSymbolicLink(atPath: linkPath)) != nil
+        // P2-3 漂移护栏必须在复制之前：中止越早，目标盘越干净（复制后才查会留下整份副本）
+        if hadLink {
+            // 合法现状只有两个——还指着源（没动过）或已指着目标（上次中断在改写后，
+            // 重跑幂等）；指向第三处说明链接已被回归/自愈改写，必须中止
+            let currentLink = try? fileManager.destinationOfSymbolicLink(atPath: linkPath)
+            guard currentLink == sourcePath || currentLink == targetPath else {
+                return done(false, "链接指向已变化（当前指向 \(currentLink ?? "未知")），已中止以免误改")
+            }
+        }
 
         func done(_ success: Bool, _ error: String?) -> MigrationResult {
             let fromUUID = MigrationManifest.volumeUUID(atPath: fromVolume) ?? ""
@@ -172,7 +182,7 @@ class AppMigrator: @unchecked Sendable {
         }
 
         progress(0.75, "修复文件属性...")
-        fixAttributes(at: targetPath)
+        await fixAttributes(at: targetPath)
 
         // 链接改写（有 /Applications 链接才做；externalOnly 原住民跳过）
         if hadLink {
@@ -184,6 +194,10 @@ class AppMigrator: @unchecked Sendable {
                 let auth = await authenticatedRewriteLink(linkPath: linkPath, toTarget: targetPath)
                 guard auth.success else {
                     return done(false, "链接改写失败：\(auth.error ?? "未知错误")（应用仍从源盘运行，两盘副本都在）")
+            // 提权 ln -sfn 无原子性保证：回读确认改写生效，才允许往下删源
+            guard (try? fileManager.destinationOfSymbolicLink(atPath: linkPath)) == targetPath else {
+                return done(false, "链接改写后校验未通过，源盘副本未动")
+            }
                 }
             }
         }
@@ -327,7 +341,7 @@ class AppMigrator: @unchecked Sendable {
         
         // 校验通过后才修复属性（必须在校验之后，因为 codesign 会修改二进制导致 diff 不一致）
         progress(0.8, "修复文件属性...")
-        fixAttributes(at: targetPath)
+        await fixAttributes(at: targetPath)
         
         progress(0.85, "备份原件...")
         try? fileManager.createDirectory(atPath: "\(drivePath)/.suishouqian-backup", 
@@ -655,7 +669,7 @@ class AppMigrator: @unchecked Sendable {
 
         let linkPath = "\(applicationsRoot)/\(appName)"
         let linkUsable = linkIsUsable(atPath: linkPath)
-        let externalCopyExists = ["Applications", "Suishouqian_Apps"].contains {
+        let externalCopyExists = Self.externalAppDirs.contains {
             fileManager.fileExists(atPath: "\(drivePath)/\($0)/\(appName)")
         }
         return Self.backupCanBeAutoCleaned(appLinkUsable: linkUsable,
@@ -746,6 +760,10 @@ class AppMigrator: @unchecked Sendable {
 
     /// 目标盘需要的可用空间（纯逻辑，供测试）：
     /// 目标副本 1 份 + 同盘留底备份 1 份 + 5% 余量。
+    /// 外置盘上应用副本的合法目录（撤销可行性探测与备份清理共用同一口径，
+    /// P1-1b：此前 OverviewPanel 只查卷根导致纯搬迁/原住民的副本恒"不在"）
+    static let externalAppDirs = ["Applications", "Suishouqian_Apps"]
+
     static func requiredTargetBytes(appSize: Int64) -> Int64 {
         appSize * 2 + appSize / 20
     }
@@ -841,7 +859,13 @@ class AppMigrator: @unchecked Sendable {
     /// 清除 macl/quarantine 隔离属性；仅当签名校验不过时才 ad-hoc 重签。
     /// 此前无条件 codesign --force --deep（--deep 已被 Apple 废弃），
     /// 可能弄坏带特权 Helper/XPC 的复杂应用
-    private func fixAttributes(at path: String) {
+    /// P2-1（Muse 审查）：内部串行跑多个子进程（codesign verify 对大应用可达数秒），
+    /// 必须整体 OffPool，不占协作线程池。两个调用点（migrate/relocate）都已是 async 上下文。
+    func fixAttributes(at path: String) async {
+        await OffPool.run { Self.fixAttributesSync(at: path) }
+    }
+
+    private static func fixAttributesSync(at path: String) {
         let run = { (args: [String]) -> Int32 in
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
@@ -1046,11 +1070,11 @@ class AppMigrator: @unchecked Sendable {
 
     /// 检查文件是否需要管理员权限（root 所有 + 在受保护目录）
     private func needsAdminPrivilege(for path: String) async -> Bool {
-        return await Task.detached {
+        return await OffPool.run {
             guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
                   let owner = attrs[.ownerAccountName] as? String else { return false }
             return owner == "root"
-        }.value
+        }
     }
     
     /// 用 osascript 提权删除源应用，`createLink` 为真时再建符号链接（不操作外置盘）。
