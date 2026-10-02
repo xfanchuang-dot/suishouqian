@@ -41,6 +41,19 @@ struct DiskBarView: View {
         Task {
             let info = await OffPool.run { DiskLinkProbe.probe(mountPoint: mount) }
             if let info { linkInfo[mount] = info }
+            // 自审发现：updateMetadata 此前全项目零调用——linkTier 永远 unknown，
+            // 健康分 USB2 扣分与腾空间引擎的链路系数实际从未生效。现在把探测结果
+            // 喂给 VolumeStore。诚实映射：diskutil 的 Protocol 分不出 USB2/USB3，
+            // USB 一律 unknown（保守）；USB2 档只能由实测速度降档判定（runSpeedTest）
+            let p = info?.protocolKind.lowercased() ?? ""
+            let tier: LinkTier = (p.contains("pci") || p.contains("thunderbolt")
+                                  || p.contains("fabric")) ? .thunderbolt : .unknown
+            await MainActor.run {
+                if let uuid = appState.volumeStore.volumes
+                    .first(where: { $0.info.mountPoint == mount })?.id {
+                    appState.volumeStore.updateMetadata(uuid: uuid, tier: tier)
+                }
+            }
         }
     }
 
@@ -165,6 +178,24 @@ struct DiskBarView: View {
             speedText[mount] = result.map {
                 "写入 \(Int($0.writeMBps)) · 读取 \(Int($0.readMBps)) MB/s"
             } ?? "测速失败（盘可能只读或已满）"
+            // 实测数据喂 VolumeStore：速度是链路档位的唯一诚实证据——
+            // 写入 <50MB/s 判 USB2 档（健康分/推荐引擎才会如实降权）；USB 且达标升 usb3
+            await MainActor.run {
+                if let uuid = appState.volumeStore.volumes
+                    .first(where: { $0.info.mountPoint == mount })?.id {
+                    if let result {
+                        appState.volumeStore.updateMetadata(uuid: uuid, mbps: result.writeMBps)
+                        // 只在有证据时动档位：<50MB/s 判 USB2；USB 且达标升 USB3。
+                        // 其余情况（如雷电盘）保留探测已给出的档位，别把已知降成未知
+                        let isUSB = (linkInfo[mount]?.protocolKind.lowercased() ?? "").contains("usb")
+                        if result.writeMBps < 50 {
+                            appState.volumeStore.updateMetadata(uuid: uuid, tier: .usb2)
+                        } else if isUSB {
+                            appState.volumeStore.updateMetadata(uuid: uuid, tier: .usb3)
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -219,10 +219,14 @@ struct DataPanelView: View {
             let scanned = await dataMigrator.scanDataLocations()
             let custom = await dataMigrator.scanCustomItems()
             let diverged = await dataMigrator.checkDivergences()
-            items = scanned
-            customItems = custom
-            divergences = diverged
-            isScanning = false
+            // @State 必须主线程写：Task 里的 await 会把续体切到协作池，
+            // 原 MainActor.run 不是多余的（自审：替换 rescan 时曾被误删）
+            await MainActor.run {
+                items = scanned
+                customItems = custom
+                divergences = diverged
+                isScanning = false
+            }
         }
     }
 

@@ -194,11 +194,12 @@ class AppMigrator: @unchecked Sendable {
                 let auth = await authenticatedRewriteLink(linkPath: linkPath, toTarget: targetPath)
                 guard auth.success else {
                     return done(false, "链接改写失败：\(auth.error ?? "未知错误")（应用仍从源盘运行，两盘副本都在）")
-            // 提权 ln -sfn 无原子性保证：回读确认改写生效，才允许往下删源
+                }
+            }
+            // 回读确认改写生效（覆盖 rename 与提权两条路径），确认无误才允许删源。
+            // 自审发现：此护栏最初被插进 guard-else 分支 return 之后，是永不执行的死代码
             guard (try? fileManager.destinationOfSymbolicLink(atPath: linkPath)) == targetPath else {
                 return done(false, "链接改写后校验未通过，源盘副本未动")
-            }
-                }
             }
         }
 

@@ -2,6 +2,20 @@
 
 ## 未发布（发下一版时把这行改成 `## <版本号> — <日期>` 并同步 VERSION）
 
+### 自审抓漏（v3.1 预览提交后全量复审）
+
+- **[修] relocate 改写后校验是死代码**：回读护栏被插进 guard-else 的 return 之后，永不执行
+  ——宣称的"提权 ln -sfn 后校验才删源"实际没生效。已挪到 do/catch 外，覆盖 rename 与
+  提权两条路径。**教训：往 guard-else 里插代码，先看 return 在哪。**
+- **[修] 数据面板 rescan 丢了主线程跳转**：原 Task.detached 里的 MainActor.run 是有用的，
+  替换成 Task 时被误删——await 之后续体在协作池，@State 离开主线程写是未定义行为。
+- **[修] updateMetadata 全项目零调用**：健康分 USB2 扣分与腾空间引擎的链路系数从未生效
+  （探测结果只存在 DiskBar 局部缓存）。现在 probeLink 喂档位（雷电→thunderbolt，USB→unknown
+  诚实映射——diskutil 分不出 USB2/3）、测速喂实测速度并做证据降档（<50MB/s 判 USB2，
+  USB 达标升 USB3，已知档位不无故降级）。
+- [记] 多选批量的 createLink 语义与"一键全部"一致（都留链接）；与腾空间方案引擎的
+  prefersNoLink 智能选择不同——已知差异，属可接受的不一致（两条入口的用户预期不同）。
+
 ### v3.1 预览：Muse 审查附录 A 的 UI 五件套（6.2~6.6 代码落地）
 
 - **全局任务胶囊**（新组件 SharedWidgets.swift）：任何面板都能看到正在跑的迁移/回迁/撤销，
