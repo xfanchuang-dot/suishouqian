@@ -188,8 +188,8 @@ struct MigrationPanel: View {
                 .foregroundColor(.secondary)
 
             if appState.externalDrive == nil {
-                StatusPill("未检测到外置硬盘，插入后自动识别",
-                           systemImage: "questionmark.circle",
+                StatusPill(VolumeOfflineBanner.message(for: nil),
+                           systemImage: VolumeOfflineBanner.systemImage(for: nil),
                            color: .orange)
             } else {
                 StatusPill("外置硬盘已连接，可以开始迁移",

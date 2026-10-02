@@ -62,6 +62,10 @@ struct OverviewPanel: View {
             .padding(.vertical, 4)
         }
         .onAppear { runCheck() }
+        // 附录 A4→6.4：在体检页修完断链切回来，待办必须是最新的，不是上次的快照
+        .onChange(of: appState.activePanel) { _, panel in
+            if panel == .overview { runCheck() }
+        }
     }
 
     // MARK: - 建议动作模型

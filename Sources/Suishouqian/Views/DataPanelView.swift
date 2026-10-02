@@ -198,6 +198,11 @@ struct DataPanelView: View {
             Text("装了剪映、LM Studio、Docker 等应用后，这里会自动出现搬迁入口")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
+            // 6.6（Muse 审查）：扫描失败与"真没有"共用空状态，必须给重试动作
+            Button("重新扫描") { rescan() }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .disabled(isScanning)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 30)
@@ -208,17 +213,16 @@ struct DataPanelView: View {
     private func rescan() {
         isScanning = true
         lastError = nil
-        Task.detached {
-            _ = dataMigrator.healDataLinks()   // 打开面板先尝试接上断掉的数据链接
+        Task {
+            // 6.6（Muse 审查）：heal 是同步 IO，OffPool 包一层，不占协作线程池
+            _ = await OffPool.run { dataMigrator.healDataLinks() }
             let scanned = await dataMigrator.scanDataLocations()
             let custom = await dataMigrator.scanCustomItems()
             let diverged = await dataMigrator.checkDivergences()
-            await MainActor.run {
-                items = scanned
-                customItems = custom
-                divergences = diverged
-                isScanning = false
-            }
+            items = scanned
+            customItems = custom
+            divergences = diverged
+            isScanning = false
         }
     }
 

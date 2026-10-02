@@ -23,6 +23,66 @@ struct AppListView: View {
         case name = "名称"
     }
     
+    /// 选中操作条（附录 A1）：有选中才出现
+    @ViewBuilder
+    private var selectionBar: some View {
+        let chosen = appState.apps.filter { selectedApps.contains($0.id) }
+        if !chosen.isEmpty {
+            let bytes = chosen.reduce(0) { $0 + $1.size }
+            HStack(spacing: 10) {
+                Text("已选 \(chosen.count) 个（\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))）")
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Button("迁移选中") { runSelected(migrate: true) }
+                    .controlSize(.small)
+                    .disabled(appState.externalDrive == nil || appState.migrationTask != nil
+                              || chosen.allSatisfy { $0.status != .normal })
+                Button("回迁选中") { runSelected(migrate: false) }
+                    .controlSize(.small)
+                    .disabled(appState.externalDrive == nil || appState.migrationTask != nil
+                              || chosen.allSatisfy { $0.status != .migrated })
+                Button("取消选择") { selectedApps.removeAll() }
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .background(Color(NSColor.controlBackgroundColor))
+        }
+    }
+
+    /// 选中批量执行：与 migrateAll 同一套串行安全链（逐个走 migrator 入口，护栏与 journal 都在）
+    private func runSelected(migrate: Bool) {
+        guard let drive = appState.externalDrive else { return }
+        // 重扫会重建 AppItem（id 是新 UUID），执行时按"当刻 apps ∩ 选中"取交集
+        let targets = appState.apps.filter {
+            selectedApps.contains($0.id)
+                && (migrate ? $0.status == .normal : $0.status == .migrated)
+        }
+        guard !targets.isEmpty else { return }
+        Task { @MainActor in
+            for app in targets {
+                let op: MigrationTask.MigrationOperation = migrate ? .migrate : .restore
+                appState.migrationTask = MigrationTask(app: app, operation: op)
+                let progress: @Sendable (Double, String) -> Void = { pct, file in
+                    Task { @MainActor in
+                        guard var t = appState.migrationTask else { return }
+                        t.progress = pct
+                        t.currentFile = file
+                        appState.migrationTask = t
+                    }
+                }
+                if migrate {
+                    _ = await appState.migrator.migrate(app: app, to: drive.mountPoint, progress: progress)
+                } else {
+                    _ = await appState.migrator.restore(app: app, from: drive.mountPoint, progress: progress)
+                }
+            }
+            appState.migrationTask = nil
+            selectedApps.removeAll()
+            await appState.scanApps()
+        }
+    }
+
     var filteredApps: [AppItem] {
         var apps = appState.apps
         
@@ -59,6 +119,9 @@ struct AppListView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .focused($searchFocused)
+                    // 窄窗口下筛选条(272)+排序(80)会把搜索框挤没了，给它保底宽度
+                    .frame(minWidth: 110)
+                    .layoutPriority(1)
                 
                 Spacer()
                 
@@ -111,12 +174,15 @@ struct AppListView: View {
                     Spacer()
                 }
             } else {
-                List(filteredApps) { app in
+                List(filteredApps, selection: $selectedApps) { app in
                     AppRowView(app: app)
                         .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                 }
                 .listStyle(.plain)
             }
+
+            // 6.3（Muse 审查附录 A1）：选中操作条——批量迁部分应用与"一键全部"同一执行链
+            selectionBar
             
             // 底部统计
             HStack(spacing: 12) {

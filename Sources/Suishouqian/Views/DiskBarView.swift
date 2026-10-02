@@ -24,6 +24,8 @@ struct DiskBarView: View {
             } else {
                 offlineCard
             }
+
+            GlobalTaskCapsule()   // v3.1 附录 A2：任何面板都能看到在跑的任务
         }
         // 换线缆/换盒子后重插同一路径：旧链路结论必须作废重探
         .onChange(of: appState.externalDrive?.mountPoint) { _, new in
@@ -174,7 +176,7 @@ struct DiskBarView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("外置硬盘")
                     .font(.system(size: 12, weight: .semibold))
-                Text("未连接 · 插入后将自动识别")
+                Text(VolumeOfflineBanner.message(for: nil))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
