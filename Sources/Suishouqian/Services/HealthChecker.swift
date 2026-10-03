@@ -576,7 +576,21 @@ class HealthChecker: @unchecked Sendable {
     /// MobileSync = iPhone 备份（苹果无属主标记，误清理代价极高）
     private let protectedResidueNames: Set<String> = ["MobileSync"]
 
-    /// 扫描 ~/Library/Application Support 与 ~/Library/Caches：
+    /// 残留扫描的根目录（v3.1 深清理：从 2 个扩展到 5 个）。
+    /// - Application Support / Caches：传统重灾区
+    /// - Containers：沙盒应用数据（与 Application Support 同一套认领规则）
+    /// - Group Containers：共享容器，被任一在装应用认领即排除（防误删共享数据）
+    /// - Saved Application State：窗口恢复状态，卸载后常年堆积
+    /// Preferences 只放 plist 文件不放目录，不在扫描范围。
+    static let residueScanRoots: [(location: String, subpath: String)] = [
+        ("Application Support", "Library/Application Support"),
+        ("Caches", "Library/Caches"),
+        ("Containers", "Library/Containers"),
+        ("Group Containers", "Library/Group Containers"),
+        ("Saved State", "Library/Saved Application State"),
+    ]
+
+    /// 扫描 ~/Library 下各数据目录：
     /// 找出没有任何在装应用可认领、且 ≥100MB 的目录
     func checkResidues(drivePath: String?) -> [ResidueItem] {
         let signatures = installedAppSignatures(drivePath: drivePath)
@@ -585,10 +599,8 @@ class HealthChecker: @unchecked Sendable {
         let home = NSHomeDirectory()
         var results: [ResidueItem] = []
 
-        for (location, base) in [
-            ("Application Support", "\(home)/Library/Application Support"),
-            ("Caches", "\(home)/Library/Caches")
-        ] {
+        for (location, subpath) in Self.residueScanRoots {
+            let base = "\(home)/\(subpath)"
             let items = (try? fileManager.contentsOfDirectory(atPath: base)) ?? []
             for item in items {
                 // 系统自有目录与工具自身目录不参与；保护名单绝不上报
@@ -673,10 +685,8 @@ class HealthChecker: @unchecked Sendable {
 
         let home = NSHomeDirectory()
         var results: [ResidueItem] = []
-        for (location, base) in [
-            ("Application Support", "\(home)/Library/Application Support"),
-            ("Caches", "\(home)/Library/Caches"),
-        ] {
+        for (location, subpath) in Self.residueScanRoots {
+            let base = "\(home)/\(subpath)"
             let items = (try? fileManager.contentsOfDirectory(atPath: base)) ?? []
             for item in items {
                 if item.lowercased().hasPrefix("com.apple.") { continue }

@@ -88,7 +88,9 @@ final class HealthHistoryTests: XCTestCase {
     }
 
     func testSameDayRecordIsOverwritten() throws {
-        let now = Date()
+        // 用"当天 12 点/13 点"做锚：+1 小时法在 23 点后运行会跨天，变成假失败
+        let cal = Calendar.current
+        let now = cal.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
         HealthHistory.append(volumeUUID: "V1", score: 80, now: now)
         HealthHistory.append(volumeUUID: "V1", score: 92, now: now.addingTimeInterval(3600))
         let all = HealthHistory.loadAll()

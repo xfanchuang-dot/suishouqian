@@ -96,6 +96,8 @@ struct AppRowView: View {
                 .font(.system(size: 11))
                 .disabled(appState.isMigrationActive)
 
+                relocateMenu
+
                 Button("卸载") {
                     uninstallApp()
                 }
@@ -112,6 +114,10 @@ struct AppRowView: View {
                     .controlSize(.small)
                     .font(.system(size: 11))
                     .disabled(appState.isMigrationActive)
+
+                    // v3.1 盘间迁移：已在外置盘的应用，可直接搬到另一块在线外置盘，
+                    // 不经过内置盘中转。Menu 形态——目标盘数量不确定，按钮放不下。
+                    relocateMenu
 
                     Button("卸载") {
                         uninstallApp()
@@ -244,6 +250,64 @@ struct AppRowView: View {
     }
     
     /// 外置盘原住民：复制回内置盘、校验、删外置副本
+    // MARK: - v3.1 盘间迁移
+
+    /// 当前应用可搬往的目标盘（在线外置卷，排除所在卷）
+    private var relocateTargets: [ManagedVolume] {
+        let current = RelocateTargets.currentMount(for: app, volumes: appState.volumeStore.volumes)
+        return RelocateTargets.candidates(currentMount: current, volumes: appState.volumeStore.volumes)
+    }
+
+    private var relocateMenu: some View {
+        Menu("搬到…") {
+            ForEach(relocateTargets) { vol in
+                Button("\(vol.displayName)（可用 \(vol.info.freeFormatted)）") {
+                    relocateApp(to: vol)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .font(.system(size: 11))
+        .disabled(appState.isMigrationActive || relocateTargets.isEmpty)
+        .help("盘间迁移：把应用从当前外置盘直接搬到另一块外置盘，不经过内置盘中转。\n目标盘空间不足或离线时不会出现在列表里。")
+    }
+
+    /// 盘间迁移执行链：走 migrationTask 通道（全局任务胶囊可见），journal 由
+    /// AppMigrator.relocate 内部记录（含 fromUUID/toUUID，撤销可反向搬回）。
+    private func relocateApp(to volume: ManagedVolume) {
+        guard let fromMount = RelocateTargets.currentMount(
+            for: app, volumes: appState.volumeStore.volumes) else { return }
+        Task { @MainActor [weak appState] in
+            guard let appState else { return }
+            appState.migrationTask = MigrationTask(app: app, operation: .relocate)
+
+            let state = self.appState
+            let result = await state.migrator.relocate(
+                app: app, fromVolume: fromMount, toVolume: volume.info.mountPoint
+            ) { @Sendable pct, desc in
+                Task { @MainActor in
+                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .relocate)
+                    t.progress = pct
+                    t.currentFile = desc
+                    state.migrationTask = t
+                }
+            }
+
+            if result.success {
+                state.migrationTask = nil
+                state.notificationManager.notifyMigrationComplete(
+                    appName: app.name, spaceSaved: result.spaceSaved)
+                await state.scanApps()
+            } else if var t = state.migrationTask {
+                t.status = .failed(result.error ?? "未知错误")
+                state.migrationTask = t
+                state.notificationManager.notifyMigrationFailed(
+                    appName: app.name, error: result.error ?? "未知错误")
+            }
+        }
+    }
+
     private func moveBack() {
         guard let drive = appState.externalDrive else { return }
         Task { @MainActor [weak appState] in

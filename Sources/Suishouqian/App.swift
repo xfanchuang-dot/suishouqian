@@ -74,6 +74,8 @@ struct SuishouqianApp: App {
     @StateObject private var appState = AppState()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let updateManager = UpdateManager()
+    /// 菜单栏常驻（v3.1 实验开关，默认关）
+    @AppStorage("menuBarExtraEnabled") private var menuBarExtraEnabled = false
     
     var body: some Scene {
         WindowGroup {
@@ -119,6 +121,12 @@ struct SuishouqianApp: App {
         }
         Settings {
             SettingsView()
+                .environmentObject(appState)
+        }
+
+        // v3.1 菜单栏常驻：实验开关，默认关闭；只读展示 + 打开/退出
+        MenuBarExtra("随手迁", systemImage: "externaldrive.fill", isInserted: $menuBarExtraEnabled) {
+            MenuBarView()
                 .environmentObject(appState)
         }
     }

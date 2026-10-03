@@ -89,6 +89,11 @@ extension HealthCheckView {
                 Text("移入废纸篓，可恢复")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+                // v3.1 深清理：残留按体积倒序，一键全清省得逐项点
+                if !model.residues.isEmpty {
+                    Button("全部清理") { Task { await confirmRecycleAllResidues() } }
+                        .controlSize(.small)
+                }
             }
 
             ForEach(model.residues) { item in
@@ -123,6 +128,28 @@ extension HealthCheckView {
         if await checker.recycleResidue(item) {
             model.residues.removeAll { $0.id == item.id }
         }
+    }
+
+    /// 批量清理全部残留：一次确认，逐项入废纸篓；中途失败的项留在列表里。
+    private func confirmRecycleAllResidues() async {
+        let items = model.residues
+        guard !items.isEmpty else { return }
+        let total = items.reduce(0) { $0 + $1.sizeBytes }
+        let totalStr = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        let alert = NSAlert()
+        alert.messageText = "清理全部应用残留"
+        alert.informativeText = "将把 \(items.count) 项残留（共 \(totalStr)）逐项移入废纸篓。它们都不隶属于任何已安装的应用。"
+        alert.addButton(withTitle: "全部移入废纸篓")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        var done = 0
+        for item in items {
+            if await checker.recycleResidue(item) {
+                model.residues.removeAll { $0.id == item.id }
+                done += 1
+            }
+        }
+        AuditLog.append("批量清理应用残留：\(done)/\(items.count) 项已入废纸篓")
     }
 
     /// 内置盘大文件（省空间线索）

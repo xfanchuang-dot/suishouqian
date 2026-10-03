@@ -11,18 +11,37 @@ struct DiskBarView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let builtin = appState.builtinDrive {
-                driveCard(drive: builtin, label: "内置硬盘",
-                          icon: "internaldrive.fill", color: .blue)
-                    .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
-            }
+            if !appState.volumeStore.volumes.isEmpty {
+                // v3.1 多盘横条：VolumeStore 有卷记录时，每个在线卷一张卡；
+                // 离线卷沿用统一离线横幅（MigrationPanel/总览页已有），此处不重复占位。
+                if let builtin = appState.builtinDrive {
+                    driveCard(drive: builtin, label: "内置硬盘",
+                              icon: "internaldrive.fill", color: .blue)
+                        .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
+                }
 
-            if let external = appState.externalDrive {
-                driveCard(drive: external, label: "外置硬盘",
-                          icon: "externaldrive.fill", color: .green)
-                    .task(id: external.mountPoint) { probeLink(mount: external.mountPoint) }
+                ForEach(appState.volumeStore.onlineVolumes) { vol in
+                    driveCard(drive: vol.info,
+                              label: vol.displayName,
+                              icon: "externaldrive.fill",
+                              color: vol.role == .primary ? .green : .teal,
+                              badge: vol.role == .primary ? "主盘" : "目标盘")
+                        .task(id: vol.info.mountPoint) { probeLink(mount: vol.info.mountPoint) }
+                }
             } else {
-                offlineCard
+                if let builtin = appState.builtinDrive {
+                    driveCard(drive: builtin, label: "内置硬盘",
+                              icon: "internaldrive.fill", color: .blue)
+                        .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
+                }
+
+                if let external = appState.externalDrive {
+                    driveCard(drive: external, label: "外置硬盘",
+                              icon: "externaldrive.fill", color: .green)
+                        .task(id: external.mountPoint) { probeLink(mount: external.mountPoint) }
+                } else {
+                    offlineCard
+                }
             }
 
             GlobalTaskCapsule()   // v3.1 附录 A2：任何面板都能看到在跑的任务
@@ -60,14 +79,24 @@ struct DiskBarView: View {
     // MARK: - 在线磁盘卡片
 
     private func driveCard(drive: DriveInfo, label: String,
-                           icon: String, color: Color) -> some View {
+                           icon: String, color: Color, badge: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 DriveIconBox(systemImage: icon, color: color)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(label)
-                        .font(.system(size: 12, weight: .semibold))
+                    HStack(spacing: 6) {
+                        Text(label)
+                            .font(.system(size: 12, weight: .semibold))
+                        if let badge {
+                            Text(badge)
+                                .font(.system(size: 9, weight: .semibold))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(color.opacity(0.16)))
+                                .foregroundColor(color)
+                        }
+                    }
                     Text("可用 \(drive.freeFormatted) / 共 \(drive.totalFormatted)")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)

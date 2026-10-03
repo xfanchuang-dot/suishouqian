@@ -11,6 +11,8 @@ struct SettingsView: View {
     @AppStorage("notificationsEnabled") private var notifications = true
     @AppStorage("backupRetentionDays") private var backupDays = 7
     @AppStorage("bigFileExtendedScanEnabled") private var bigFileExtended = false
+    /// 菜单栏常驻（v3.1 实验开关，默认关）
+    @AppStorage("menuBarExtraEnabled") private var menuBarExtra = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
 
     var body: some View {
@@ -169,6 +171,12 @@ struct SettingsView: View {
                 Text(appState.externalDrive == nil && !daemonOn
                      ? "插入外置硬盘后才能开启。"
                      : "仅在“未挂载 → 已挂载”的瞬间唤起一次，应用已在运行时不重复打开。")
+                    .settingHint()
+            }
+
+            Section("菜单栏常驻（实验）") {
+                Toggle("在菜单栏显示随手迁", isOn: $menuBarExtra)
+                Text("只显示各盘可用空间和打开/退出入口，不做后台轮询。")
                     .settingHint()
             }
         }
