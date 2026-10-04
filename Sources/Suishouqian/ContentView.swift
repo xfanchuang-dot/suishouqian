@@ -13,7 +13,8 @@ struct ContentView: View {
             sidebar
         } detail: {
             detail
-                .navigationTitle("随手迁")
+                // 顶部「随手迁」文案去掉：副标题（外置盘状态）单独留在标题位
+                .navigationTitle("")
                 .navigationSubtitle(subtitle)
         }
         .onAppear {
@@ -42,7 +43,7 @@ struct ContentView: View {
     private var sidebar: some View {
         // 效果图：选中行是「浅紫底 + 紫图标/紫字」，系统 List 只能给实色 accent 胶囊，
         // 所以侧栏导航改自绘（按钮行 + 圆角浅紫底），行为与 List 选中等价。
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 9) {
             sidebarRow("概览", icon: "chart.pie", panel: .overview)
             sidebarRow("应用", icon: "square.grid.2x2", panel: .apps)
             sidebarRow("迁移", icon: "arrow.left.arrow.right", panel: .migrate)
@@ -51,10 +52,10 @@ struct ContentView: View {
             sidebarRow("设置", icon: "gearshape", panel: .settings)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 12)
+        .padding(.horizontal, 12)
+        .padding(.top, 16)
         .frame(maxHeight: .infinity, alignment: .top)
-        .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 230)
+        .navigationSplitViewColumnWidth(min: 185, ideal: 215, max: 255)
         .safeAreaInset(edge: .bottom) {
             // 效果图格局：玻璃卡只装内置盘；外置盘摘要是卡下方的一条纯文本行
             VStack(spacing: 8) {
@@ -73,21 +74,21 @@ struct ContentView: View {
             if let external = appState.externalDrive {
                 Image(systemName: "externaldrive.fill")
                     .foregroundColor(.green)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                 Text(external.name)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                 Spacer()
                 Text("可用 \(external.freeFormatted)")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
             } else {
                 Image(systemName: "externaldrive.badge.exclamationmark")
                     .foregroundColor(.secondary)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                 Text("外置盘未连接")
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Spacer()
             }
@@ -100,25 +101,26 @@ struct ContentView: View {
     /// 效果图紫：选中行高亮与图标着色统一用它
     private static let sidebarAccent = Color(red: 0.44, green: 0.36, blue: 0.93)
 
-    /// 侧边栏行：未选中＝细线灰图标+深色字；选中＝浅紫圆角底+fill 图标+紫字
+    /// 侧边栏行：未选中＝细线灰图标+深色字；选中＝浅紫圆角底+fill 图标+紫字。
+    /// 用户反馈放大：图标 17pt、文字 15pt、行内上下 9pt、左右 12pt
     private func sidebarRow(_ title: String, icon: String, panel: Panel) -> some View {
         let selected = appState.activePanel == panel
         return Button {
             appState.activePanel = panel
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Image(systemName: icon)
                     .symbolVariant(selected ? .fill : .none)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.system(size: 17, weight: .regular))
                     .foregroundColor(selected ? Self.sidebarAccent : .secondary)
-                    .frame(width: 22, alignment: .center)
+                    .frame(width: 24, alignment: .center)
                 Text(title)
-                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .font(.system(size: 15, weight: selected ? .semibold : .regular))
                     .foregroundColor(selected ? Self.sidebarAccent : .primary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
             // 选中行：macOS 26+ 动态液化玻璃（紫色、随指针/背景实时折射）；
             // 低版本回退静态浅紫底。未选中行保持透明。
             .modifier(SidebarSelectionBackground(selected: selected, accent: Self.sidebarAccent))
@@ -176,9 +178,9 @@ struct ContentView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "internaldrive.fill")
                             .foregroundColor(.blue)
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                         Text("内置磁盘")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                         Spacer()
                     }
                     // 效果图：蓝→紫渐变用量条 + 流动高光（动态感，reduceMotion 下静止）
@@ -193,14 +195,14 @@ struct ContentView: View {
                                     .frame(width: max(6, geo.size.width * builtin.usageRatio))
                             }
                     }
-                    .frame(height: 6)
+                    .frame(height: 7)
                     .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     .overlay { FlowingHighlight() }
                     .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     HStack {
                         Spacer()
                         Text("已用 \(Int(builtin.usageRatio * 100))%")
-                            .font(.system(size: 10))
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
                 }
