@@ -15,6 +15,9 @@ struct EmptyStateView: View {
     var actionTitle: String? = nil
     var action: (() -> Void)? = nil
     var reduceMotion: Bool = false
+    /// 插画资源名（Assets.xcassets）。为 nil 时用代码绘制的 SF Symbol 兜底，
+    /// 所以资源没放进工程也能编译运行，只是没那么漂亮。
+    var imageName: String? = nil
 
     @State private var floating = false
 
@@ -77,6 +80,39 @@ struct EmptyStateView: View {
     }
 
     private var illustration: some View {
+        Group {
+            // 运行时校验资源真的在 catalog 里：Image("缺失名") 会画出空白而不是报错，
+            // 只判参数非 nil 不构成兜底（落地审查修正）
+            if let imageName, UIImage(named: imageName) != nil {
+                // 定制插画资源：有图用图，整体呼吸浮动
+                Image(imageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 215)
+                    .shadow(color: .black.opacity(0.1), radius: 18, y: 10)
+                    .offset(y: floating ? -8 : 8)
+                    .animation(
+                        reduceMotion ? nil
+                            : .easeInOut(duration: 2.6).repeatForever(autoreverses: true),
+                        value: floating
+                    )
+            } else {
+                codeDrawnIllustration
+            }
+        }
+        .frame(width: 230, height: 200)
+        .onAppear {
+            if !reduceMotion {
+                // 下一 runloop 再启动，避免与 entrance 同时抢动画
+                DispatchQueue.main.async {
+                    floating = true
+                }
+            }
+        }
+    }
+
+    /// 代码绘制兜底：SF Symbol + 渐变 + 光晕（资源缺失时不至于一片空白）
+    private var codeDrawnIllustration: some View {
         ZStack {
             // 环境光晕
             Circle()

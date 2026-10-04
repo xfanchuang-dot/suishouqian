@@ -198,7 +198,8 @@ struct AppListView: View {
                         subtitle: "连接外置磁盘后，这里会列出可以迁移的应用",
                         actionTitle: "重新扫描",
                         action: { Task { await appState.scanApps() } },
-                        reduceMotion: reduceMotion
+                        reduceMotion: reduceMotion,
+                        imageName: "empty-apps"
                     )
                 } else {
                     EmptyStateView(
@@ -207,7 +208,8 @@ struct AppListView: View {
                         gradient: [.blue, .cyan],
                         title: "无匹配结果",
                         subtitle: "换个关键词试试",
-                        reduceMotion: reduceMotion
+                        reduceMotion: reduceMotion,
+                        imageName: "empty-search"
                     )
                 }
             } else {

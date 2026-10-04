@@ -217,7 +217,8 @@ struct HealthCheckView: View {
             subtitle: "没有发现断链或可清理的备份",
             actionTitle: "重新体检",
             action: { runCheck() },
-            reduceMotion: reduceMotion
+            reduceMotion: reduceMotion,
+            imageName: "empty-health"
         )
     }
 
