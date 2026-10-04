@@ -13,6 +13,9 @@ struct SettingsView: View {
     @AppStorage("bigFileExtendedScanEnabled") private var bigFileExtended = false
     /// 菜单栏常驻（v3.1 实验开关，默认关）
     @AppStorage("menuBarExtraEnabled") private var menuBarExtra = false
+    /// 备份盘选择（"" = 与应用同盘，默认；否则为卷 UUID）
+    @State private var backupVolume: String =
+        BackupLocations.alternateVolumeUUID ?? ""
     @State private var daemonOn = LaunchAgentManager.isInstalled
 
     var body: some View {
@@ -124,6 +127,28 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 Text("每次迁移会在外置盘 .suishouqian-backup 目录留底，超过保留期后在下次扫描时自动清理；回迁成功后对应备份即被回收。")
+                    .settingHint()
+            }
+
+            Section("备份存放位置") {
+                Picker("备份盘", selection: $backupVolume) {
+                    Text("与应用同盘（默认）").tag("")
+                    ForEach(appState.volumeStore.onlineVolumes) { vol in
+                        Text(vol.displayName).tag(vol.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: backupVolume) { _, new in
+                    BackupLocations.alternateVolumeUUID = new.isEmpty ? nil : new
+                    if new.isEmpty {
+                        AuditLog.append("备份存放位置：改回「与应用同盘」")
+                    } else {
+                        let name = appState.volumeStore.volumes
+                            .first { $0.id == new }?.displayName ?? new
+                        AuditLog.append("备份存放位置：指定为「\(name)」")
+                    }
+                }
+                Text("把新备份放到另一块外置盘：盘体物理损坏时应用与备份不同时丢失。只影响新备份；已有备份仍在原位置，体检与清理会继续覆盖它们。指定盘离线时自动回退同盘。")
                     .settingHint()
             }
 

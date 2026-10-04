@@ -327,7 +327,8 @@ class AppMigrator: @unchecked Sendable {
         let sourcePath = app.path
         let targetDir = "\(drivePath)/Applications"
         let targetPath = "\(targetDir)/\(appName)"
-        let backupPath = "\(drivePath)/.suishouqian-backup/\(appName)"
+        // 跨盘备份：备份盘与应用盘可分离（破单点故障）；未指定备份盘时跟应用同盘
+        let backupPath = "\(BackupLocations.backupRoot(for: drivePath))/\(appName)"
 
         // 硬护栏：源与目标不能是同一个位置。copyWithDitto 的第一步是 removeItem(dst)，
         // 若 dst 就是应用自身（外置盘原住民被误走"迁移"入口），等于直接删库。
@@ -398,7 +399,7 @@ class AppMigrator: @unchecked Sendable {
         await fixAttributes(at: targetPath)
         
         progress(0.85, "备份原件...")
-        try? fileManager.createDirectory(atPath: "\(drivePath)/.suishouqian-backup", 
+        try? fileManager.createDirectory(atPath: BackupLocations.backupRoot(for: drivePath),
               withIntermediateDirectories: true)
         
         // 检查是否需要管理员权限（/Applications 下的 root 所有文件）
@@ -512,7 +513,7 @@ class AppMigrator: @unchecked Sendable {
         let appName = app.bundleName
         let sourcePath = app.path
         let externalPath = target
-        let backupDir = "\(drivePath)/.suishouqian-backup/\(appName)"
+        let backupDir = "\(BackupLocations.backupRoot(for: drivePath))/\(appName)"
 
         // 稳定性：回迁同样要求应用未在运行
         if let runningName = Self.runningAppName(matching: sourcePath) {
@@ -615,7 +616,10 @@ class AppMigrator: @unchecked Sendable {
 
         try? fileManager.removeItem(atPath: sourcePath)
         // 与回迁一致：应用回到内置盘了，搬迁时的留底备份即可回收
-        try? fileManager.removeItem(atPath: "\(drivePath)/.suishouqian-backup/\(app.bundleName)")
+        // （跨盘备份：备份可能在指定盘上，各根目录都清）
+        for root in BackupLocations.backupRoots(for: drivePath) {
+            try? fileManager.removeItem(atPath: "\(root)/\(app.bundleName)")
+        }
         MigrationManifest.shared.remove(appName: app.bundleName)
         AuditLog.append("搬回内置盘成功 \(app.bundleName)：\(app.size) 字节 ← \(sourcePath)")
         progress(1.0, "完成")
@@ -653,10 +657,13 @@ class AppMigrator: @unchecked Sendable {
         // 第三步：迁移备份同样是数据，同样走废纸篓。失败只记账，
         // 不改变"应用本体已卸载"这个事实（备份是额外兜底，不是入口）
         if let drivePath {
-            let backup = "\(drivePath)/.suishouqian-backup/\(app.bundleName)"
-            if fileManager.fileExists(atPath: backup),
-               !(await checker.recycleToTrash(backup)) {
-                failures.append("迁移备份移入废纸篓失败（仍留在 \(backup)）")
+            // 跨盘备份：备份可能在指定盘上，各根目录都找
+            for root in BackupLocations.backupRoots(for: drivePath) {
+                let backup = "\(root)/\(app.bundleName)"
+                if fileManager.fileExists(atPath: backup),
+                   !(await checker.recycleToTrash(backup)) {
+                    failures.append("迁移备份移入废纸篓失败（仍留在 \(backup)）")
+                }
             }
         }
 
@@ -690,7 +697,15 @@ class AppMigrator: @unchecked Sendable {
     /// 2. 删除走**废纸篓**，与 `HealthChecker.deleteBackup` 的口径一致
     ///    （"删除会移入废纸篓"是对用户的承诺，不是可选项）。
     func cleanOldBackups(at drivePath: String, applicationsRoot: String = "/Applications") async {
-        let backupDir = "\(drivePath)/.suishouqian-backup"
+        // 跨盘备份：各备份根目录都要扫，切换备份盘后旧备份不遗漏
+        for backupDir in BackupLocations.backupRoots(for: drivePath) {
+            await cleanOldBackups(in: backupDir, drivePath: drivePath,
+                                  applicationsRoot: applicationsRoot)
+        }
+    }
+
+    private func cleanOldBackups(in backupDir: String, drivePath: String,
+                                 applicationsRoot: String) async {
         guard let contents = try? fileManager.contentsOfDirectory(atPath: backupDir) else { return }
         let now = Date()
         let checker = HealthChecker()

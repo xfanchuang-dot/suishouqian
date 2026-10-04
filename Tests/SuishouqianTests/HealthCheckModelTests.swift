@@ -36,6 +36,8 @@ final class HealthCheckModelTests: XCTestCase {
         func checkResidues(drivePath: String?) -> [ResidueItem] { [] }
         func checkLaunchAgents() -> [LaunchAgentIssue] { [] }
         func scanBigFiles(minBytes: Int64, limit: Int) -> [BigFileItem] { [] }
+        func checkDiskHealth() -> [DiskHealthIssue] { [] }
+        func checkLostVolumes() -> [LostVolumeInfo] { [] }
     }
 
     func testRefreshLoadsEngineReportAndClearsCheckingFlag() async {

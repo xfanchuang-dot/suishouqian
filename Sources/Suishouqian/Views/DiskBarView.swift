@@ -5,6 +5,8 @@ struct DiskBarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// mountPoint → 链路体检结果（协议/格式/结论）
     @State private var linkInfo: [String: LinkInfo] = [:]
+    /// mountPoint → 磁盘物理健康（SMART）
+    @State private var diskHealth: [String: DiskHealthInfo] = [:]
     /// mountPoint → 实测速度文案（手动触发，不随扫描自动跑——测速要写几百 MB）
     @State private var speedText: [String: String] = [:]
     @State private var speedRunning: [String: Bool] = [:]
@@ -60,6 +62,9 @@ struct DiskBarView: View {
         Task {
             let info = await OffPool.run { DiskLinkProbe.probe(mountPoint: mount) }
             if let info { linkInfo[mount] = info }
+            // 磁盘物理健康（SMART）：单点故障的主防线，盘死之前先预警
+            let health = await OffPool.run { DiskHealthProbe.probe(mountPoint: mount) }
+            diskHealth[mount] = health
             // 自审发现：updateMetadata 此前全项目零调用——linkTier 永远 unknown，
             // 健康分 USB2 扣分与腾空间引擎的链路系数实际从未生效。现在把探测结果
             // 喂给 VolumeStore。诚实映射：diskutil 的 Protocol 分不出 USB2/USB3，
@@ -70,7 +75,8 @@ struct DiskBarView: View {
             await MainActor.run {
                 if let uuid = appState.volumeStore.volumes
                     .first(where: { $0.info.mountPoint == mount })?.id {
-                    appState.volumeStore.updateMetadata(uuid: uuid, tier: tier)
+                    appState.volumeStore.updateMetadata(uuid: uuid, tier: tier,
+                                                       diskHealth: health.health)
                 }
             }
         }
@@ -95,6 +101,13 @@ struct DiskBarView: View {
                                 .padding(.vertical, 2)
                                 .background(Capsule().fill(color.opacity(0.16)))
                                 .foregroundColor(color)
+                        }
+                        // 磁盘物理健康圆点（SMART）：绿=健康，红=故障风险，灰=读不到/未知
+                        if drive.isExternal, let h = diskHealth[drive.mountPoint] {
+                            Circle()
+                                .fill(healthDotColor(h.health))
+                                .frame(width: 8, height: 8)
+                                .help(healthHelpText(h))
                         }
                     }
                     Text("可用 \(drive.freeFormatted) / 共 \(drive.totalFormatted)")
@@ -255,6 +268,28 @@ struct DiskBarView: View {
     }
 
     // MARK: -
+
+    /// SMART 健康圆点颜色
+    private func healthDotColor(_ health: DiskHealth) -> Color {
+        switch health {
+        case .verified: return .green
+        case .failing: return .red
+        case .unsupported, .unknown: return .gray
+        }
+    }
+
+    private func healthHelpText(_ info: DiskHealthInfo) -> String {
+        switch info.health {
+        case .verified:
+            return "磁盘健康：SMART 自检通过"
+        case .failing:
+            return "磁盘健康：SMART 报警！盘可能即将损坏，建议尽快把应用搬到其它盘或内置盘"
+        case .unsupported:
+            return "磁盘健康：读不到 SMART（硬盘盒不支持），以体检为准"
+        case .unknown:
+            return "磁盘健康：未知"
+        }
+    }
 
     private func barGradient(_ color: Color) -> LinearGradient {
         LinearGradient(colors: [color.opacity(0.65), color],

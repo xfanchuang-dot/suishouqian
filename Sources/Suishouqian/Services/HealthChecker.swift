@@ -38,6 +38,26 @@ struct BackupIssue: Identifiable {
     }
 }
 
+/// 一块外置盘的物理健康（SMART 探测结果）
+struct DiskHealthIssue: Identifiable {
+    let id = UUID()
+    let volumeName: String
+    let mountPoint: String
+    let volumeUUID: String
+    let info: DiskHealthInfo
+
+    var isCritical: Bool { info.health.isCritical }
+}
+
+/// 失联的卷：台账里有它的应用，但它已不在挂载表里、且超过阈值没再出现过。
+/// 与「离线」（只是没插）不同——失联意味着盘可能已损坏/丢失。
+struct LostVolumeInfo: Identifiable {
+    let id = UUID()
+    let volumeUUID: String
+    let appNames: [String]
+    let lastSeen: Date?
+}
+
 /// 已卸载应用在 ~/Library 里的残留数据
 struct ResidueItem: Identifiable {
     let id = UUID()
@@ -195,9 +215,18 @@ class HealthChecker: @unchecked Sendable {
         return days > 0 ? days : 7
     }
 
-    /// 审计备份目录：孤儿（应用已不在任何位置）或超龄（超过保留期）
+    /// 审计备份目录：孤儿（应用已不在任何位置）或超龄（超过保留期）。
+    /// 跨盘备份：扫描「全部备份根目录」（同盘 + 指定备份盘），切换备份盘后
+    /// 旧备份不会变成扫不到的孤儿。
     func checkBackups(drivePath: String) -> [BackupIssue] {
-        let backupDir = "\(drivePath)/.suishouqian-backup"
+        var issues: [BackupIssue] = []
+        for backupDir in BackupLocations.backupRoots(for: drivePath) {
+            issues.append(contentsOf: checkBackups(in: backupDir, drivePath: drivePath))
+        }
+        return issues
+    }
+
+    private func checkBackups(in backupDir: String, drivePath: String) -> [BackupIssue] {
         guard let contents = try? fileManager.contentsOfDirectory(atPath: backupDir) else {
             return []
         }
@@ -225,6 +254,73 @@ class HealthChecker: @unchecked Sendable {
             }
         }
         return issues
+    }
+
+    // MARK: - 磁盘物理健康（SMART）
+
+    /// 探测每块在线外置盘的 SMART 状态。阻塞子进程，调用方须放 OffPool。
+    /// 这是「备份同盘单点故障」的主防线：盘死之前先预警，用户有机会把应用搬走。
+    /// USB 硬盘盒多不支持 SMART passthrough → .unsupported，此时看速度基线。
+    func checkDiskHealth() -> [DiskHealthIssue] {
+        let candidates = DiskMonitor.enumerateVolumes().candidates
+        return candidates.compactMap { c in
+            guard let uuid = c.volumeUUID, !c.mountPoint.isEmpty else { return nil }
+            let info = DiskHealthProbe.probe(mountPoint: c.mountPoint)
+            return DiskHealthIssue(volumeName: c.name, mountPoint: c.mountPoint,
+                                  volumeUUID: uuid.uppercased(), info: info)
+        }
+    }
+
+    // MARK: - 失联卷检测
+
+    /// 台账里有应用、但超过阈值没再出现过的卷（≠ 离线：离线只是没插）。
+    /// 阈值内没见过的不算——避免用户只是出差没带盘就误报「盘丢了」。
+    /// 老用户升级前没有 lastSeen 记录 → 保守地不报（guard let seen）。
+    /// 注：协议见证必须是无参签名（默认参数不构成 Checking 的协议满足），
+    /// 所以拆成无参入口 + 带阈值实现。
+    func checkLostVolumes() -> [LostVolumeInfo] {
+        checkLostVolumes(thresholdDays: 90)
+    }
+
+    func checkLostVolumes(thresholdDays: Int) -> [LostVolumeInfo] {
+        let mounted = Set(DiskMonitor.enumerateVolumes().candidates
+            .compactMap(\.volumeUUID).map { $0.uppercased() })
+        let lastSeen = VolumeStore.lastSeenMap()
+        let cutoff = Date().addingTimeInterval(TimeInterval(-thresholdDays) * 86400)
+        let grouped = Dictionary(grouping: MigrationManifest.shared.all(),
+                                 by: { $0.volumeUUID.uppercased() })
+        return grouped.compactMap { uuid, entries in
+            guard !mounted.contains(uuid) else { return nil }
+            guard let seen = lastSeen[uuid], seen < cutoff else { return nil }
+            return LostVolumeInfo(volumeUUID: uuid,
+                                  appNames: entries.map(\.appName).sorted(),
+                                  lastSeen: seen)
+        }
+    }
+
+    /// 失联卷恢复：删掉指向死卷的断链 + 清理其台账条目。
+    /// 链接目标已不存在，删除是安全的；返回实际清理的应用名。
+    /// 有副作用，不进 Checking 协议，由体检页直接调用。
+    func cleanupLostVolume(uuid: String) -> [String] {
+        let upper = uuid.uppercased()
+        let entries = MigrationManifest.shared.all().filter {
+            $0.volumeUUID.uppercased() == upper
+        }
+        var cleaned: [String] = []
+        for e in entries {
+            // 只删软链接：误删真目录是灾难（高-1 的教训）
+            var isDir: ObjCBool = false
+            if fileManager.fileExists(atPath: e.linkPath, isDirectory: &isDir),
+               (try? fileManager.destinationOfSymbolicLink(atPath: e.linkPath)) != nil {
+                try? fileManager.removeItem(atPath: e.linkPath)
+            }
+            MigrationManifest.shared.remove(appName: e.appName)
+            cleaned.append(e.appName)
+        }
+        if !cleaned.isEmpty {
+            AuditLog.append("失联卷恢复：清理 \(cleaned.count) 条死链（卷 \(upper.prefix(8))…）")
+        }
+        return cleaned.sorted()
     }
 
     /// 修复断链：在所有已挂载卷的 Applications / Suishouqian_Apps（旧版目录）

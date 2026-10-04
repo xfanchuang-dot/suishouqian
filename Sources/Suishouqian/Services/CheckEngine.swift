@@ -11,6 +11,10 @@ struct CheckReport {
     var spotlightIndexing: Bool?
     var unusedApps: [UnusedAppInfo] = []
     var usageSuggestions: [UsageSuggestion] = []
+    /// 每块在线外置盘的 SMART 健康
+    var diskHealth: [DiskHealthIssue] = []
+    /// 失联的卷（台账有、盘 long gone）
+    var lostVolumes: [LostVolumeInfo] = []
     var healedCount = 0
 }
 
@@ -26,6 +30,8 @@ protocol Checking: Sendable {
     func checkResidues(drivePath: String?) -> [ResidueItem]
     func checkLaunchAgents() -> [LaunchAgentIssue]
     func scanBigFiles(minBytes: Int64, limit: Int) -> [BigFileItem]
+    func checkDiskHealth() -> [DiskHealthIssue]
+    func checkLostVolumes() -> [LostVolumeInfo]
 }
 
 extension HealthChecker: Checking {}
@@ -92,6 +98,13 @@ final class CheckEngine: @unchecked Sendable {
         async let spotlight: Bool? = offMain {
             drivePath.flatMap { SpotlightCheck.status(for: $0) }
         }
+        // 磁盘物理健康与失联卷：互相独立，进并行段（内部子进程已在 OffPool）
+        async let diskHealth: [DiskHealthIssue] = offMain { [checker] in
+            checker.checkDiskHealth()
+        }
+        async let lostVolumes: [LostVolumeInfo] = offMain { [checker] in
+            checker.checkLostVolumes()
+        }
 
         report.backups = await backups
         report.regressions = await regressions
@@ -100,6 +113,8 @@ final class CheckEngine: @unchecked Sendable {
         report.unusedApps = await unusedApps
         report.bigFiles = await bigFiles
         report.spotlightIndexing = await spotlight
+        report.diskHealth = await diskHealth
+        report.lostVolumes = await lostVolumes
 
         // 使用频率建议是纯内存计数（要过 NSImage，不走 OffPool 边界），主线程算即可。
         // 注意取加锁快照：本方法跑在协作线程池上，不能直接读 tracker.entries

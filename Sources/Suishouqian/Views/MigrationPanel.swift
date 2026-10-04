@@ -434,9 +434,11 @@ struct MigrationPanel: View {
                 if clean.runModal() == .alertFirstButtonReturn {
                     let checker = HealthChecker()
                     // 忽略返回值会造成"审计日志说清掉了、实际还在盘上"的假成功
+                    // 跨盘备份：备份可能在指定盘上，各根目录都清
                     var notTrashed: [String] = []
-                    for dir in ["\(drive.mountPoint)/.suishouqian-backup",
-                                DataMigrator.dataRoot(on: drive.mountPoint)] {
+                    var backupDirs = BackupLocations.backupRoots(for: drive.mountPoint)
+                    backupDirs.append(DataMigrator.dataRoot(on: drive.mountPoint))
+                    for dir in backupDirs {
                         guard FileManager.default.fileExists(atPath: dir) else { continue }
                         if !(await checker.recycleToTrash(dir)) { notTrashed.append(dir) }
                     }

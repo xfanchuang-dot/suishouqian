@@ -34,10 +34,14 @@ struct HealthCheckView: View {
                 if !model.backups.isEmpty { backupSection }
                 if !model.residues.isEmpty { residueSection }
                 if !model.bigFiles.isEmpty { bigFileSection }
+                if model.diskHealth.contains(where: \.isCritical) { diskHealthSection }
+                if !model.lostVolumes.isEmpty { lostVolumeSection }
                 if model.links.isEmpty && model.backups.isEmpty && model.residues.isEmpty
                     && model.bigFiles.isEmpty && model.regressions.isEmpty
                     && model.usageSuggestions.isEmpty && model.launchAgents.isEmpty
-                    && model.unusedApps.isEmpty && !model.isChecking { emptyState }
+                    && model.unusedApps.isEmpty && model.lostVolumes.isEmpty
+                    && !model.diskHealth.contains(where: \.isCritical)
+                    && !model.isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }

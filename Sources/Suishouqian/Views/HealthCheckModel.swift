@@ -19,6 +19,10 @@ final class HealthCheckModel: ObservableObject {
     @Published var unusedApps: [UnusedAppInfo] = []
     @Published var healedCount = 0
     @Published var isChecking = false
+    /// 每块在线外置盘的 SMART 健康
+    @Published var diskHealth: [DiskHealthIssue] = []
+    /// 失联的卷
+    @Published var lostVolumes: [LostVolumeInfo] = []
     /// 健康分（v3.0）：装载体检结果时顺带出分，纯只读派生
     @Published var healthScore: HealthScore.Result?
 
@@ -37,6 +41,8 @@ final class HealthCheckModel: ObservableObject {
         unusedApps = report.unusedApps
         usageSuggestions = report.usageSuggestions
         healedCount = report.healedCount
+        diskHealth = report.diskHealth
+        lostVolumes = report.lostVolumes
 
         // v3.0 健康分：主盘口径。有真实主盘 UUID 才落历史（score 是只读派生，
         // 绝不驱动自动动作）；drivePath 为 nil 时不落，测试注入不污染真实文件

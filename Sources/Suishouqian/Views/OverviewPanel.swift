@@ -248,7 +248,15 @@ struct OverviewPanel: View {
             // TM 重复备份检查（每目录一次 tmutil 子进程，批量 OffPool）
             if let drive = drive, !tmDismissed {
                 tmMissingDirs = await OffPool.run {
-                    TimeMachineCoordinator.missingExclusions(on: drive)
+                    var missing = TimeMachineCoordinator.missingExclusions(on: drive)
+                    // 跨盘备份：备份盘的 .suishouqian-backup 也要排除，
+                    // 否则 Time Machine 白白备份备份（只关心备份目录，不碰该盘其它目录）
+                    if let altMount = BackupLocations.alternateMountPoint(),
+                       altMount != drive {
+                        missing += TimeMachineCoordinator.missingExclusions(on: altMount)
+                            .filter { $0.hasSuffix(".suishouqian-backup") }
+                    }
+                    return missing
                 }
             }
             isChecking = false

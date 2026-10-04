@@ -17,6 +17,8 @@ struct ManagedVolume: Identifiable, Equatable {
     var measuredMBps: Double?
     /// 最新健康分（体检后回填）
     var healthScore: Int?
+    /// 磁盘物理健康（SMART 探测回填，未知时为 nil）
+    var diskHealth: DiskHealth?
     /// 上次在线时刻（离线卷灰显展示用）
     var lastSeen: Date
     /// 随手迁足迹分（VolumeClassifier.footprintScore，认"一直在用的那块盘"）
@@ -104,9 +106,12 @@ final class VolumeStore: ObservableObject {
         }
         let persisted = UserDefaults.standard.string(forKey: Self.explicitPrimaryKey)
             ?? UserDefaults.standard.string(forKey: Self.primaryUUIDKey)
+        let now = Date()
         volumes = Self.merge(old: volumes, candidates: candidates,
                              footprintScores: scores,
-                             persistedPrimaryUUID: persisted, now: Date())
+                             persistedPrimaryUUID: persisted, now: now)
+        // 持久化每块盘最后在线时刻（死卷检测用；内存 lastSeen 重启即丢）
+        Self.persistLastSeen(volumes: volumes, now: now)
     }
 
     /// 用户显式指定主盘（设置页/迁移面板）。这是唯一能改变主盘的人为入口，
@@ -120,13 +125,32 @@ final class VolumeStore: ObservableObject {
         AuditLog.append("用户指定迁移主盘：\(volumes.first { $0.id == uuid }?.info.name ?? uuid)")
     }
 
-    /// 回填链路档位 / 实测速度 / 健康分（各服务体检后调用，互不干扰）
+    /// 回填链路档位 / 实测速度 / 健康分 / 磁盘物理健康（各服务体检后调用，互不干扰）
     func updateMetadata(uuid: String, tier: LinkTier? = nil,
-                        mbps: Double? = nil, healthScore: Int? = nil) {
+                        mbps: Double? = nil, healthScore: Int? = nil,
+                        diskHealth: DiskHealth? = nil) {
         guard let i = volumes.firstIndex(where: { $0.id == uuid }) else { return }
         if let tier { volumes[i].linkTier = tier }
         if let mbps { volumes[i].measuredMBps = mbps }
         if let healthScore { volumes[i].healthScore = healthScore }
+        if let diskHealth { volumes[i].diskHealth = diskHealth }
+    }
+
+    /// 死卷检测用：每块盘最后一次在线时刻（内存的 lastSeen 重启即丢，必须持久化）。
+    /// 在 refresh() 里随合并一起写；读走 lastSeenMap()。
+    private nonisolated static let lastSeenKey = "volumeLastSeen.v1"
+
+    nonisolated static func lastSeenMap() -> [String: Date] {
+        let raw = UserDefaults.standard.dictionary(forKey: lastSeenKey) as? [String: Double] ?? [:]
+        return Dictionary(uniqueKeysWithValues: raw.map { ($0.key, Date(timeIntervalSince1970: $0.value)) })
+    }
+
+    private nonisolated static func persistLastSeen(volumes: [ManagedVolume], now: Date) {
+        var raw = UserDefaults.standard.dictionary(forKey: lastSeenKey) as? [String: Double] ?? [:]
+        for v in volumes where v.isOnline {
+            raw[v.id] = now.timeIntervalSince1970
+        }
+        UserDefaults.standard.set(raw, forKey: lastSeenKey)
     }
 
     // MARK: - 纯逻辑（供测试）

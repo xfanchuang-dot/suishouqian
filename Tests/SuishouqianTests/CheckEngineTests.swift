@@ -68,6 +68,16 @@ final class CheckEngineTests: XCTestCase {
             record("bigFiles")
             return [BigFileItem(name: "big", path: "/p/big", sizeBytes: 1)]
         }
+
+        func checkDiskHealth() -> [DiskHealthIssue] {
+            record("diskHealth")
+            return []
+        }
+
+        func checkLostVolumes() -> [LostVolumeInfo] {
+            record("lostVolumes")
+            return []
+        }
     }
 
     private func makeEngine(_ mock: MockChecker) -> CheckEngine {

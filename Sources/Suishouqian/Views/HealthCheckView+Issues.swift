@@ -312,4 +312,115 @@ extension HealthCheckView {
             runCheck()
         }
     }
+
+    // MARK: - 磁盘物理健康（SMART）
+
+    /// 每块在线外置盘的 SMART 状态；failing 是最高优先级告警
+    var diskHealthSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "外置盘健康", systemImage: "heart.text.square")
+                Spacer()
+                Text("SMART 自检；硬盘盒读不到时以体检为准")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            ForEach(model.diskHealth) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: item.isCritical
+                          ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundColor(item.isCritical ? .red : .green)
+                        .font(.system(size: 11))
+                    Text(item.volumeName)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text(diskHealthText(item))
+                        .font(.system(size: 11))
+                        .foregroundColor(item.isCritical ? .red : .secondary)
+                        .lineLimit(2)
+                    Spacer()
+                }
+                .padding(.vertical, 2)
+                .help(item.info.rawStatus.map { "SMART: \($0)" } ?? "")
+            }
+        }
+        .cardStyle()
+    }
+
+    private func diskHealthText(_ item: DiskHealthIssue) -> String {
+        switch item.info.health {
+        case .verified:
+            return "SMART 自检通过"
+        case .failing:
+            return "SMART 报警！盘可能即将损坏——请尽快把该盘上的应用迁回内置盘或另一块外置盘"
+        case .unsupported:
+            return "读不到 SMART（硬盘盒不支持），暂无异常信号"
+        case .unknown:
+            return "未能探测"
+        }
+    }
+
+    // MARK: - 失联的卷
+
+    /// 台账里有、但超过 90 天没再出现过的卷（≠ 只是没插盘）
+    var lostVolumeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "失联的卷", systemImage: "externaldrive.badge.xmark")
+                Spacer()
+                Text("超过 90 天没再出现过的盘")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            Text("这些盘上的应用可能已随盘丢失。可以清理指向它们的死链接，然后重装应用。")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            ForEach(model.lostVolumes) { vol in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("卷 \(vol.volumeUUID.prefix(8))…")
+                            .font(.system(size: 12, weight: .medium))
+                        if let seen = vol.lastSeen {
+                            Text("最后出现 \(seen.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button("清理死链接") {
+                            confirmCleanupLostVolume(vol)
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                    }
+                    Text(vol.appNames.joined(separator: "、"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
+    }
+
+    private func confirmCleanupLostVolume(_ vol: LostVolumeInfo) {
+        let alert = NSAlert()
+        alert.messageText = "清理失联卷的死链接"
+        alert.informativeText = "将删除 \(vol.appNames.count) 条指向该卷的死链接并清理台账（\(vol.appNames.prefix(5).joined(separator: "、"))\(vol.appNames.count > 5 ? "…" : "")）。链接目标已不存在，删除是安全的；之后可重装这些应用。"
+        alert.addButton(withTitle: "清理")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            let cleaned = await OffPool.run { checker.cleanupLostVolume(uuid: vol.volumeUUID) }
+            await MainActor.run {
+                model.lostVolumes.removeAll { $0.id == vol.id }
+                if !cleaned.isEmpty {
+                    AuditLog.append("失联卷清理完成：\(cleaned.count) 条死链接已删")
+                }
+                runCheck()
+            }
+        }
+    }
 }

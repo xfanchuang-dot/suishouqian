@@ -232,9 +232,10 @@ final class DataMigrator: @unchecked Sendable {
         }
 
         progress(0.85, "备份原件并切换链接...")
-        let backupPath = "\(drivePath)/.suishouqian-backup/\(manifestName)"
+        // 跨盘备份：备份盘与数据盘可分离（破单点故障）；未指定时跟数据同盘
+        let backupPath = "\(BackupLocations.backupRoot(for: drivePath))/\(manifestName)"
         try? fileManager.createDirectory(
-            atPath: "\(drivePath)/.suishouqian-backup", withIntermediateDirectories: true)
+            atPath: BackupLocations.backupRoot(for: drivePath), withIntermediateDirectories: true)
         // 高-4（2026-10-04 审计）：先落 pending 台账再动源目录。
         // moveItem 成功后、建链+转正前若崩溃，源目录已搬走而台账无条目，
         // 条目在数据面板彻底不可见，且兜底备份会被当成无主自动清理。
@@ -322,7 +323,10 @@ final class DataMigrator: @unchecked Sendable {
         }
 
         try? fileManager.removeItem(atPath: target)
-        try? fileManager.removeItem(atPath: "\(drivePath)/.suishouqian-backup/\(Self.manifestName(for: item.id))")
+        // 跨盘备份：备份可能在指定盘上，各根目录都清
+        for root in BackupLocations.backupRoots(for: drivePath) {
+            try? fileManager.removeItem(atPath: "\(root)/\(Self.manifestName(for: item.id))")
+        }
         MigrationManifest.shared.remove(appName: Self.manifestName(for: item.id))
         AuditLog.append("数据回迁成功 \(item.title)：已恢复到内置盘并清理外置副本")
         progress(1.0, "完成")
