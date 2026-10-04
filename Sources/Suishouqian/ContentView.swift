@@ -29,7 +29,7 @@ struct ContentView: View {
     private var sidebar: some View {
         // 效果图：选中行是「浅紫底 + 紫图标/紫字」，系统 List 只能给实色 accent 胶囊，
         // 所以侧栏导航改自绘（按钮行 + 圆角浅紫底），行为与 List 选中等价。
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             sidebarRow("概览", icon: "chart.pie", panel: .overview)
             sidebarRow("应用", icon: "square.grid.2x2", panel: .apps)
             sidebarRow("迁移", icon: "arrow.left.arrow.right", panel: .migrate)
@@ -38,15 +38,50 @@ struct ContentView: View {
             sidebarRow("设置", icon: "gearshape", panel: .settings)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 10)
+        .padding(.horizontal, 10)
+        .padding(.top, 12)
         .frame(maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 230)
         .safeAreaInset(edge: .bottom) {
-            sidebarDiskCard
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
+            // 效果图格局：玻璃卡只装内置盘；外置盘摘要是卡下方的一条纯文本行
+            VStack(spacing: 8) {
+                sidebarDiskCard
+                sidebarExternalRow
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
         }
+    }
+
+    /// 卡下方的外置盘摘要行（效果图：不进卡，纯文字小行）
+    @ViewBuilder
+    private var sidebarExternalRow: some View {
+        HStack(spacing: 6) {
+            if let external = appState.externalDrive {
+                Image(systemName: "externaldrive.fill")
+                    .foregroundColor(.green)
+                    .font(.system(size: 11))
+                Text(external.name)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                Text("可用 \(external.freeFormatted)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            } else {
+                Image(systemName: "externaldrive.badge.exclamationmark")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+                Text("外置盘未连接")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 4)
+        .onTapGesture { appState.activePanel = .overview }
+        .help("查看磁盘详情与测速")
     }
 
     /// 效果图紫：选中行高亮与图标着色统一用它
@@ -61,27 +96,65 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .symbolVariant(selected ? .fill : .none)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundColor(selected ? Self.sidebarAccent : .secondary)
-                    .frame(width: 20, alignment: .center)
+                    .frame(width: 22, alignment: .center)
                 Text(title)
                     .font(.system(size: 13, weight: selected ? .semibold : .regular))
                     .foregroundColor(selected ? Self.sidebarAccent : .primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(selected ? Self.sidebarAccent.opacity(0.13) : .clear)
-            )
+            .padding(.vertical, 7)
+            // 选中行：macOS 26+ 动态液化玻璃（紫色、随指针/背景实时折射）；
+            // 低版本回退静态浅紫底。未选中行保持透明。
+            .modifier(SidebarSelectionBackground(selected: selected, accent: Self.sidebarAccent))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // 无填充变体的符号（如双箭头）保持原样即可
     }
 
-    /// 左下角磁盘卡（效果图方向）：内置盘用量条 + 外置盘摘要，点按去概览看全貌
+    /// 用量条流动高光：一条斜向白色亮带缓慢循环扫过（reduceMotion 下不渲染）
+    private struct FlowingHighlight: View {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @State private var phase: CGFloat = -0.6
+
+        var body: some View {
+            if !reduceMotion {
+                GeometryReader { geo in
+                    LinearGradient(
+                        colors: [.clear, .white.opacity(0.35), .clear],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: geo.size.width * 0.3)
+                    .rotationEffect(.degrees(12))
+                    .offset(x: phase * geo.size.width)
+                    .onAppear {
+                        withAnimation(.linear(duration: 2.6).repeatForever(autoreverses: false)) {
+                            phase = 1.6
+                        }
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// 选中行背景：选中才上玻璃/浅紫底，未选中全透明
+    private struct SidebarSelectionBackground: ViewModifier {
+        let selected: Bool
+        let accent: Color
+        func body(content: Content) -> some View {
+            if selected {
+                content.sidebarSelectedGlass(accent: accent)
+            } else {
+                content
+            }
+        }
+    }
+
+    /// 左下角磁盘卡（效果图格局：卡内只放内置盘 + 用量条 + 已用百分比）
     @ViewBuilder
     private var sidebarDiskCard: some View {
         VStack(spacing: 8) {
@@ -95,7 +168,7 @@ struct ContentView: View {
                             .font(.system(size: 12, weight: .medium))
                         Spacer()
                     }
-                    // 效果图：蓝→紫渐变用量条
+                    // 效果图：蓝→紫渐变用量条 + 流动高光（动态感，reduceMotion 下静止）
                     GeometryReader { geo in
                         RoundedRectangle(cornerRadius: 3, style: .continuous)
                             .fill(Color.primary.opacity(0.08))
@@ -108,6 +181,9 @@ struct ContentView: View {
                             }
                     }
                     .frame(height: 6)
+                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                    .overlay { FlowingHighlight() }
+                    .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     HStack {
                         Spacer()
                         Text("已用 \(Int(builtin.usageRatio * 100))%")
@@ -116,38 +192,10 @@ struct ContentView: View {
                     }
                 }
             }
-            HStack(spacing: 6) {
-                if let external = appState.externalDrive {
-                    Image(systemName: "externaldrive.fill")
-                        .foregroundColor(.green)
-                        .font(.system(size: 11))
-                    Text(external.name)
-                        .font(.system(size: 11))
-                        .lineLimit(1)
-                    Spacer()
-                    Text("可用 \(external.freeFormatted)")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                } else {
-                    Image(systemName: "externaldrive.badge.exclamationmark")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 11))
-                    Text("外置盘未连接")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-            }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06))
-        )
+        // macOS 26+ 真·玻璃卡（随侧栏背后内容折射）；低版本回退材质近似
+        .sidebarCardGlass(cornerRadius: Theme.Corner.card)
         .contentShape(Rectangle())
         .onTapGesture { appState.activePanel = .overview }
         .help("查看磁盘详情与测速")

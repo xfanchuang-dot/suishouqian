@@ -21,6 +21,16 @@ enum LiquidGlass {
         }
         return base
     }
+
+    /// 侧栏选中行的动态玻璃：紫色着色 + 指针交互（随背后内容实时折射）。
+    static func sidebarSelection(_ accent: Color) -> Glass {
+        Glass.regular.interactive().tint(accent.opacity(0.45))
+    }
+
+    /// 侧栏磁盘卡这类常驻小卡：透明玻璃，不额外着色。
+    static var sidebarCard: Glass {
+        Glass.regular
+    }
 }
 
 extension View {
@@ -47,6 +57,39 @@ extension View {
             self.buttonStyle(.glass)
         } else {
             self.buttonStyle(.borderedProminent)
+        }
+    }
+
+    /// 侧栏选中态：macOS 26+ 动态液化玻璃（紫色、响应指针），低版本回退浅紫实底。
+    /// 仅当选中时调用方才应应用本修饰（未选中行保持透明）。
+    @ViewBuilder
+    func sidebarSelectedGlass(accent: Color, cornerRadius: CGFloat = 7) -> some View {
+        if #available(macOS 26, *) {
+            self.glassEffect(
+                LiquidGlass.sidebarSelection(accent),
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+        } else {
+            self.background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(accent.opacity(0.13))
+            )
+        }
+    }
+
+    /// 侧栏小卡玻璃底（磁盘卡）：macOS 26+ 真玻璃，低版本回退材质近似。
+    @ViewBuilder
+    func sidebarCardGlass(cornerRadius: CGFloat = 10) -> some View {
+        if #available(macOS 26, *) {
+            self.glassEffect(
+                LiquidGlass.sidebarCard,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+        } else {
+            self.background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
         }
     }
 }
