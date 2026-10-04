@@ -204,7 +204,7 @@ struct MigrationPanel: View {
                 accentSymbols: ["arrow.right", "sparkles"],
                 gradient: [.blue, .cyan],
                 title: "把大应用搬到外置硬盘",
-                subtitle: "在左侧选择应用，点击「迁移」释放内置盘空间",
+                subtitle: "去「应用」页面挑选，点击「迁移」释放内置盘空间",
                 reduceMotion: reduceMotion
             )
             .padding(.bottom, -20)

@@ -119,22 +119,32 @@ struct ContentView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 16)
                     SettingsView()
-                        .padding(.horizontal, 24)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color(NSColor.controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.05))
+                        )
+                        .padding(.horizontal, 12)
                     Spacer()
                 }
             default:
                 // 概览/迁移/体检/数据保留顶部磁盘横条（SMART 圆点/测速/离线卡都在这）
-                VStack(spacing: 0) {
+                VStack(spacing: 14) {
                     DiskBarView()
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
-                    Divider()
-                        .padding(.vertical, 12)
                     panelContent
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 效果图皮肤：灰窗底，内容浮在白色卡片上（各页自己包卡）
+        .background(Color(NSColor.windowBackgroundColor))
         // 任务胶囊浮在内容区顶部：任何页面（含应用/设置）都能看到在跑的任务
         .overlay(alignment: .top) {
             GlobalTaskCapsule()

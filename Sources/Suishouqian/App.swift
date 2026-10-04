@@ -101,7 +101,12 @@ struct SuishouqianApp: App {
                 .disabled(appState.isScanning)
 
                 Button("搜索应用") {
-                    NotificationCenter.default.post(name: .focusAppSearch, object: nil)
+                    // 侧边栏改版后应用列表是独立页面：先切过去再聚焦，
+                    // async 让视图挂载完成后再发通知，否则通知会发空
+                    appState.activePanel = .apps
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .focusAppSearch, object: nil)
+                    }
                 }
                 .keyboardShortcut("f", modifiers: .command)
 
@@ -166,7 +171,7 @@ class AppState: ObservableObject {
         migrationTask = updated
     }
     @Published var builtinDrive: DriveInfo?
-    /// 右侧面板（⌘0~⌘3 可切，ContentView 绑定）
+    /// 侧边栏页面（⌘0~⌘5 可切，ContentView 绑定）
     @Published var activePanel: Panel = .overview
 
     let scanner = AppScanner()

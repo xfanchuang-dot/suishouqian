@@ -115,30 +115,51 @@ struct AppListView: View {
         // filteredApps 在一次 body 求值里被用 3 次（isEmpty/List/animation），
         // 先算一次存局部变量，避免过滤+排序跑 3 遍
         let apps = filteredApps
+        // 整页浮在一张白色大圆角卡上（对照效果图）：灰窗底 + 白卡 + 圆角搜索 + 胶囊筛选
         return VStack(spacing: 0) {
             // 工具栏
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                TextField("搜索应用...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .focused($searchFocused)
-                    // 窄窗口下筛选条(272)+排序(80)会把搜索框挤没了，给它保底宽度
-                    .frame(minWidth: 110)
-                    .layoutPriority(1)
-                
-                Spacer()
-                
-                Picker("", selection: $filterMode) {
+            HStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    TextField("搜索应用...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .focused($searchFocused)
+                        .frame(minWidth: 110)
+                        .layoutPriority(1)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.primary.opacity(0.055))
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { searchFocused = true }
+
+                // 胶囊筛选（选中项：品牌色浅底 + 加粗）
+                HStack(spacing: 2) {
                     ForEach(FilterMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        Button { filterMode = mode } label: {
+                            Text(mode.rawValue)
+                                .font(.system(size: 12,
+                                              weight: filterMode == mode ? .semibold : .regular))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                                .background(
+                                    Capsule().fill(filterMode == mode
+                                        ? Color.accentColor.opacity(0.14)
+                                        : Color.clear)
+                                )
+                                .foregroundColor(filterMode == mode ? .accentColor : .secondary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 272)   // 「在外置盘」比原来的「已迁移」长，留够宽度防截断
-                
+                .padding(3)
+                .background(Capsule().fill(Color.primary.opacity(0.055)))
+
                 Picker("", selection: $sortOrder) {
                     ForEach(SortOrder.allCases, id: \.self) { order in
                         Text(order.rawValue).tag(order)
@@ -148,16 +169,11 @@ struct AppListView: View {
                 .frame(width: 80)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(Color(NSColor.controlBackgroundColor))
-            .contentShape(Rectangle())
-            .onTapGesture { searchFocused = true }
+            .padding(.vertical, 12)
             .onReceive(NotificationCenter.default.publisher(for: .focusAppSearch)) { _ in
                 searchFocused = true
             }
-            
-            Divider()
-            
+
             // 列表
             if appState.isScanning {
                 VStack {
@@ -200,21 +216,28 @@ struct AppListView: View {
                         .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                 }
                 .listStyle(.plain)
+                // 白卡上的列表：隐藏 List 自带底色，行直接坐在卡面上
+                .scrollContentBackground(.hidden)
                 // 搜索/排序/筛选变化时，行变更用弹簧过渡（List 行级动画由系统处理）
                 .animation(reduceMotion ? nil : Motion.snappy, value: apps.map(\.id))
             }
 
             // 6.3（Muse 审查附录 A1）：选中操作条——批量迁部分应用与"一键全部"同一执行链
             selectionBar
-            
-            // 底部统计
-            HStack(spacing: 12) {
+
+            Divider()
+                .padding(.horizontal, 16)
+
+            // 底部统计（居中，对照效果图）
+            HStack(spacing: 14) {
                 // 与「在外置盘」筛选口径一致：链接迁移的 + 外置盘原住民都算
                 let offInternal = appState.apps.filter {
                     $0.status == .migrated || $0.status == .externalOnly
                 }
                 let movable = appState.apps.filter { $0.status == .normal }
                 let totalSavable = movable.reduce(0) { $0 + $1.size }
+
+                Spacer()
 
                 Label("\(appState.apps.count) 个应用", systemImage: "square.grid.2x2")
                     .font(.system(size: 11))
@@ -224,19 +247,27 @@ struct AppListView: View {
                     .font(.system(size: 11))
                     .foregroundColor(offInternal.isEmpty ? .secondary : .green)
 
-                Spacer()
-
                 if totalSavable > 0 {
                     Label("可省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))",
                           systemImage: "arrow.down.circle.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.blue)
                 }
+
+                Spacer()
             }
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 16)
-            .padding(.vertical, 7)
-            .background(Color(NSColor.controlBackgroundColor))
+            .padding(.vertical, 8)
         }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.05))
+        )
+        .padding(12)
     }
 }
