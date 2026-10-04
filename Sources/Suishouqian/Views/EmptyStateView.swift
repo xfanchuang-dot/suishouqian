@@ -86,17 +86,31 @@ struct EmptyStateView: View {
             // 只判参数非 nil 不构成兜底（落地审查修正）。macOS 用 NSImage（UIImage 是 iOS 的）
             if let imageName, NSImage(named: imageName) != nil {
                 // 定制插画资源：有图用图，整体呼吸浮动
-                Image(imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 215)
-                    .shadow(color: .black.opacity(0.1), radius: 18, y: 10)
-                    .offset(y: floating ? -8 : 8)
-                    .animation(
-                        reduceMotion ? nil
-                            : .easeInOut(duration: 2.6).repeatForever(autoreverses: true),
-                        value: floating
-                    )
+                ZStack {
+                    // 液体玻璃氛围光：主色调光晕垫在插画下，模拟效果图的梦幻感
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [primary.opacity(0.22), secondary.opacity(0.1)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 300, height: 300)
+                        .blur(radius: 55)
+                    Image(imageName)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 215)
+                        // 彩色投影（比纯黑阴影更通透，贴合液体玻璃质感）
+                        .shadow(color: primary.opacity(0.28), radius: 22, y: 12)
+                }
+                .offset(y: floating ? -8 : 8)
+                .animation(
+                    reduceMotion ? nil
+                        : .easeInOut(duration: 2.6).repeatForever(autoreverses: true),
+                    value: floating
+                )
             } else {
                 codeDrawnIllustration
             }
