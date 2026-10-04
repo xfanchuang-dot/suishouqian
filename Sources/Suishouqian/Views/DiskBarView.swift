@@ -250,6 +250,9 @@ struct DiskBarView: View {
                     .first(where: { $0.info.mountPoint == mount })?.id {
                     if let result {
                         appState.volumeStore.updateMetadata(uuid: uuid, mbps: result.writeMBps)
+                        // 记入速度历史（读速度），供塌陷告警评估——USB 盒读不到
+                        // SMART 时的盘况预警就靠这条基线
+                        VolumeSpeedBaseline.record(volumeUUID: uuid, readMBps: result.readMBps)
                         // 只在有证据时动档位：<50MB/s 判 USB2；USB 且达标升 USB3。
                         // 其余情况（如雷电盘）保留探测已给出的档位，别把已知降成未知
                         let isUSB = (linkInfo[mount]?.protocolKind.lowercased() ?? "").contains("usb")
@@ -257,6 +260,13 @@ struct DiskBarView: View {
                             appState.volumeStore.updateMetadata(uuid: uuid, tier: .usb2)
                         } else if isUSB {
                             appState.volumeStore.updateMetadata(uuid: uuid, tier: .usb3)
+                        }
+                        // 塌陷当场可见：不用等下次体检
+                        if let alert = VolumeSpeedBaseline.assess(
+                            history: VolumeSpeedBaseline.history(volumeUUID: uuid)) {
+                            speedText[mount] = String(
+                                format: "读取 %.0f MB/s · 仅剩基线 %.0f%%，盘况异常请尽快备份",
+                                alert.latestMBps, Double(alert.percentOfBaseline))
                         }
                     }
                 }

@@ -38,6 +38,7 @@ final class HealthCheckModelTests: XCTestCase {
         func scanBigFiles(minBytes: Int64, limit: Int) -> [BigFileItem] { [] }
         func checkDiskHealth() -> [DiskHealthIssue] { [] }
         func checkLostVolumes() -> [LostVolumeInfo] { [] }
+        func checkSpeedAlerts() -> [SpeedAlertIssue] { [] }
     }
 
     func testRefreshLoadsEngineReportAndClearsCheckingFlag() async {

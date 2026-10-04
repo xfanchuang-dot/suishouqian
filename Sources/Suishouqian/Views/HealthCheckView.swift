@@ -23,36 +23,82 @@ struct HealthCheckView: View {
                 header
                     .entrance(delay: 0)
 
+                // 核心状态板：链接一览（健康态也是信息，常驻显示）
                 linkSection
                     .entrance(delay: 0.05)
-                if !model.usageSuggestions.isEmpty { usageSection.entrance(delay: 0.1) }
-                if !model.unusedApps.isEmpty { unusedSection.entrance(delay: 0.12) }
-                if !model.launchAgents.isEmpty { launchAgentSection.entrance(delay: 0.14) }
-                if model.spotlightIndexing == true {
-                    spotlightSection.entrance(delay: 0.16)
-                } else if model.spotlightIndexing == false {
-                    spotlightOffSection.entrance(delay: 0.16)
+
+                // ── 需要行动：应用/盘处于问题状态，各分区都有修复或恢复动作 ──
+                if hasActionItems {
+                    groupHeader("需要行动", systemImage: "exclamationmark.circle.fill",
+                                tint: .orange)
+                        .entrance(delay: 0.08)
+                    if !model.regressions.isEmpty { regressionSection.entrance(delay: 0.1) }
+                    if model.diskHealth.contains(where: \.isCritical) {
+                        diskHealthSection.entrance(delay: 0.12)
+                    }
+                    if !model.speedAlerts.isEmpty { speedAlertSection.entrance(delay: 0.14) }
+                    if !model.lostVolumes.isEmpty { lostVolumeSection.entrance(delay: 0.16) }
+                    if !model.backups.isEmpty { backupSection.entrance(delay: 0.18) }
+                    if !model.residues.isEmpty { residueSection.entrance(delay: 0.2) }
                 }
-                if !model.regressions.isEmpty { regressionSection.entrance(delay: 0.18) }
-                if !model.backups.isEmpty { backupSection.entrance(delay: 0.2) }
-                if !model.residues.isEmpty { residueSection.entrance(delay: 0.22) }
-                if !model.bigFiles.isEmpty { bigFileSection.entrance(delay: 0.24) }
-                if model.diskHealth.contains(where: \.isCritical) {
-                    diskHealthSection.entrance(delay: 0.26)
+
+                // ── 仅供参考：顾问建议与机会，不是问题状态 ──
+                if hasReferenceItems {
+                    groupHeader("仅供参考", systemImage: "info.circle.fill", tint: .secondary)
+                        .entrance(delay: 0.22)
+                    if !model.usageSuggestions.isEmpty { usageSection.entrance(delay: 0.24) }
+                    if !model.unusedApps.isEmpty { unusedSection.entrance(delay: 0.26) }
+                    if !model.launchAgents.isEmpty { launchAgentSection.entrance(delay: 0.28) }
+                    if model.spotlightIndexing == true {
+                        spotlightSection.entrance(delay: 0.3)
+                    } else if model.spotlightIndexing == false {
+                        spotlightOffSection.entrance(delay: 0.3)
+                    }
+                    if !model.bigFiles.isEmpty { bigFileSection.entrance(delay: 0.32) }
                 }
-                if !model.lostVolumes.isEmpty { lostVolumeSection.entrance(delay: 0.28) }
-                if model.links.isEmpty && model.backups.isEmpty && model.residues.isEmpty
-                    && model.bigFiles.isEmpty && model.regressions.isEmpty
-                    && model.usageSuggestions.isEmpty && model.launchAgents.isEmpty
-                    && model.unusedApps.isEmpty && model.lostVolumes.isEmpty
-                    && !model.diskHealth.contains(where: \.isCritical)
-                    && !model.isChecking { emptyState }
+
+                if isEmptyPage && !model.isChecking { emptyState }
             }
             .padding(.vertical, 4)
         }
         .onAppear {
             runCheck()
             model.computeUsage(apps: appState.apps)
+        }
+    }
+
+    // MARK: - 页面分组（行动 / 参考）
+
+    /// 有问题状态才显示行动区：各分区本身已按"有问题才渲染"条件挂载
+    private var hasActionItems: Bool {
+        !model.regressions.isEmpty
+            || model.diskHealth.contains(where: \.isCritical)
+            || !model.speedAlerts.isEmpty
+            || !model.lostVolumes.isEmpty
+            || !model.backups.isEmpty
+            || !model.residues.isEmpty
+    }
+
+    private var hasReferenceItems: Bool {
+        !model.usageSuggestions.isEmpty || !model.unusedApps.isEmpty
+            || !model.launchAgents.isEmpty || model.spotlightIndexing != nil
+            || !model.bigFiles.isEmpty
+    }
+
+    private var isEmptyPage: Bool {
+        model.links.isEmpty && !hasActionItems && !hasReferenceItems
+    }
+
+    /// 分组小标题：比分区标题更轻的一级
+    private func groupHeader(_ title: String, systemImage: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(tint)
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(tint)
+            Spacer()
         }
     }
 

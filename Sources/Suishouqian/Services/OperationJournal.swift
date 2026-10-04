@@ -251,11 +251,12 @@ enum UndoPlanner {
             // 卸载没有常规逆操作：废纸篓还在就能恢复，不在就如实告知
             guard context.trashContainsApp else {
                 return UndoPlan(feasible: false,
-                                message: "废纸篓已清空，无法从废纸篓恢复；如留有备份可在体检页查看",
+                                message: "废纸篓里找不到该应用本体（可能已清空，或它所在的那块盘不在线——插上后再试）",
                                 inverseOp: nil)
             }
             return UndoPlan(feasible: true,
-                            message: "从废纸篓恢复应用本体与链接", inverseOp: nil)
+                            message: "从废纸篓恢复应用本体到「应用程序」（不重建链接，恢复后是普通内置应用）",
+                            inverseOp: nil)
 
         case .undo:
             return UndoPlan(feasible: false, message: "撤销本身不需要再撤销", inverseOp: nil)

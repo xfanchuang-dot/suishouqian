@@ -78,6 +78,11 @@ final class CheckEngineTests: XCTestCase {
             record("lostVolumes")
             return []
         }
+
+        func checkSpeedAlerts() -> [SpeedAlertIssue] {
+            record("speedAlerts")
+            return []
+        }
     }
 
     private func makeEngine(_ mock: MockChecker) -> CheckEngine {

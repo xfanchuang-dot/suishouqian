@@ -273,7 +273,6 @@ struct OverviewPanel: View {
         let volumes = appState.volumeStore.volumes   // OffPool 前抓快照
         let onlineUUIDs = Set(volumes.filter(\.isOnline).map(\.id))
         let externalMounts = volumes.filter(\.isOnline).map(\.info.mountPoint)
-        let trashDir = (NSHomeDirectory() as NSString).appendingPathComponent(".Trash")
 
         return await OffPool.run {
             var out: [UUID: UndoPlanner.UndoPlan] = [:]
@@ -291,9 +290,11 @@ struct OverviewPanel: View {
                 let ctx = UndoPlanner.UndoContext(
                     appRunning: runningNames.contains(
                         (entry.appName as NSString).deletingPathExtension),
-                    // P1-1a：FileManager 不展开 ~，必须用 NSHomeDirectory 拼真实路径
-                    trashContainsApp: FileManager.default.fileExists(
-                        atPath: (trashDir as NSString).appendingPathComponent(entry.appName)),
+                    // 卸载撤销候选定位：家废纸篓 + 各在线外置卷的 .Trashes/<UID>
+                    // （外置盘应用卸载后真身进卷废纸篓，只查 ~/.Trash 会几乎永远找不到）
+                    trashContainsApp: TrashRecovery.locate(
+                        appName: entry.appName, bundleID: entry.params["bundleID"],
+                        in: TrashRecovery.roots(externalMounts: externalMounts)) != nil,
                     // P1-1b：副本住在卷的 Applications/ 或 Suishouqian_Apps/ 子目录，不在卷根
                     externalCopyExists: externalMounts.contains { mount in
                         AppMigrator.externalAppDirs.contains {
@@ -473,9 +474,13 @@ struct OverviewPanel: View {
         Task { @MainActor in
             let fresh = await computeUndoPlans([entry])
             guard let plan = fresh[entry.id], plan.feasible,
-                  let inverseOp = plan.inverseOp,
-                  let app = appState.apps.first(where: { $0.bundleName == entry.appName }),
                   appState.migrationTask == nil else { return }
+            // 无逆操作的特殊路径：目前只有卸载撤销（废纸篓恢复），不走迁移任务通道
+            guard let inverseOp = plan.inverseOp else {
+                await undoUninstallFromTrash(entry)
+                return
+            }
+            guard let app = appState.apps.first(where: { $0.bundleName == entry.appName }) else { return }
 
             let primaryMount = appState.volumeStore.primary?.info.mountPoint
                 ?? appState.externalDrive?.mountPoint
@@ -530,7 +535,8 @@ struct OverviewPanel: View {
                 result = await appState.migrator.relocate(
                     app: app, fromVolume: current, toVolume: origin, progress: progress)
             case .uninstall, .undo:
-                // 废纸篓恢复 v1 不做自动执行（按钮不亮的路径，防御性兜底）
+                // 不可达：uninstall 已在入口分流到 undoUninstallFromTrash，
+                // .undo 的按钮永不亮。留个防御兜底并说明原因
                 appState.migrationTask = nil
                 isUndoing = false
                 return
@@ -551,6 +557,31 @@ struct OverviewPanel: View {
             refreshTimeline()
             isUndoing = false
         }
+    }
+
+    /// 卸载撤销：从废纸篓恢复应用本体到 /Applications。
+    /// 不走 migrationTask 通道（恢复通常是同卷 rename，秒级；跨卷也没有细粒度进度可报），
+    /// isUndoing 挡并发；成功记 .undo + markUndone，失败弹窗说明原因（废纸篓原件不动）。
+    private func undoUninstallFromTrash(_ entry: JournalEntry) async {
+        isUndoing = true
+        defer { isUndoing = false }
+        let mounts = appState.volumeStore.volumes.filter(\.isOnline).map { $0.info.mountPoint }
+        let result = await appState.migrator.restoreFromTrash(
+            appName: entry.appName, bundleID: entry.params["bundleID"],
+            externalMounts: mounts)
+        if result.success {
+            let undoID = OperationJournal.shared.record(
+                op: .undo, appName: entry.appName,
+                params: ["undoneID": entry.id.uuidString, "via": "trash"],
+                result: "ok")
+            OperationJournal.shared.markUndone(id: entry.id, by: undoID)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "撤销失败"
+            alert.informativeText = result.error ?? "未知原因"
+            alert.runModal()
+        }
+        refreshTimeline()
     }
 
     /// 重载时间线与撤销可行性（撤销成功/失败后立即刷新）

@@ -362,6 +362,48 @@ extension HealthCheckView {
         }
     }
 
+    // MARK: - 实测速度塌陷
+
+    /// 最近一次实测显著低于自身历史基线（不依赖 SMART 的盘况预警）
+    var speedAlertSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionHeader(title: "实测速度异常", systemImage: "speedometer")
+                Spacer()
+                Text("与该盘自己的历史测速对比")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            ForEach(model.speedAlerts) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                        .font(.system(size: 11))
+                    Text(item.volumeName)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                    Text(speedAlertText(item))
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                        .lineLimit(3)
+                    Spacer()
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .cardStyle()
+    }
+
+    private func speedAlertText(_ item: SpeedAlertIssue) -> String {
+        var text = "最近实测 \(Int(item.alert.latestMBps)) MB/s，只有历史基线"
+            + "（\(Int(item.alert.baselineMBps)) MB/s）的 \(item.alert.percentOfBaseline)%"
+        if let at = item.measuredAt {
+            text += "（\(at.formatted(date: .abbreviated, time: .shortened)) 测得）"
+        }
+        text += "。速度塌陷常是盘体故障前兆——请尽快备份数据，考虑更换盘体或硬盘盒"
+        return text
+    }
+
     // MARK: - 失联的卷
 
     /// 台账里有、但超过 90 天没再出现过的卷（≠ 只是没插盘）

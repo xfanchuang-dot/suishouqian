@@ -58,6 +58,16 @@ struct LostVolumeInfo: Identifiable {
     let lastSeen: Date?
 }
 
+/// 实测速度相对自身历史显著塌陷——USB 盒读不到 SMART 时的盘况预警
+struct SpeedAlertIssue: Identifiable {
+    let id = UUID()
+    let volumeName: String
+    let volumeUUID: String
+    let alert: VolumeSpeedBaseline.Alert
+    /// 触发告警的那次实测时刻
+    let measuredAt: Date?
+}
+
 /// 已卸载应用在 ~/Library 里的残留数据
 struct ResidueItem: Identifiable {
     let id = UUID()
@@ -268,6 +278,18 @@ class HealthChecker: @unchecked Sendable {
             let info = DiskHealthProbe.probe(mountPoint: c.mountPoint)
             return DiskHealthIssue(volumeName: c.name, mountPoint: c.mountPoint,
                                   volumeUUID: uuid.uppercased(), info: info)
+        }
+    }
+
+    /// 实测速度塌陷告警（只读历史，**不跑测速**——诚实反映最近一次手动实测的结果）。
+    /// SMART 读不到的 USB 盒子靠它兜底；没有足够历史的卷保持沉默（宁缺毋滥）。
+    func checkSpeedAlerts() -> [SpeedAlertIssue] {
+        DiskMonitor.enumerateVolumes().candidates.compactMap { c in
+            guard let uuid = c.volumeUUID?.uppercased(), !c.mountPoint.isEmpty else { return nil }
+            let history = VolumeSpeedBaseline.history(volumeUUID: uuid)
+            guard let alert = VolumeSpeedBaseline.assess(history: history) else { return nil }
+            return SpeedAlertIssue(volumeName: c.name, volumeUUID: uuid,
+                                   alert: alert, measuredAt: history.last?.at)
         }
     }
 

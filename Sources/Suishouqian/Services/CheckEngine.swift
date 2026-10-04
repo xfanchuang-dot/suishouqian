@@ -15,6 +15,8 @@ struct CheckReport {
     var diskHealth: [DiskHealthIssue] = []
     /// 失联的卷（台账有、盘 long gone）
     var lostVolumes: [LostVolumeInfo] = []
+    /// 实测速度塌陷（读历史评估，不跑测速）
+    var speedAlerts: [SpeedAlertIssue] = []
     var healedCount = 0
 }
 
@@ -32,6 +34,7 @@ protocol Checking: Sendable {
     func scanBigFiles(minBytes: Int64, limit: Int) -> [BigFileItem]
     func checkDiskHealth() -> [DiskHealthIssue]
     func checkLostVolumes() -> [LostVolumeInfo]
+    func checkSpeedAlerts() -> [SpeedAlertIssue]
 }
 
 extension HealthChecker: Checking {}
@@ -105,6 +108,9 @@ final class CheckEngine: @unchecked Sendable {
         async let lostVolumes: [LostVolumeInfo] = offMain { [checker] in
             checker.checkLostVolumes()
         }
+        async let speedAlerts: [SpeedAlertIssue] = offMain { [checker] in
+            checker.checkSpeedAlerts()
+        }
 
         report.backups = await backups
         report.regressions = await regressions
@@ -115,6 +121,7 @@ final class CheckEngine: @unchecked Sendable {
         report.spotlightIndexing = await spotlight
         report.diskHealth = await diskHealth
         report.lostVolumes = await lostVolumes
+        report.speedAlerts = await speedAlerts
 
         // 使用频率建议是纯内存计数（要过 NSImage，不走 OffPool 边界），主线程算即可。
         // 注意取加锁快照：本方法跑在协作线程池上，不能直接读 tracker.entries

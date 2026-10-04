@@ -328,9 +328,52 @@ class AppMigrator: @unchecked Sendable {
         let result = await uninstallInternal(app: app, drivePath: drivePath)
         OperationJournal.shared.record(
             op: .uninstall, appName: app.bundleName,
-            params: [:],
+            // bundleID 供卸载撤销匹配废纸篓候选（重名回收多次时避免捞错）
+            params: ["bundleID": app.bundleID ?? ""],
             result: result.success ? "ok" : "failed: \(result.error ?? "部分失败")")
         return result
+    }
+
+    /// 卸载撤销：把废纸篓里的应用本体移回 /Applications（撤销链特殊路径，不走常规迁移安全链）。
+    /// 安全重验（TOCTOU）：目标位必须为空（用户已重装则拒绝覆盖）；候选必须仍是目录；
+    /// 候选消失（清空了废纸篓）如实拒绝。恢复后应用以普通内置应用身份回归——
+    /// 不重建链接、不进台账（卸载时二者已清）。
+    /// 跨卷场景（外置 .Trashes → /Applications）是整树复制，阻塞 IO 走 OffPool。
+    /// externalMounts 由调用方传当前在线的外置卷挂载点（离线盘的废纸篓读不到）。
+    func restoreFromTrash(appName: String, bundleID: String?,
+                          externalMounts: [String] = []) async -> MigrationResult {
+        let destPath = "/Applications/\(appName)"
+        return await OffPool.run { [self] in
+            guard !fileManager.fileExists(atPath: destPath) else {
+                AuditLog.append("卸载撤销拒绝 \(appName)：/Applications 已存在同名应用（可能已重装），不覆盖")
+                return MigrationResult(success: false,
+                      error: "「/Applications」里已有同名应用（可能你重装过了）。撤销已取消，废纸篓里的原件未动",
+                      spaceSaved: 0)
+            }
+            let roots = TrashRecovery.roots(externalMounts: externalMounts)
+            var isDir: ObjCBool = false
+            guard let candidate = TrashRecovery.locate(appName: appName, bundleID: bundleID,
+                                                       in: roots),
+                  fileManager.fileExists(atPath: candidate, isDirectory: &isDir),
+                  isDir.boolValue else {
+                AuditLog.append("卸载撤销拒绝 \(appName)：废纸篓里已找不到应用本体（可能已清空）")
+                return MigrationResult(success: false,
+                      error: "废纸篓里已找不到该应用（可能已清空废纸篓）。无法恢复",
+                      spaceSaved: 0)
+            }
+            do {
+                try fileManager.moveItem(atPath: candidate, toPath: destPath)
+            } catch {
+                // 跨卷复制中途失败会留半截目标：清掉，废纸篓原件不动（仍是唯一副本）
+                try? fileManager.removeItem(atPath: destPath)
+                AuditLog.append("卸载撤销失败 \(appName)：\(error.localizedDescription)，废纸篓原件保留")
+                return MigrationResult(success: false,
+                      error: "恢复失败（可能需要管理员权限）：\(error.localizedDescription)。废纸篓里的原件未动，可重试或手动拖回",
+                      spaceSaved: 0)
+            }
+            AuditLog.append("卸载撤销成功 \(appName)：已从废纸篓恢复到 /Applications")
+            return MigrationResult(success: true, error: nil, spaceSaved: 0)
+        }
     }
 
     func migrateInternal(app: AppItem, to drivePath: String, createLink: Bool = true,
