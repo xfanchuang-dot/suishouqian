@@ -130,6 +130,17 @@ fi
 echo "[3/6] 拷贝图标..."
 cp "$PROJECT_DIR/icon.icns" "$RESOURCES_DIR/"
 
+# 5.5 Copy SwiftPM resource bundle（2026-10-04 修复）：
+# Assets.xcassets 经 actool 编译进 <模块>_<目标>.bundle，此前 build.sh 从未拷贝它——
+# app 里一直没有资源库，NSImage(named:) 恒 nil（空状态插画全部落空，含 AppIcon 以外的一切资源）。
+BUNDLE_SRC="$SCRATCH_DIR/out/Products/Release/随手迁_随手迁.bundle"
+if [ -d "$BUNDLE_SRC" ]; then
+    cp -R "$BUNDLE_SRC" "$RESOURCES_DIR/"
+    echo "  资源 bundle 已拷贝（含 Assets.car）"
+else
+    echo "警告: 找不到资源 bundle（${BUNDLE_SRC}），插画等资源将走代码绘制兜底"
+fi
+
 # 6. Create Info.plist（版本号来自 VERSION，不再写死）
 echo "[4/6] 生成 Info.plist（v${VERSION}）..."
 cat > "$BUNDLE/Contents/Info.plist" << EOF

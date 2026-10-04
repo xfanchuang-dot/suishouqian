@@ -23,17 +23,17 @@ struct EmptyStateView: View {
     @State private var floating = false
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 28) {
             illustration
 
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
                 Text(title)
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: 30, weight: .bold))
                 Text(subtitle)
-                    .font(.system(size: 13))
+                    .font(.system(size: 15))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
+                    .frame(maxWidth: 380)
             }
 
             if let actionTitle, let action {
@@ -82,9 +82,13 @@ struct EmptyStateView: View {
 
     private var illustration: some View {
         Group {
-            // 运行时校验资源真的在 catalog 里：Image("缺失名") 会画出空白而不是报错，
-            // 只判参数非 nil 不构成兜底（落地审查修正）。macOS 用 NSImage（UIImage 是 iOS 的）
-            if let imageName, NSImage(named: imageName) != nil {
+            // 运行时校验资源真的存在：Image("缺失名") 会画出空白而不是报错，
+            // 只判参数非 nil 不构成兜底（落地审查修正）。
+            // 资源在 SwiftPM bundle（随手迁_随手迁.bundle，build.sh 拷进 Contents/Resources），
+            // 不在主包——Image("名字")/NSImage(named:) 只搜主包，必须显式走 Bundle.module。
+            if let imageName,
+               Bundle.module.image(forResource: imageName) != nil
+                || NSImage(named: imageName) != nil {
                 // 定制插画资源：有图用图，整体呼吸浮动
                 ZStack {
                     // 液体玻璃氛围光：主色调光晕垫在插画下，模拟效果图的梦幻感
@@ -98,12 +102,12 @@ struct EmptyStateView: View {
                         )
                         .frame(width: 300, height: 300)
                         .blur(radius: 55)
-                    Image(imageName)
+                    Image(imageName, bundle: Bundle.module)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 215)
+                        .frame(width: 300)
                         // 彩色投影（比纯黑阴影更通透，贴合液体玻璃质感）
-                        .shadow(color: primary.opacity(0.28), radius: 22, y: 12)
+                        .shadow(color: primary.opacity(0.28), radius: 26, y: 14)
                 }
                 .offset(y: floating ? -8 : 8)
                 .animation(
@@ -115,7 +119,7 @@ struct EmptyStateView: View {
                 codeDrawnIllustration
             }
         }
-        .frame(width: 230, height: 200)
+        .frame(width: 320, height: 270)
         .onAppear {
             if !reduceMotion {
                 // 下一 runloop 再启动，避免与 entrance 同时抢动画

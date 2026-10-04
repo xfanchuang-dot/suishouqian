@@ -122,7 +122,7 @@ struct AppListView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
-                    TextField("搜索应用...", text: $searchText)
+                    TextField("搜索应用…", text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                         .focused($searchFocused)
@@ -138,27 +138,14 @@ struct AppListView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { searchFocused = true }
 
-                // 胶囊筛选（选中项：品牌色浅底 + 加粗）
-                HStack(spacing: 2) {
+                // 分段筛选（对照效果图：中性灰分段，选中白色药丸）
+                Picker("", selection: $filterMode) {
                     ForEach(FilterMode.allCases, id: \.self) { mode in
-                        Button { filterMode = mode } label: {
-                            Text(mode.rawValue)
-                                .font(.system(size: 12,
-                                              weight: filterMode == mode ? .semibold : .regular))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 5)
-                                .background(
-                                    Capsule().fill(filterMode == mode
-                                        ? Color.accentColor.opacity(0.14)
-                                        : Color.clear)
-                                )
-                                .foregroundColor(filterMode == mode ? .accentColor : .secondary)
-                        }
-                        .buttonStyle(.plain)
+                        Text(mode.rawValue).tag(mode)
                     }
                 }
-                .padding(3)
-                .background(Capsule().fill(Color.primary.opacity(0.055)))
+                .pickerStyle(.segmented)
+                .frame(width: 300)
 
                 Picker("", selection: $sortOrder) {
                     ForEach(SortOrder.allCases, id: \.self) { order in
@@ -230,8 +217,8 @@ struct AppListView: View {
             Divider()
                 .padding(.horizontal, 16)
 
-            // 底部统计（居中，对照效果图）
-            HStack(spacing: 14) {
+            // 底部统计（对照效果图：纯灰文本 · 分隔，无图标无彩色）
+            HStack(spacing: 8) {
                 // 与「在外置盘」筛选口径一致：链接迁移的 + 外置盘原住民都算
                 let offInternal = appState.apps.filter {
                     $0.status == .migrated || $0.status == .externalOnly
@@ -241,24 +228,18 @@ struct AppListView: View {
 
                 Spacer()
 
-                Label("\(appState.apps.count) 个应用", systemImage: "square.grid.2x2")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-
-                Label("\(offInternal.count) 在外置盘", systemImage: "externaldrive.fill")
-                    .font(.system(size: 11))
-                    .foregroundColor(offInternal.isEmpty ? .secondary : .green)
-
+                Text("\(appState.apps.count) 个应用")
+                Text("·")
+                Text("\(offInternal.count) 在外置盘")
                 if totalSavable > 0 {
-                    Label("可省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))",
-                          systemImage: "arrow.down.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.blue)
+                    Text("·")
+                    Text("可省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))")
                 }
 
                 Spacer()
             }
-            .labelStyle(.titleAndIcon)
+            .font(.system(size: 13))
+            .foregroundColor(.secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
