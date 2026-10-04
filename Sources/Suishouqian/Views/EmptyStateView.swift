@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// 通用空状态：渐变插画 + 标题 + 说明 + 可选操作按钮。
 ///
@@ -82,8 +83,8 @@ struct EmptyStateView: View {
     private var illustration: some View {
         Group {
             // 运行时校验资源真的在 catalog 里：Image("缺失名") 会画出空白而不是报错，
-            // 只判参数非 nil 不构成兜底（落地审查修正）
-            if let imageName, UIImage(named: imageName) != nil {
+            // 只判参数非 nil 不构成兜底（落地审查修正）。macOS 用 NSImage（UIImage 是 iOS 的）
+            if let imageName, NSImage(named: imageName) != nil {
                 // 定制插画资源：有图用图，整体呼吸浮动
                 Image(imageName)
                     .resizable()
