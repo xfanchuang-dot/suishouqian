@@ -198,22 +198,16 @@ struct MigrationPanel: View {
 
     /// 空状态：大图标 + 主副文案 + 硬盘状态提示
     private var emptyState: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Theme.accent.opacity(0.12))
-                    .frame(width: 76, height: 76)
-                Image(systemName: "externaldrive.badge.plus")
-                    .font(.system(size: 30, weight: .medium))
-                    .foregroundStyle(Theme.accent)
-            }
-
-            Text("把大应用搬到外置硬盘")
-                .font(.system(size: 14, weight: .semibold))
-
-            Text("在左侧选择应用，点击「迁移」释放内置盘空间")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
+        VStack(spacing: 4) {
+            EmptyStateView(
+                symbol: "externaldrive.badge.plus",
+                accentSymbols: ["arrow.right", "sparkles"],
+                gradient: [.blue, .cyan],
+                title: "把大应用搬到外置硬盘",
+                subtitle: "在左侧选择应用，点击「迁移」释放内置盘空间",
+                reduceMotion: reduceMotion
+            )
+            .padding(.bottom, -20)
 
             if appState.externalDrive == nil {
                 StatusPill(VolumeOfflineBanner.message(for: nil),
@@ -226,7 +220,6 @@ struct MigrationPanel: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
     }
     
     var taskIcon: String {

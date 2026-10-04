@@ -209,18 +209,16 @@ struct HealthCheckView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 32))
-                .foregroundStyle(Theme.accent)
-            Text("一切正常")
-                .font(.system(size: 13, weight: .semibold))
-            Text("没有发现断链或可清理的备份")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
+        EmptyStateView(
+            symbol: "checkmark.seal.fill",
+            accentSymbols: ["sparkles", "shield.checkerboard"],
+            gradient: [.green, .teal],
+            title: "一切正常",
+            subtitle: "没有发现断链或可清理的备份",
+            actionTitle: "重新体检",
+            action: { runCheck() },
+            reduceMotion: reduceMotion
+        )
     }
 
     // MARK: - 链接修复动作

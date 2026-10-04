@@ -172,11 +172,26 @@ struct AppListView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if apps.isEmpty {
-                VStack {
-                    Spacer()
-                    Text(searchText.isEmpty ? "未找到可迁移的应用" : "无匹配结果")
-                        .foregroundColor(.secondary)
-                    Spacer()
+                if searchText.isEmpty {
+                    EmptyStateView(
+                        symbol: "externaldrive.fill",
+                        accentSymbols: ["app.fill", "sparkles", "arrow.right.circle"],
+                        gradient: [.blue, .purple],
+                        title: "还没有可迁移的应用",
+                        subtitle: "连接外置磁盘后，这里会列出可以迁移的应用",
+                        actionTitle: "重新扫描",
+                        action: { Task { await appState.scanApps() } },
+                        reduceMotion: reduceMotion
+                    )
+                } else {
+                    EmptyStateView(
+                        symbol: "magnifyingglass",
+                        accentSymbols: [],
+                        gradient: [.blue, .cyan],
+                        title: "无匹配结果",
+                        subtitle: "换个关键词试试",
+                        reduceMotion: reduceMotion
+                    )
                 }
             } else {
                 List(apps, selection: $selectedApps) { app in
