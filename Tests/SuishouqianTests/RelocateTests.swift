@@ -118,16 +118,21 @@ final class RelocateTests: XCTestCase {
             fromVolume: volumeA.path, toVolume: volumeB.path) { _, _ in }
 
         XCTAssertFalse(result.success)
-        let bApps = try FileManager.default.contentsOfDirectory(atPath: volumeB.path)
-        XCTAssertTrue(bApps.isEmpty, "B 盘不得留下半截副本")
+        // 迁移准备会建出空的 Applications/ 目录（ditto 本来也会建），
+        // "无残留"的判据是 Applications 下没有半截副本，而不是卷根为空
+        let bLeftovers = (try? FileManager.default.contentsOfDirectory(
+            atPath: volumeB.appendingPathComponent("Applications").path)) ?? []
+        XCTAssertTrue(bLeftovers.isEmpty, "B 盘不得留下半截副本")
         let entries = OperationJournal.shared.recent(limit: 10)
         XCTAssertEqual(entries.first?.isOK, false)
     }
 
-    func testRelocateCoreKeepsSourceWhenTargetExisted() async throws {
-        // B 盘已有同名目录（上次中断的残留）：ditto 先清目标再复制，流程应正常走完
+    func testRelocateCoreCleansMarkedLeftoverAndConverges() async throws {
+        // B 盘已有"同名目录+迁移标记"（上次中断的遗留，成对存在）：清掉重搬，流程应正常走完
         let source = try makeFakeApp(at: volumeA.appendingPathComponent("Applications"))
-        try makeFakeApp(at: volumeB.appendingPathComponent("Applications"))  // 残留
+        try makeFakeApp(at: volumeB.appendingPathComponent("Applications"))  // 遗留副本
+        try Data().write(to: volumeB.appendingPathComponent(
+            "Applications/Foo.app" + AppMigrator.relocationMarkerSuffix))
         let app = makeApp(source: source)
 
         let result = await migrator.relocateCore(
@@ -136,6 +141,25 @@ final class RelocateTests: XCTestCase {
 
         XCTAssertTrue(result.success, result.error ?? "")
         XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        // 收尾后标记必须摘掉（"标记 ⟺ 我方副本在目标盘"不变量）
+        XCTAssertFalse(FileManager.default.fileExists(atPath: volumeB.appendingPathComponent(
+            "Applications/Foo.app" + AppMigrator.relocationMarkerSuffix).path))
+    }
+
+    func testRelocateCoreRejectsForeignTargetWithoutMarker() async throws {
+        // 高-3：目标盘已有同名应用且无迁移标记 = 外来应用，绝不覆盖
+        let source = try makeFakeApp(at: volumeA.appendingPathComponent("Applications"))
+        let foreign = try makeFakeApp(at: volumeB.appendingPathComponent("Applications"))
+        let app = makeApp(source: source)
+
+        let result = await migrator.relocateCore(
+            app: app, sourcePath: source.path,
+            fromVolume: volumeA.path, toVolume: volumeB.path) { _, _ in }
+
+        XCTAssertFalse(result.success)
+        XCTAssertTrue(result.error?.contains("同名应用") == true, result.error ?? "")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path), "源副本不能被动")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: foreign.path), "外来应用不能被动")
     }
 
     // MARK: - relocate 护栏

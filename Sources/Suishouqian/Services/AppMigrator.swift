@@ -132,6 +132,40 @@ class AppMigrator: @unchecked Sendable {
                                   fromVolume: from, toVolume: to, progress: progress)
     }
 
+    // MARK: - 目标占用与迁移标记（高-3 × 中断恢复的和解）
+
+    /// 区分"上次迁移/盘间迁移中断的遗留副本"与"目标盘上无关的同名应用"：
+    /// 复制开始前先在目标旁边落标记文件，进程崩溃必然留下"半截副本+标记"成对存在。
+    /// 重试见标记 → 清掉遗留重搬（收敛）；无标记 → 外来应用，拒绝。
+    static let relocationMarkerSuffix = ".suishouqian-relocating"
+
+    /// 返回 nil = 目标可用（标记已就位）；返回文案 = 拒绝原因
+    static func prepareTargetForCopy(_ fm: FileManager, targetPath: String) -> String? {
+        let marker = targetPath + relocationMarkerSuffix
+        if fm.fileExists(atPath: targetPath) {
+            guard fm.fileExists(atPath: marker) else {
+                return "目标盘已存在同名应用（\(targetPath)），为避免覆盖已中止"
+            }
+            // 上次中断的遗留：副本与标记成对清掉
+            try? fm.removeItem(atPath: targetPath)
+            try? fm.removeItem(atPath: marker)
+        }
+        // 空盘没有 Applications/ 目录，而 createFile 不建中间目录——先补上
+        // （ditto 本来也会建，提前建只为让标记有地方落）
+        let parentDir = (targetPath as NSString).deletingLastPathComponent
+        try? fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+        if !fm.createFile(atPath: marker, contents: nil) {
+            return "无法写入迁移标记文件（\(marker)），已中止"
+        }
+        return nil
+    }
+
+    /// 目标副本被删除或转正时同步摘标记——保持"标记 ⟺ 我方副本在目标盘"不变量，
+    /// 防止陈旧标记让日后的外来同名应用被误判成遗留而遭覆盖
+    static func clearRelocationMarker(_ fm: FileManager, targetPath: String) {
+        try? fm.removeItem(atPath: targetPath + relocationMarkerSuffix)
+    }
+
     /// 盘间迁移核心（可测入口：不做卷级护栏，路径全由调用方保证）。
     /// 单一出口记 journal；测试注入 temp 目录即可全流程验证。
     func relocateCore(app: AppItem, sourcePath: String, fromVolume: String, toVolume: String,
@@ -165,12 +199,19 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: success, error: error, spaceSaved: 0)
         }
 
+        // 高-3（2026-10-04 审计）：复制前检查目标占用。无标记的同名应用是目标盘上
+        // 的无关应用，拒绝；带标记的是上次中断遗留，清掉重搬（中断恢复契约）。
+        if let reject = Self.prepareTargetForCopy(fileManager, targetPath: targetPath) {
+            return done(false, reject)
+        }
+
         progress(0.1, "正在复制 \(app.name) 到目标盘...")
         let copyOk = await copyWithDitto(from: sourcePath, to: targetPath) { pct in
             progress(0.1 + pct * 0.5, "复制 \(app.name)...")
         }
         guard copyOk else {
             try? fileManager.removeItem(atPath: targetPath)   // 清半截副本，A 不动
+            Self.clearRelocationMarker(fileManager, targetPath: targetPath)
             return done(false, "复制到目标盘失败")
         }
 
@@ -178,6 +219,7 @@ class AppMigrator: @unchecked Sendable {
         let verified = await verifyFiles(source: sourcePath, target: targetPath)
         guard verified else {
             try? fileManager.removeItem(atPath: targetPath)
+            Self.clearRelocationMarker(fileManager, targetPath: targetPath)
             return done(false, "文件校验失败，已回滚目标副本（源盘副本未动）")
         }
 
@@ -222,6 +264,7 @@ class AppMigrator: @unchecked Sendable {
 
         progress(1.0, "完成")
         AuditLog.append("盘间迁移成功 \(appName)：\(fromVolume) → \(targetPath)")
+        Self.clearRelocationMarker(fileManager, targetPath: targetPath)
         return done(true, nil)
     }
 
@@ -322,20 +365,30 @@ class AppMigrator: @unchecked Sendable {
                   error: "无法创建目标目录: \(error.localizedDescription)", spaceSaved: 0)
         }
         
+        // 高-3（2026-10-04 审计）：复制前检查目标路径占用（copyWithDitto 首句就是删目标）。
+        // 无标记的同名应用是目标盘上的无关应用，拒绝；带标记的是上次中断的遗留，
+        // 清掉重搬——崩溃后重试必须能收敛。口径与 moveBackToInternalInternal 一致。
+        if let reject = Self.prepareTargetForCopy(fileManager, targetPath: targetPath) {
+            AuditLog.append("拒绝迁移 \(appName)：\(reject)")
+            return MigrationResult(success: false, error: reject, spaceSaved: 0)
+        }
+
         progress(0.1, "正在复制 \(app.name)...")
         let copyOk = await copyWithDitto(from: sourcePath, to: targetPath) { pct in
             progress(0.1 + pct * 0.6, "复制 \(app.name)...")
         }
         guard copyOk else {
-            return MigrationResult(success: false, 
+            Self.clearRelocationMarker(fileManager, targetPath: targetPath)  // 半截副本已由 copyWithDitto 清掉
+            return MigrationResult(success: false,
                   error: "复制失败", spaceSaved: 0)
         }
-        
+
         progress(0.7, "正在校验完整性...")
         let verified = await verifyFiles(source: sourcePath, target: targetPath)
         guard verified else {
             AuditLog.append("迁移失败 \(appName)：校验未通过，已回滚目标副本")
             try? fileManager.removeItem(atPath: targetPath)
+            Self.clearRelocationMarker(fileManager, targetPath: targetPath)
             return MigrationResult(success: false,
                   error: "文件校验失败，请重试", spaceSaved: 0)
         }
@@ -357,7 +410,8 @@ class AppMigrator: @unchecked Sendable {
             let backupOk = await copyWithDitto(from: sourcePath, to: backupPath) { _ in }
             guard backupOk else {
                 try? fileManager.removeItem(atPath: targetPath)
-                return MigrationResult(success: false, 
+                Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                return MigrationResult(success: false,
                       error: "备份失败", spaceSaved: 0)
             }
             // 备份 mtime 必须代表"备份时刻"，否则刚建好就被当超龄清掉
@@ -375,6 +429,7 @@ class AppMigrator: @unchecked Sendable {
                     // 最常见的情况：用户取消了密码框，提权动作根本没生效，原件完好。
                     // 此时只回收本次新建的目标副本与留底备份，不再动原件。
                     try? fileManager.removeItem(atPath: targetPath)
+                    Self.clearRelocationMarker(fileManager, targetPath: targetPath)
                     try? fileManager.removeItem(atPath: backupPath)
                     return MigrationResult(success: false,
                           error: authResult.error ?? "权限操作失败", spaceSaved: 0)
@@ -382,6 +437,7 @@ class AppMigrator: @unchecked Sendable {
                 let restored = await copyWithDitto(from: backupPath, to: sourcePath) { _ in }
                 if restored {
                     try? fileManager.removeItem(atPath: targetPath)
+                    Self.clearRelocationMarker(fileManager, targetPath: targetPath)
                     try? fileManager.removeItem(atPath: backupPath)
                 } else {
                     // 回滚未完成：目标副本与备份都保留（两份都能拿来人工恢复）
@@ -397,7 +453,8 @@ class AppMigrator: @unchecked Sendable {
             let moved = await moveItem(from: sourcePath, to: backupPath)
             guard moved else {
                 try? fileManager.removeItem(atPath: targetPath)
-                return MigrationResult(success: false, 
+                Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                return MigrationResult(success: false,
                       error: "无法移动原文件（可能正在运行或权限不足）", spaceSaved: 0)
             }
             // 备份 mtime 必须代表"备份时刻"（move 会保留原应用的安装时间）
@@ -409,6 +466,7 @@ class AppMigrator: @unchecked Sendable {
                 } catch {
                     _ = await moveItem(from: backupPath, to: sourcePath)
                     try? fileManager.removeItem(atPath: targetPath)
+                    Self.clearRelocationMarker(fileManager, targetPath: targetPath)
                     return MigrationResult(success: false,
                           error: "创建符号链接失败: \(error.localizedDescription)", spaceSaved: 0)
                 }
@@ -430,6 +488,7 @@ class AppMigrator: @unchecked Sendable {
                     relativePath: String(targetPath.dropFirst(drivePath.count + 1)))
             }
         }
+        Self.clearRelocationMarker(fileManager, targetPath: targetPath)
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
     }
 
@@ -470,6 +529,16 @@ class AppMigrator: @unchecked Sendable {
 
         // v2.2: 回迁前拍 APFS 本地快照（整机级最后保险；阻塞进程必须走 OffPool）
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
+
+        // 高-1（2026-10-04 审计）：执行前一刻重验链接位仍是软链接。
+        // 扫描显示"已迁移"之后、用户点"回迁"之前，应用自动更新可能已把软链接
+        // 替换成真目录（"迁移被悄悄撤销"场景）——此时删掉的是用户更新后的真应用。
+        guard (try? fileManager.destinationOfSymbolicLink(atPath: sourcePath)) != nil else {
+            AuditLog.append("拒绝回迁 \(appName)：\(sourcePath) 已不是软链接（可能已被应用更新替换为真目录），请重新扫描")
+            return MigrationResult(success: false,
+                error: "该位置已不是软链接（可能已被应用更新替换为真目录），请重新扫描后再操作",
+                spaceSaved: 0)
+        }
 
         progress(0.1, "删除符号链接...")
         try? fileManager.removeItem(atPath: sourcePath)
@@ -660,7 +729,10 @@ class AppMigrator: @unchecked Sendable {
         // 数据备份（Data-*）：判据是台账里记录的链接位
         if appName.hasPrefix(DataMigrator.manifestPrefix) {
             guard let entry = MigrationManifest.shared.entry(forAppName: appName) else {
-                return true     // 台账已无此条目：迁移/回迁早已收尾，备份是冗余的
+                // 高-4（2026-10-04 审计）：无台账条目时无法证明备份冗余
+                // （崩溃窗口的兜底备份就长这样），禁止自动清理，留给体检页人工处理
+                AuditLog.append("保留无主数据备份 \(appName)：无台账条目，需人工确认")
+                return false
             }
             guard (try? fileManager.attributesOfItem(atPath: entry.linkPath)) != nil else {
                 return false    // 链接位都没了：备份可能是唯一副本

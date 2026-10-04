@@ -128,4 +128,60 @@ final class ManifestTests: XCTestCase {
         let apps = decoded?["apps"] as? [[String: Any]]
         XCTAssertEqual(apps?.count, 1)
     }
+
+    // MARK: - 高-5 台账损坏抢救（2026-10-04 审计）
+
+    /// 逐条解码：坏条目跳过，好条目保住
+    func testRescueEntriesSkipsCorruptElement() {
+        let json = """
+        {"version":2,"apps":[
+          {"appName":"Good.app","linkPath":"/Applications/Good.app",\
+          "volumeUUID":"UU","relativePath":"Applications/Good.app",\
+          "migratedAt":"2026-10-01T10:00:00Z"},
+          {"appName":"Bad.app","linkPath":12345,\
+          "volumeUUID":"UU","relativePath":"Applications/Bad.app",\
+          "migratedAt":"2026-10-01T10:00:00Z"},
+          {"appName":"Good2.app","linkPath":"/Applications/Good2.app",\
+          "volumeUUID":"UU","relativePath":"Applications/Good2.app",\
+          "migratedAt":"2026-10-01T10:00:00Z","kind":"data"}]}
+        """
+        let rescued = MigrationManifest.rescueEntries(from: Data(json.utf8))
+        XCTAssertEqual(rescued.map(\.appName).sorted(), ["Good.app", "Good2.app"])
+        XCTAssertEqual(rescued.first(where: { $0.appName == "Good2.app" })?.kind, "data")
+    }
+
+    /// 完全无法解析时返回空（不崩溃、不抛错）
+    func testRescueEntriesReturnsEmptyForGarbage() {
+        XCTAssertTrue(MigrationManifest.rescueEntries(
+            from: Data("not json at all".utf8)).isEmpty)
+        XCTAssertTrue(MigrationManifest.rescueEntries(
+            from: Data("{\"version\":2}".utf8)).isEmpty)  // 没有 apps 键
+        XCTAssertTrue(MigrationManifest.rescueEntries(from: Data()).isEmpty)
+    }
+
+    /// 端到端：顶层解码失败时 load() 走抢救路径，好条目仍可读出
+    func testCorruptManifestFileRescuesGoodEntriesOnLoad() throws {
+        // Broken.app 缺 migratedAt（必需字段）→ 顶层解码整体失败
+        let json = """
+        {"version":2,"apps":[
+          {"appName":"Survivor.app","linkPath":"/Applications/Survivor.app",\
+          "volumeUUID":"UU","relativePath":"Applications/Survivor.app",\
+          "migratedAt":"2026-10-01T10:00:00Z"},
+          {"appName":"Broken.app","linkPath":"/Applications/Broken.app",\
+          "volumeUUID":"UU","relativePath":"Applications/Broken.app"}]}
+        """
+        try FileManager.default.createDirectory(at: tempDir,
+                                                withIntermediateDirectories: true)
+        let url = tempDir.appendingPathComponent("migration-manifest.json")
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path,
+                                                     contents: Data(json.utf8)))
+        // 旧行为：整体隔离 → Survivor 也读不出来；新行为：抢救回 Survivor
+        XCTAssertNotNil(MigrationManifest.shared.entry(forAppName: "Survivor.app"),
+                        "损坏文件中完好的条目必须被抢救回来")
+        XCTAssertNil(MigrationManifest.shared.entry(forAppName: "Broken.app"))
+        // 隔离文件照样留档（人工可再捞）
+        let quarantined = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+            .filter { $0.hasPrefix("migration-manifest.corrupt-") }
+        XCTAssertEqual(quarantined.count, 1, "坏文件仍应隔离留档")
+    }
 }

@@ -247,10 +247,9 @@ class HealthChecker: @unchecked Sendable {
             for sub in ["Applications", "Suishouqian_Apps"] {
                 let candidate = "\(volPath)/\(sub)/\(link.appName)"
                 guard fileManager.fileExists(atPath: candidate) else { continue }
-                try? fileManager.removeItem(atPath: link.linkPath)
                 do {
-                    try fileManager.createSymbolicLink(
-                        atPath: link.linkPath, withDestinationPath: candidate)
+                    // 高-2（2026-10-04 审计）：原子替换，失败时旧链接原样保留
+                    try AppMigrator.swapSymlink(at: link.linkPath, to: candidate)
                     // v2.2: 修复后同步台账（新卷/新位置），后续断链可自愈
                     if let uuid = MigrationManifest.volumeUUID(atPath: volPath) {
                         MigrationManifest.shared.record(
@@ -371,10 +370,10 @@ class HealthChecker: @unchecked Sendable {
             let candidate = "\(mount)/\(entry.relativePath)"
             guard fileManager.fileExists(atPath: candidate) else { continue }
 
-            try? fileManager.removeItem(atPath: link.linkPath)
             do {
-                try fileManager.createSymbolicLink(
-                    atPath: link.linkPath, withDestinationPath: candidate)
+                // 高-2（2026-10-04 审计）：原子替换。旧写法先删后建，建链失败时
+                // 条目彻底消失（比断链更糟）；swapSymlink 失败时旧链接原样保留。
+                try AppMigrator.swapSymlink(at: link.linkPath, to: candidate)
                 if let uuid = MigrationManifest.volumeUUID(atPath: mount) {
                     MigrationManifest.shared.record(
                         appName: link.appName, linkPath: link.linkPath,
@@ -383,7 +382,7 @@ class HealthChecker: @unchecked Sendable {
                 AuditLog.append("断链自愈 \(link.appName)：按卷 UUID 重新定位 → \(candidate)")
                 healed.append(link.appName)
             } catch {
-                // 自愈失败保持断链状态，体检页仍可手动修复
+                // swapSymlink 是原子的：失败时旧链接原样保留，仍是断链状态，体检页可手动修复
             }
         }
         return healed

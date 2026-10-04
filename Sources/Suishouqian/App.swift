@@ -262,6 +262,15 @@ class AppState: ObservableObject {
         let bootChecker = healthChecker
         let bootDataMigrator = dataMigrator
         Task {
+            // 高-4（2026-10-04 审计）：先认领崩溃遗留的 pending 数据迁移，
+            // 再跑常规自愈（认领可能补建出链接，自愈接着能处理）
+            let recovered = await OffPool.run {
+                bootDataMigrator.recoverPendingDataMigrations()
+            }
+            if !recovered.isEmpty {
+                notificationManager.notifyLinksHealed(appNames: recovered)
+                AuditLog.append("启动认领崩溃遗留数据迁移：\(recovered.joined(separator: "、"))")
+            }
             await OffPool.run {
                 _ = bootChecker.healBrokenLinks()
                 _ = bootDataMigrator.healDataLinks()

@@ -113,17 +113,36 @@ final class MigrationManifest: @unchecked Sendable {
         do {
             return try decoder.decode(ManifestFile.self, from: data)
         } catch {
-            // 解析失败绝不能静默当空台账：下一次 record 会把历史条目整体覆盖掉，
-            // 所有迁移记录的卷 UUID 定位信息（卷改名自愈的依据）一次性消失。
-            // 改为把坏文件改名留档，人工还能捞回来。
+            // 高-5（2026-10-04 审计）：先抢救再隔离。单字节损坏不应导致全台账丢失——
+            // 逐条解码 apps 数组，能救几条是几条；隔离文件照样留档，人工可再捞。
+            let rescued = Self.rescueEntries(from: data)
             let stamp = Int(Date().timeIntervalSince1970)
             let quarantine = fileURL.deletingLastPathComponent()
                 .appendingPathComponent("migration-manifest.corrupt-\(stamp).json")
             try? FileManager.default.moveItem(at: fileURL, to: quarantine)
-            AuditLog.append("台账文件解析失败，已隔离为 \(quarantine.lastPathComponent)"
-                + "（原记录未丢弃，可人工恢复；本次从空台账重新开始）")
-            return ManifestFile()
+            if rescued.isEmpty {
+                AuditLog.append("台账文件解析失败，已隔离为 \(quarantine.lastPathComponent)（无可抢救条目，本次从空台账重新开始）")
+            } else {
+                AuditLog.append("台账文件解析失败，已隔离为 \(quarantine.lastPathComponent)，抢救回 \(rescued.count) 条记录")
+            }
+            return ManifestFile(version: 2, apps: rescued)
         }
+    }
+
+    /// 高-5：抢救式解析。顶层解码失败时退化为逐条解码 apps 数组，
+    /// 跳过损坏的条目，保住剩下的。纯函数，可测。
+    nonisolated static func rescueEntries(from data: Data) -> [Entry] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apps = json["apps"] as? [[String: Any]] else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var rescued: [Entry] = []
+        for dict in apps {
+            guard let elementData = try? JSONSerialization.data(withJSONObject: dict),
+                  let entry = try? decoder.decode(Entry.self, from: elementData) else { continue }
+            rescued.append(entry)
+        }
+        return rescued
     }
 
     private func save(_ manifest: ManifestFile) {

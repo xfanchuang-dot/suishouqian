@@ -235,7 +235,19 @@ final class DataMigrator: @unchecked Sendable {
         let backupPath = "\(drivePath)/.suishouqian-backup/\(manifestName)"
         try? fileManager.createDirectory(
             atPath: "\(drivePath)/.suishouqian-backup", withIntermediateDirectories: true)
+        // 高-4（2026-10-04 审计）：先落 pending 台账再动源目录。
+        // moveItem 成功后、建链+转正前若崩溃，源目录已搬走而台账无条目，
+        // 条目在数据面板彻底不可见，且兜底备份会被当成无主自动清理。
+        // pending 条目 kind="data-pending"，heal/check 只认 kind=="data"，互不干扰；
+        // 启动时的 recoverPendingDataMigrations 负责认领。
+        let relativePath = String(externalPath.dropFirst(drivePath.count + 1))
+        if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {
+            MigrationManifest.shared.record(
+                appName: manifestName, linkPath: site,
+                volumeUUID: uuid, relativePath: relativePath, kind: "data-pending")
+        }
         guard await migrator.moveItem(from: site, to: backupPath) else {
+            MigrationManifest.shared.remove(appName: manifestName)  // 已知失败，清掉 pending
             try? fileManager.removeItem(atPath: externalPath)
             return (false, "无法移动原目录（可能正在被使用）")
         }
@@ -253,7 +265,7 @@ final class DataMigrator: @unchecked Sendable {
             MigrationManifest.shared.record(
                 appName: manifestName, linkPath: site,
                 volumeUUID: uuid,
-                relativePath: String(externalPath.dropFirst(drivePath.count + 1)),
+                relativePath: relativePath,
                 kind: "data")
         }
         AuditLog.append("数据迁移成功 \(title)：\(sizeBytes) 字节 → \(externalPath)")
@@ -513,11 +525,10 @@ final class DataMigrator: @unchecked Sendable {
             guard let mount = MigrationManifest.mountPoint(forUUID: entry.volumeUUID),
                   fileManager.fileExists(atPath: "\(mount)/\(entry.relativePath)") else { continue }
 
-            try? fileManager.removeItem(atPath: entry.linkPath)
             do {
-                try fileManager.createSymbolicLink(
-                    atPath: entry.linkPath,
-                    withDestinationPath: "\(mount)/\(entry.relativePath)")
+                // 高-2（2026-10-04 审计）：原子替换，失败时旧链接原样保留，数据面板仍可见
+                try AppMigrator.swapSymlink(at: entry.linkPath,
+                    to: "\(mount)/\(entry.relativePath)")
                 AuditLog.append("数据链接自愈 \(entry.appName)：按卷 UUID 重新定位 → \(mount)/\(entry.relativePath)")
                 healed.append(entry.appName.hasPrefix(Self.manifestPrefix)
                     ? String(entry.appName.dropFirst(Self.manifestPrefix.count))
@@ -527,6 +538,63 @@ final class DataMigrator: @unchecked Sendable {
             }
         }
         return healed
+    }
+
+    /// 高-4（2026-10-04 审计）：认领上次崩溃遗留的 data-pending 台账。
+    /// linkMigrate 在 moveItem 之前先落 pending 条目；若崩溃发生在
+    /// moveItem 成功之后、建链+转正之前，源目录已搬走而面板不可见。
+    /// 按现场状态分别处置；返回恢复的条目名（去掉 Data- 前缀）。
+    /// 调用方注意：阻塞文件 IO，走 OffPool。
+    @discardableResult
+    func recoverPendingDataMigrations() -> [String] {
+        var recovered: [String] = []
+        for entry in MigrationManifest.shared.all() where entry.kind == "data-pending" {
+            let displayName = entry.appName.hasPrefix(Self.manifestPrefix)
+                ? String(entry.appName.dropFirst(Self.manifestPrefix.count))
+                : entry.appName
+            let siteIsLink = (try? fileManager.destinationOfSymbolicLink(
+                atPath: entry.linkPath)) != nil
+            if siteIsLink {
+                // 崩溃在建链之后、转正之前：链接已就位，转正即可
+                MigrationManifest.shared.record(
+                    appName: entry.appName, linkPath: entry.linkPath,
+                    volumeUUID: entry.volumeUUID, relativePath: entry.relativePath,
+                    kind: "data")
+                AuditLog.append("崩溃恢复 \(displayName)：链接已建好，台账转正")
+                recovered.append(displayName)
+                continue
+            }
+            if fileManager.fileExists(atPath: entry.linkPath) {
+                // 链接位是真目录：moveItem 没发生（崩溃在落 pending 之后、move 之前），
+                // 源目录完好，pending 是多余的，清掉
+                MigrationManifest.shared.remove(appName: entry.appName)
+                AuditLog.append("崩溃恢复 \(displayName)：源目录完好，清除残留 pending 台账")
+                continue
+            }
+            // 链接位不存在：moveItem 已把源目录搬走。卷在线且外置副本完好 → 补建链接
+            guard let mount = MigrationManifest.mountPoint(forUUID: entry.volumeUUID) else {
+                AuditLog.append("崩溃恢复 \(displayName)：卷不在线，保留 pending 待插盘后重试")
+                continue
+            }
+            let externalPath = "\(mount)/\(entry.relativePath)"
+            guard fileManager.fileExists(atPath: externalPath) else {
+                AuditLog.append("崩溃恢复 \(displayName)：外置副本丢失，需人工处理（兜底备份在 .suishouqian-backup/\(entry.appName)）")
+                continue
+            }
+            do {
+                try fileManager.createSymbolicLink(
+                    atPath: entry.linkPath, withDestinationPath: externalPath)
+                MigrationManifest.shared.record(
+                    appName: entry.appName, linkPath: entry.linkPath,
+                    volumeUUID: entry.volumeUUID, relativePath: entry.relativePath,
+                    kind: "data")
+                AuditLog.append("崩溃恢复 \(displayName)：已补建链接，迁移完成")
+                recovered.append(displayName)
+            } catch {
+                AuditLog.append("崩溃恢复 \(displayName)：补建链接失败，需人工处理")
+            }
+        }
+        return recovered
     }
 
     // MARK: - Private

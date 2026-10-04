@@ -73,6 +73,9 @@ final class InterruptionRecoveryTests: XCTestCase {
         let source = try makeFakeApp(at: volumeA.appendingPathComponent("Applications"))
         let half = try makeFakeApp(at: volumeB.appendingPathComponent("Applications"))
         try FileManager.default.removeItem(at: half.appendingPathComponent("Contents/res.dat"))
+        // 真实崩溃留下"副本+标记"成对存在：标记在复制开始前落盘
+        try Data().write(to: volumeB.appendingPathComponent(
+            "Applications/Foo.app" + AppMigrator.relocationMarkerSuffix))
 
         let result = await migrator.relocateCore(
             app: makeApp(source: source), sourcePath: source.path,
@@ -92,6 +95,8 @@ final class InterruptionRecoveryTests: XCTestCase {
     func testCrashBeforeSourceDeleteBothCopiesRetryConverges() async throws {
         let source = try makeFakeApp(at: volumeA.appendingPathComponent("Applications"))
         _ = try makeFakeApp(at: volumeB.appendingPathComponent("Applications"))
+        try Data().write(to: volumeB.appendingPathComponent(
+            "Applications/Foo.app" + AppMigrator.relocationMarkerSuffix))
         XCTAssertTrue(OperationJournal.shared.recent(limit: 5).isEmpty,
                       "崩溃发生在记账之前：journal 必须为空")
 
@@ -109,6 +114,8 @@ final class InterruptionRecoveryTests: XCTestCase {
     func testCrashAfterSwapLinkOnBSourceOnARetryConverges() async throws {
         let source = try makeFakeApp(at: volumeA.appendingPathComponent("Applications"))
         let target = try makeFakeApp(at: volumeB.appendingPathComponent("Applications"))
+        try Data().write(to: volumeB.appendingPathComponent(
+            "Applications/Foo.app" + AppMigrator.relocationMarkerSuffix))
         let link = linksDir.appendingPathComponent("Foo.app")
         try FileManager.default.createSymbolicLink(atPath: link.path,
                                                    withDestinationPath: target.path)
