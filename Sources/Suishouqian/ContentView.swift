@@ -226,23 +226,28 @@ struct ContentView: View {
                 AppListView()
                     .mockPage()
             case .settings:
-                // 效果图：大白卡内 = 胶囊页签 + 开关行 + 底部统计条
+                // 设置页也走统一 mockPage 大白卡（此前是手搓 r=12 卡，与设计系统 r=18 不一致）；
+                // 底部统计条（效果图元素）保留
                 VStack(spacing: 0) {
+                    SectionHeader(title: "设置", systemImage: "gearshape.fill")
+                        .padding(.horizontal, 24)
+                        .padding(.top, 20)
                     SettingsView()
-                        .padding(.horizontal, 28)
-                        .padding(.top, 24)
+                        .padding(.horizontal, 24)
                     Divider().padding(.horizontal, 24)
                     MockBottomBar(items: statsItems)
                 }
                 .mockPage()
             case .health:
-                // 体检页无效果图：保留磁盘横条（SMART 圆点/测速/离线卡都在这）
+                // 体检页与其他页统一：同样浮在大白卡上（此前是唯一裸在灰底的页，
+                // 页间切换容器跳变）。磁盘横条（SMART 圆点/测速/离线卡）保留在卡顶
                 VStack(spacing: 14) {
                     DiskBarView()
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                     HealthCheckView().padding(.horizontal, 20)
                 }
+                .mockPage()
             case .overview:
                 OverviewPanel()
                     .padding(.horizontal, 28)
@@ -263,8 +268,9 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 效果图皮肤：灰窗底，内容浮在白色大圆角卡上
         .background(Color(NSColor.windowBackgroundColor))
-        // 任务胶囊浮在内容区顶部：任何页面（含应用/设置）都能看到在跑的任务
-        .overlay(alignment: .top) {
+        // 任务胶囊浮在内容区顶部：任何页面（含应用/设置）都能看到在跑的任务。
+        // 用 safeAreaInset 而非 overlay——胶囊出现时把内容往下推，不压磁盘卡
+        .safeAreaInset(edge: .top, spacing: 0) {
             GlobalTaskCapsule()
                 .padding(.top, 8)
         }
