@@ -24,6 +24,26 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// 自动重迁汇总（升级顶掉链接后自动恢复）
+    func notifyAutoRemigrate(succeeded: [String], failed: [String], skipped: [String]) {
+        var parts: [String] = []
+        if !succeeded.isEmpty {
+            parts.append("自动恢复 \(succeeded.count) 个：\(succeeded.prefix(3).joined(separator: "、"))\(succeeded.count > 3 ? "…" : "")")
+        }
+        if !failed.isEmpty {
+            parts.append("\(failed.count) 个失败：\(failed.prefix(3).joined(separator: "、"))")
+        }
+        if !skipped.isEmpty {
+            parts.append("\(skipped.count) 个跳过（App Store 应用/正在运行）")
+        }
+        guard !parts.isEmpty else { return }
+        send(
+            title: "升级顶掉已自动恢复",
+            body: parts.joined(separator: "；"),
+            sound: .default
+        )
+    }
+
     /// 卸载完成通知（v2.13.0）：不能用迁移完成的文案——那会告诉用户
     /// "已迁移到外置硬盘"，而卸载恰恰是把它从盘上拿走
     func notifyUninstalled(appName: String) {

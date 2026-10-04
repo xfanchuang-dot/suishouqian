@@ -284,12 +284,15 @@ class AppState: ObservableObject {
         // 那一轮可能把 TM 备份盘当成候选（写盘边界还有第二道闸，但界面不该显示错目标）。
         let bootMonitor = diskMonitor
         let bootStore = volumeStore
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             await OffPool.run { _ = VolumeClassifier.refreshTimeMachineCache() }
             // v3.0 多盘聚合（内部自带 OffPool 枚举；TM 缓存已就绪，过滤口径正确）
             await bootStore.refresh()
             await OffPool.run { bootMonitor.refresh() }
-            refreshDrives()
+            self.refreshDrives()
+            // 自动重迁（opt-in）：启动后若有被升级顶掉的应用，自动恢复
+            _ = await AutoRemigrateService.run(appState: self)
         }
 
         // v2.9.0 使用频率顾问：只记「住在外置盘上的应用」的启动时刻。
@@ -341,6 +344,11 @@ class AppState: ObservableObject {
                 // v3.0: 插盘/拔盘后多卷列表要跟着变（离线卷灰显、新卷入列）
                 let store = self.volumeStore
                 Task { await store.refresh() }
+                // 自动重迁（opt-in）：插盘后若有被升级顶掉的应用，自动恢复
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    _ = await AutoRemigrateService.run(appState: self)
+                }
             }
         }
 

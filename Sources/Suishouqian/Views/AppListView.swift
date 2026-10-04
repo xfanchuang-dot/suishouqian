@@ -73,7 +73,10 @@ struct AppListView: View {
                     }
                 }
                 if migrate {
-                    _ = await appState.migrator.migrate(app: app, to: drive.mountPoint, progress: progress)
+                    _ = await appState.migrator.migrate(
+                        app: app, to: drive.mountPoint,
+                        cancellationToken: appState.migrationTask?.cancellationToken,
+                        progress: progress)
                 } else {
                     _ = await appState.migrator.restore(app: app, from: drive.mountPoint, progress: progress)
                 }

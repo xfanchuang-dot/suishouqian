@@ -72,6 +72,22 @@ struct DriveInfo {
     }
 }
 
+/// 协作式取消令牌（class 引用语义：MigrationTask 是 struct，
+/// 进度回调里 `var t = state.migrationTask ?? ...` 会拷贝，
+/// 用 class 才能保证取消信号不被拷贝稀释）。
+final class CancellationToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _cancelled = false
+
+    var isCancelled: Bool {
+        lock.withLock { _cancelled }
+    }
+
+    func cancel() {
+        lock.withLock { _cancelled = true }
+    }
+}
+
 struct MigrationTask: Identifiable {
     let id = UUID()
     let app: AppItem
@@ -81,6 +97,8 @@ struct MigrationTask: Identifiable {
     var bytesTransferred: Int64 = 0
     var totalBytes: Int64 = 0
     var status: TaskStatus = .preparing
+    /// 取消令牌：UI 点取消 → token.cancel() → 管道各阶段检查即停
+    let cancellationToken = CancellationToken()
     
     enum MigrationOperation {
         case migrate
@@ -96,6 +114,8 @@ struct MigrationTask: Identifiable {
         case linking
         case completed
         case failed(String)
+        /// 用户主动取消（非失败：半截副本已清理，源目录未动）
+        case cancelled
         
         static func == (lhs: TaskStatus, rhs: TaskStatus) -> Bool {
             switch (lhs, rhs) {
@@ -104,6 +124,7 @@ struct MigrationTask: Identifiable {
             case (.verifying, .verifying): return true
             case (.linking, .linking): return true
             case (.completed, .completed): return true
+            case (.cancelled, .cancelled): return true
             case (.failed(let a), .failed(let b)): return a == b
             default: return false
             }
@@ -111,7 +132,7 @@ struct MigrationTask: Identifiable {
         
         var isTerminal: Bool {
             switch self {
-            case .completed, .failed: return true
+            case .completed, .failed, .cancelled: return true
             default: return false
             }
         }

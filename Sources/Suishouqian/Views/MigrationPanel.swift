@@ -25,6 +25,10 @@ struct MigrationPanel: View {
                         if task.status == .completed {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
+                        } else if task.status == .cancelled {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .help("已取消：半截文件已清理，原应用不受影响")
                         }
                     }
 
@@ -35,10 +39,23 @@ struct MigrationPanel: View {
                             // 进度跳变时用弹簧跟随，不是一格一格地蹦
                             .animation(reduceMotion ? nil : Motion.progress, value: task.progress)
 
-                        Text(task.currentFile)
+                        HStack {
+                            Text(task.currentFile)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            // 协作式取消：token 一置位，管道在下个阶段边界停下
+                            // 并清理半截副本（源目录未动，无数据风险）
+                            Button("取消") {
+                                task.cancellationToken.cancel()
+                                AuditLog.append("用户取消迁移「\(task.app.name)」")
+                            }
+                            .buttonStyle(.borderless)
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
+                            .foregroundColor(.red)
+                            .help("取消本次迁移：停在当前阶段，清理已复制的半截文件，原应用不受影响")
+                        }
                     }
 
                     if case .failed(let msg) = task.status {
@@ -141,7 +158,9 @@ struct MigrationPanel: View {
                 appState.migrationTask = MigrationTask(app: app, operation: .migrate)
                 let createLink = !app.updateMechanism.prefersNoLink
                 let result = await appState.migrator.migrate(
-                    app: app, to: drivePath, createLink: createLink) { progress, file in
+                    app: app, to: drivePath, createLink: createLink,
+                    cancellationToken: appState.migrationTask?.cancellationToken
+                ) { progress, file in
                     Task { @MainActor in
                         guard var t = appState.migrationTask else { return }
                         // 方案整体进度 = 已完成个数 + 当前应用进度，再除以总数
@@ -156,6 +175,14 @@ struct MigrationPanel: View {
                         t.status = .completed
                         appState.migrationTask = t
                     }
+                } else if result.cancelled {
+                    // 取消不算失败：半截副本已清理，源目录未动，不计入 failCount
+                    if var t = appState.migrationTask {
+                        t.status = .cancelled
+                        appState.migrationTask = t
+                    }
+                    batchSummary = "已取消「\(app.name)」的迁移"
+                    break  // 批量中取消：停掉整批，后面的不再继续
                 } else {
                     failCount += 1
                     if var t = appState.migrationTask {
@@ -254,7 +281,8 @@ struct MigrationPanel: View {
 
                 let appState = self.appState  // 值类型捕获
                 let result = await appState.migrator.migrate(
-                    app: app, to: drive.mountPoint
+                    app: app, to: drive.mountPoint,
+                    cancellationToken: appState.migrationTask?.cancellationToken
                 ) { @Sendable pct, desc in
                     Task { @MainActor in
                         var t = appState.migrationTask ?? MigrationTask(app: app, operation: .migrate)

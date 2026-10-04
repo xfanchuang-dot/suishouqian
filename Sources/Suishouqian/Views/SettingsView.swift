@@ -16,6 +16,8 @@ struct SettingsView: View {
     /// 备份盘选择（"" = 与应用同盘，默认；否则为卷 UUID）
     @State private var backupVolume: String =
         BackupLocations.alternateVolumeUUID ?? ""
+    /// 升级顶掉自动重迁（opt-in，默认关）
+    @AppStorage(AutoRemigrateService.enabledKey) private var autoRemigrate = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
 
     var body: some View {
@@ -43,6 +45,15 @@ struct SettingsView: View {
                     .settingHint()
                 Toggle("系统通知", isOn: $notifications)
                 Text("迁移完成/失败、插拔盘、空间告警等通知的总开关。")
+                    .settingHint()
+            }
+
+            Section("升级顶掉自动恢复") {
+                Toggle("应用升级顶掉链接后自动重新迁移", isOn: $autoRemigrate)
+                    .onChange(of: autoRemigrate) { _, on in
+                        AuditLog.append("自动重迁开关：\(on ? "开" : "关")")
+                    }
+                Text("应用自带更新器升级时会把软链接换回真目录。开启后，启动/插盘时自动检测并重新迁移。App Store 应用不会自动处理（更新会再次顶掉，需手动）。")
                     .settingHint()
             }
 

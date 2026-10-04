@@ -517,7 +517,9 @@ struct OverviewPanel: View {
                     return
                 }
                 result = await appState.migrator.migrate(
-                    app: app, to: to, createLink: true, progress: progress)
+                    app: app, to: to, createLink: true,
+                    cancellationToken: appState.migrationTask?.cancellationToken,
+                    progress: progress)
             case .relocate:
                 guard let origin = entry.params["fromUUID"].flatMap({ volumeMounts[$0] }),
                       let current = entry.params["toUUID"].flatMap({ volumeMounts[$0] }) else {

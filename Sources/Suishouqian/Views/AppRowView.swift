@@ -197,7 +197,9 @@ struct AppRowView: View {
             let result: AppMigrator.MigrationResult
             if createLink {
                 result = await state.migrator.migrate(
-                    app: app, to: drive.mountPoint, progress: onProgress)
+                    app: app, to: drive.mountPoint,
+                    cancellationToken: state.migrationTask?.cancellationToken,
+                    progress: onProgress)
             } else {
                 result = await state.migrator.moveToExternal(
                     app: app, drivePath: drive.mountPoint, progress: onProgress)

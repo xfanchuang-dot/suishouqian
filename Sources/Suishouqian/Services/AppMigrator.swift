@@ -14,6 +14,16 @@ class AppMigrator: @unchecked Sendable {
         let success: Bool
         let error: String?
         let spaceSaved: Int64
+        /// 用户主动取消（非失败：半截副本已清理，源目录未动）
+        let cancelled: Bool
+
+        init(success: Bool, error: String? = nil, spaceSaved: Int64 = 0,
+             cancelled: Bool = false) {
+            self.success = success
+            self.error = error
+            self.spaceSaved = spaceSaved
+            self.cancelled = cancelled
+        }
     }
 
     /// 迁移：把应用搬到外置盘。
@@ -275,9 +285,12 @@ class AppMigrator: @unchecked Sendable {
 
     /// 迁移/纯搬迁（createLink 区分，params 记录）
     func migrate(app: AppItem, to drivePath: String, createLink: Bool = true,
+                 cancellationToken: CancellationToken? = nil,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let result = await migrateInternal(app: app, to: drivePath,
-                                           createLink: createLink, progress: progress)
+                                           createLink: createLink,
+                                           cancellationToken: cancellationToken,
+                                           progress: progress)
         OperationJournal.shared.record(
             op: .migrate, appName: app.bundleName,
             params: ["createLink": createLink ? "1" : "0",
@@ -321,6 +334,7 @@ class AppMigrator: @unchecked Sendable {
     }
 
     func migrateInternal(app: AppItem, to drivePath: String, createLink: Bool = true,
+                 cancellationToken: CancellationToken? = nil,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
 
         let appName = app.bundleName
@@ -329,6 +343,19 @@ class AppMigrator: @unchecked Sendable {
         let targetPath = "\(targetDir)/\(appName)"
         // 跨盘备份：备份盘与应用盘可分离（破单点故障）；未指定备份盘时跟应用同盘
         let backupPath = "\(BackupLocations.backupRoot(for: drivePath))/\(appName)"
+
+        /// 协作式取消检查点：每阶段边界调用。取消后清理半截目标副本与备份，
+        /// 源目录此时还没动过（链接切换是最后一步），直接返回即可。
+        /// 注意：链接切换之后不可取消（源已被搬走），调用方不要在那之后检查。
+        func checkCancelled(_ phase: String) -> MigrationResult? {
+            guard cancellationToken?.isCancelled == true else { return nil }
+            AuditLog.append("迁移取消 \(appName)：在\(phase)阶段用户取消，清理半截副本与备份")
+            try? fileManager.removeItem(atPath: targetPath)
+            try? fileManager.removeItem(atPath: backupPath)
+            Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+            return MigrationResult(success: false, error: "已取消", spaceSaved: 0,
+                                   cancelled: true)
+        }
 
         // 硬护栏：源与目标不能是同一个位置。copyWithDitto 的第一步是 removeItem(dst)，
         // 若 dst 就是应用自身（外置盘原住民被误走"迁移"入口），等于直接删库。
@@ -383,6 +410,7 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: false,
                   error: "复制失败", spaceSaved: 0)
         }
+        if let cancelled = checkCancelled("复制") { return cancelled }
 
         progress(0.7, "正在校验完整性...")
         let verified = await verifyFiles(source: sourcePath, target: targetPath)
@@ -393,11 +421,13 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: false,
                   error: "文件校验失败，请重试", spaceSaved: 0)
         }
-        
+        if let cancelled = checkCancelled("校验") { return cancelled }
+
         // 校验通过后才修复属性（必须在校验之后，因为 codesign 会修改二进制导致 diff 不一致）
         progress(0.8, "修复文件属性...")
         await fixAttributes(at: targetPath)
-        
+        if let cancelled = checkCancelled("修复属性") { return cancelled }
+
         progress(0.85, "备份原件...")
         try? fileManager.createDirectory(atPath: BackupLocations.backupRoot(for: drivePath),
               withIntermediateDirectories: true)
@@ -417,6 +447,8 @@ class AppMigrator: @unchecked Sendable {
             }
             // 备份 mtime 必须代表"备份时刻"，否则刚建好就被当超龄清掉
             stampBackupCreation(at: backupPath)
+            // 最后可取消点：之后是提权删源+建链，源目录一动就不可回头
+            if let cancelled = checkCancelled("备份") { return cancelled }
             
             // 删原件（按需再建符号链接，需要 admin；只操作 /Applications 不写外置盘）
             progress(0.9, "需要管理员权限...")
@@ -460,6 +492,24 @@ class AppMigrator: @unchecked Sendable {
             }
             // 备份 mtime 必须代表"备份时刻"（move 会保留原应用的安装时间）
             stampBackupCreation(at: backupPath)
+            // ⚠️ 此处【禁止】用 checkCancelled 清理：非提权路径 move 之后原应用
+            // 只剩 backupPath 这一份真身（源目录已被搬走），checkCancelled 的
+            // "删目标+删备份"会把应用从电脑上抹掉（落地审查抓到的 P0）。
+            // 取消改为回滚：原件搬回 /Applications，只清目标副本。
+            if cancellationToken?.isCancelled == true {
+                AuditLog.append("迁移取消 \(appName)：搬移阶段取消，原件搬回内置盘，目标副本已清理")
+                let movedBack = await moveItem(from: backupPath, to: sourcePath)
+                try? fileManager.removeItem(atPath: targetPath)
+                Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                if movedBack {
+                    return MigrationResult(success: false, error: "已取消",
+                          spaceSaved: 0, cancelled: true)
+                }
+                // 回滚失败：备份成为唯一副本，绝不能删——如实告知位置让人工恢复
+                return MigrationResult(success: false,
+                      error: "已取消，但原件搬回失败——完整原件保留在 \(backupPath)，请从该位置手动恢复",
+                      spaceSaved: 0, cancelled: true)
+            }
             if createLink {
                 do {
                     try fileManager.createSymbolicLink(atPath: sourcePath,
@@ -788,6 +838,25 @@ class AppMigrator: @unchecked Sendable {
     
     /// P0: 校验目标是真实挂载的独立卷，且剩余空间足够
     /// 返回 nil 表示通过；返回 String 为拒绝原因
+    /// 取挂载点的文件系统类型（如 "apfs" / "exfat"）。失败返回 nil。
+    /// statfs 是阻塞调用，调用方须在 OffPool。
+    private func filesystemType(at path: String) -> String? {
+        var st = statfs()
+        guard path.withCString({ statfs($0, &st) }) == 0 else { return nil }
+        return withUnsafeBytes(of: st.f_fstypename) { raw in
+            let ptr = raw.bindMemory(to: CChar.self).baseAddress!
+            return String(cString: ptr)
+        }
+    }
+
+    /// 取路径所在卷的可用字节数。失败返回 nil（卷离线/不可读）。
+    /// statfs 是阻塞调用，调用方须在 OffPool。
+    static func freeBytes(at path: String) -> Int64? {
+        var st = statfs()
+        guard path.withCString({ statfs($0, &st) }) == 0 else { return nil }
+        return Int64(st.f_bavail) * Int64(st.f_bsize)
+    }
+
     func validateTarget(drivePath: String, appSize: Int64) -> String? {
         var st = statfs()
         guard drivePath.withCString({ statfs($0, &st) }) == 0 else {
@@ -830,19 +899,63 @@ class AppMigrator: @unchecked Sendable {
         if VolumeClassifier.isOnTimeMachineVolume(path: drivePath) {
             return "目标是 Time Machine 备份盘，系统空间紧张时会自动清理其中的旧备份，不能用于存放应用"
         }
+
+        // exFAT 硬拦截：应用包内全是软链接（Frameworks 等），exFAT 不支持软链接，
+        // ditto 过去直接坏掉。此前只在磁盘横条黄字警告，现在迁移入口硬拒绝。
+        // 数据迁移同样拦截：权限/大小写等语义差异太多，不值得逐项排雷。
+        if let fsType = filesystemType(at: drivePath),
+           fsType.lowercased().contains("exfat") {
+            return "目标盘是 exFAT 格式：应用包内的软链接在 exFAT 上会损坏，无法迁移。请备份数据后在「磁盘工具」中将该盘抹为 APFS 再试"
+        }
         
         // 空间检查：目标盘上要同时落【两份】——目标副本 + 同盘留底备份
         // （needsAuth 分支是两次 ditto；非 auth 分支是 ditto + 跨卷 move，move 同样是整树复制）。
         // 此前按一份体积 + 5% 校验，会在第二步备份时把盘写满、迁移失败。
-        let needed = Self.requiredTargetBytes(appSize: appSize)
+        //
+        // 跨盘备份时：备份落在另一块盘上，目标盘只需【一份】，但备份盘要单独预检
+        // （此前只查目标盘，备份盘满了会跑到 85% 才失败回滚——白跑一趟）。
+        let backupRoot = BackupLocations.backupRoot(for: drivePath)
+        let backupOnSameVolume = backupRoot == "\(drivePath)/.suishouqian-backup"
         let freeBytes = Int64(st.f_bavail) * Int64(st.f_bsize)
-        if freeBytes < needed {
-            let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
-            let total = ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)
-            let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
-            return "目标盘空间不足：\(need) 的应用需要约 \(total)（含同盘留底备份），仅剩 \(free)"
+
+        if backupOnSameVolume {
+            let needed = Self.requiredTargetBytes(appSize: appSize)
+            if freeBytes < needed {
+                let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+                let total = ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)
+                let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+                return "目标盘空间不足：\(need) 的应用需要约 \(total)（含同盘留底备份），仅剩 \(free)"
+            }
+        } else {
+            // 目标盘：只要目标副本一份（+5% 余量）
+            let targetNeeded = appSize + appSize / 20
+            if freeBytes < targetNeeded {
+                let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+                let total = ByteCountFormatter.string(fromByteCount: targetNeeded, countStyle: .file)
+                let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+                return "目标盘空间不足：\(need) 的应用需要约 \(total)，仅剩 \(free)"
+            }
+            // 备份盘：单独预检备份空间（+5% 余量）
+            let backupNeeded = appSize + appSize / 20
+            if let backupFree = Self.freeBytes(at: backupRoot), backupFree < backupNeeded {
+                let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+                let total = ByteCountFormatter.string(fromByteCount: backupNeeded, countStyle: .file)
+                let free = ByteCountFormatter.string(fromByteCount: backupFree, countStyle: .file)
+                return "备份盘空间不足：\(need) 的应用需要约 \(total) 备份空间，备份盘仅剩 \(free)。可在设置 → 备份 → 备份存放位置中更换备份盘，或清理该盘空间"
+            }
+            // 备份盘不可读时不硬拦（离线会自动回退同盘，那里已有 2× 兜底逻辑覆盖不到——
+            //  conservative：此时按同盘 2× 要求目标盘，避免回退后空间不够）
+            if Self.freeBytes(at: backupRoot) == nil {
+                let needed = Self.requiredTargetBytes(appSize: appSize)
+                if freeBytes < needed {
+                    let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+                    let total = ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)
+                    let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+                    return "目标盘空间不足：\(need) 的应用需要约 \(total)（备份盘离线，回退同盘需留备份空间），仅剩 \(free)"
+                }
+            }
         }
-        
+
         return nil
     }
 

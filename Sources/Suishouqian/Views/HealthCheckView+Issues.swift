@@ -290,7 +290,8 @@ extension HealthCheckView {
             appState.migrationTask = MigrationTask(app: app, operation: .migrate)
             let state = appState
             let result = await state.migrator.migrate(
-                app: app, to: drive.mountPoint
+                app: app, to: drive.mountPoint,
+                cancellationToken: state.migrationTask?.cancellationToken
             ) { @Sendable pct, desc in
                 Task { @MainActor in
                     var t = state.migrationTask ?? MigrationTask(app: app, operation: .migrate)
