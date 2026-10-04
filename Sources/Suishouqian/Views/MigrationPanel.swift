@@ -162,11 +162,9 @@ struct MigrationPanel: View {
                     cancellationToken: appState.migrationTask?.cancellationToken
                 ) { progress, file in
                     Task { @MainActor in
-                        guard var t = appState.migrationTask else { return }
                         // 方案整体进度 = 已完成个数 + 当前应用进度，再除以总数
-                        t.progress = (Double(index) + progress) / Double(total)
-                        t.currentFile = file
-                        appState.migrationTask = t
+                        // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
+                        appState.reportMigrationProgress((Double(index) + progress) / Double(total), file)
                     }
                 }
                 if result.success {
@@ -285,10 +283,8 @@ struct MigrationPanel: View {
                     cancellationToken: appState.migrationTask?.cancellationToken
                 ) { @Sendable pct, desc in
                     Task { @MainActor in
-                        var t = appState.migrationTask ?? MigrationTask(app: app, operation: .migrate)
-                        t.progress = pct
-                        t.currentFile = desc
-                        appState.migrationTask = t
+                        // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
+                        appState.reportMigrationProgress(pct, desc)
                     }
                 }
 
@@ -325,10 +321,8 @@ struct MigrationPanel: View {
                     app: app, from: drive.mountPoint
                 ) { @Sendable pct, desc in
                     Task { @MainActor in
-                        var t = appState.migrationTask ?? MigrationTask(app: app, operation: .restore)
-                        t.progress = pct
-                        t.currentFile = desc
-                        appState.migrationTask = t
+                        // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
+                        appState.reportMigrationProgress(pct, desc)
                     }
                 }
 

@@ -218,10 +218,8 @@ extension HealthCheckView {
                 app: app, drivePath: drive.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .restore)
-                    t.progress = pct
-                    t.currentFile = desc
-                    state.migrationTask = t
+                    // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
+                    state.reportMigrationProgress(pct, desc)
                 }
             }
 

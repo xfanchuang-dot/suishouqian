@@ -66,10 +66,8 @@ struct AppListView: View {
                 appState.migrationTask = MigrationTask(app: app, operation: op)
                 let progress: @Sendable (Double, String) -> Void = { pct, file in
                     Task { @MainActor in
-                        guard var t = appState.migrationTask else { return }
-                        t.progress = pct
-                        t.currentFile = file
-                        appState.migrationTask = t
+                        // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
+                        appState.reportMigrationProgress(pct, file)
                     }
                 }
                 if migrate {
@@ -114,7 +112,10 @@ struct AppListView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
+        // filteredApps 在一次 body 求值里被用 3 次（isEmpty/List/animation），
+        // 先算一次存局部变量，避免过滤+排序跑 3 遍
+        let apps = filteredApps
+        return VStack(spacing: 0) {
             // 工具栏
             HStack {
                 Image(systemName: "magnifyingglass")
@@ -170,7 +171,7 @@ struct AppListView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if filteredApps.isEmpty {
+            } else if apps.isEmpty {
                 VStack {
                     Spacer()
                     Text(searchText.isEmpty ? "未找到可迁移的应用" : "无匹配结果")
@@ -178,13 +179,13 @@ struct AppListView: View {
                     Spacer()
                 }
             } else {
-                List(filteredApps, selection: $selectedApps) { app in
+                List(apps, selection: $selectedApps) { app in
                     AppRowView(app: app)
                         .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                 }
                 .listStyle(.plain)
                 // 搜索/排序/筛选变化时，行变更用弹簧过渡（List 行级动画由系统处理）
-                .animation(reduceMotion ? nil : Motion.snappy, value: filteredApps.map(\.id))
+                .animation(reduceMotion ? nil : Motion.snappy, value: apps.map(\.id))
             }
 
             // 6.3（Muse 审查附录 A1）：选中操作条——批量迁部分应用与"一键全部"同一执行链

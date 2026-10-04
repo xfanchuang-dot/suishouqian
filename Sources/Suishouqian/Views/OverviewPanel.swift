@@ -496,10 +496,8 @@ struct OverviewPanel: View {
             appState.migrationTask = MigrationTask(app: app, operation: taskOp)
             let progress: @Sendable (Double, String) -> Void = { pct, file in
                 Task { @MainActor in
-                    guard var t = appState.migrationTask else { return }
-                    t.progress = pct
-                    t.currentFile = file
-                    appState.migrationTask = t
+                    // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
+                    appState.reportMigrationProgress(pct, file)
                 }
             }
 

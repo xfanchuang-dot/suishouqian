@@ -187,10 +187,7 @@ struct AppRowView: View {
             let state = self.appState  // 值类型捕获，避免 Sendable 警告
             let onProgress: @Sendable (Double, String) -> Void = { @Sendable pct, desc in
                 Task { @MainActor in
-                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .migrate)
-                    t.progress = pct
-                    t.currentFile = desc
-                    state.migrationTask = t
+                    state.reportMigrationProgress(pct, desc)
                 }
             }
 
@@ -230,10 +227,7 @@ struct AppRowView: View {
                 app: app, from: drive.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .restore)
-                    t.progress = pct
-                    t.currentFile = desc
-                    state.migrationTask = t
+                    state.reportMigrationProgress(pct, desc)
                 }
             }
             
@@ -289,10 +283,7 @@ struct AppRowView: View {
                 app: app, fromVolume: fromMount, toVolume: volume.info.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .relocate)
-                    t.progress = pct
-                    t.currentFile = desc
-                    state.migrationTask = t
+                    state.reportMigrationProgress(pct, desc)
                 }
             }
 
@@ -321,10 +312,7 @@ struct AppRowView: View {
                 app: app, drivePath: drive.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .restore)
-                    t.progress = pct
-                    t.currentFile = desc
-                    state.migrationTask = t
+                    state.reportMigrationProgress(pct, desc)
                 }
             }
 

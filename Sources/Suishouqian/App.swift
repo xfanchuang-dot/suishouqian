@@ -138,6 +138,27 @@ class AppState: ObservableObject {
     @Published var externalDrive: DriveInfo?
     @Published var isScanning = false
     @Published var migrationTask: MigrationTask?
+
+    /// 进度节流上报：ditto 复制回调每秒触发几十次，直接写 @Published 会让
+    /// 200+ 列表行跟着重算 body。0.5% + 250ms 双节流后，进度条依然平滑
+    /// （200 步），全量重算从每秒几十次降到最多 4 次。
+    /// 调用约定：所有调用点都在 Task { @MainActor in } 里（已逐一核对）。
+    private var lastProgressPublish = Date.distantPast
+    func reportMigrationProgress(_ pct: Double, _ file: String) {
+        guard var t = migrationTask else { return }
+        let now = Date()
+        // 收尾直通：最后一段 progress(1.0) 不吃时间窗，
+        // 否则进度条会冻在 9x% 就直接跳"已完成"
+        let isFinal = pct >= 0.999
+        let pctChanged = abs(t.progress - pct) > 0.005
+        let fileChanged = t.currentFile != file
+        let timeElapsed = now.timeIntervalSince(lastProgressPublish) > 0.25
+        guard (pctChanged || fileChanged) && (timeElapsed || isFinal) else { return }
+        lastProgressPublish = now
+        t.progress = pct
+        t.currentFile = file
+        migrationTask = t
+    }
     @Published var builtinDrive: DriveInfo?
     /// 右侧面板（⌘0~⌘3 可切，ContentView 绑定）
     @Published var activePanel: Panel = .overview
