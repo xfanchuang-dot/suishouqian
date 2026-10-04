@@ -7,6 +7,7 @@ import SwiftUI
 /// 问题类分区（回归/备份/残留/大文件）及其动作在 HealthCheckView+Issues.swift。
 struct HealthCheckView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     // model / isTogglingSpotlight / runCheck 被拆出的 extension 文件引用，不能 private
     @StateObject var model = HealthCheckModel()
 
@@ -20,22 +21,26 @@ struct HealthCheckView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
+                    .entrance(delay: 0)
 
                 linkSection
-                if !model.usageSuggestions.isEmpty { usageSection }
-                if !model.unusedApps.isEmpty { unusedSection }
-                if !model.launchAgents.isEmpty { launchAgentSection }
+                    .entrance(delay: 0.05)
+                if !model.usageSuggestions.isEmpty { usageSection.entrance(delay: 0.1) }
+                if !model.unusedApps.isEmpty { unusedSection.entrance(delay: 0.12) }
+                if !model.launchAgents.isEmpty { launchAgentSection.entrance(delay: 0.14) }
                 if model.spotlightIndexing == true {
-                    spotlightSection
+                    spotlightSection.entrance(delay: 0.16)
                 } else if model.spotlightIndexing == false {
-                    spotlightOffSection
+                    spotlightOffSection.entrance(delay: 0.16)
                 }
-                if !model.regressions.isEmpty { regressionSection }
-                if !model.backups.isEmpty { backupSection }
-                if !model.residues.isEmpty { residueSection }
-                if !model.bigFiles.isEmpty { bigFileSection }
-                if model.diskHealth.contains(where: \.isCritical) { diskHealthSection }
-                if !model.lostVolumes.isEmpty { lostVolumeSection }
+                if !model.regressions.isEmpty { regressionSection.entrance(delay: 0.18) }
+                if !model.backups.isEmpty { backupSection.entrance(delay: 0.2) }
+                if !model.residues.isEmpty { residueSection.entrance(delay: 0.22) }
+                if !model.bigFiles.isEmpty { bigFileSection.entrance(delay: 0.24) }
+                if model.diskHealth.contains(where: \.isCritical) {
+                    diskHealthSection.entrance(delay: 0.26)
+                }
+                if !model.lostVolumes.isEmpty { lostVolumeSection.entrance(delay: 0.28) }
                 if model.links.isEmpty && model.backups.isEmpty && model.residues.isEmpty
                     && model.bigFiles.isEmpty && model.regressions.isEmpty
                     && model.usageSuggestions.isEmpty && model.launchAgents.isEmpty
@@ -52,23 +57,36 @@ struct HealthCheckView: View {
     }
 
     private var header: some View {
-        HStack {
-            SectionHeader(title: "体检", systemImage: "stethoscope")
-            Spacer()
-            if model.isChecking {
-                ProgressView()
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                SectionHeader(title: "体检", systemImage: "stethoscope")
+                Spacer()
+                if model.isChecking {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("扫描中...")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .breathe()
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } else {
+                    Button("重新扫描") {
+                        runCheck()
+                        model.computeUsage(apps: appState.apps)
+                    }
                     .controlSize(.small)
-                Text("扫描中...")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            } else {
-                Button("重新扫描") {
-                    runCheck()
-                    model.computeUsage(apps: appState.apps)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
-                    .controlSize(.small)
+            }
+            // 扫描中：微光条扫过，比干转的菊花更有"在干活"的感觉
+            if model.isChecking {
+                ShimmerBar(height: 6)
+                    .transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : Motion.snappy, value: model.isChecking)
     }
 
     private var summary: (healthy: Int, offline: Int, broken: Int) {
@@ -83,9 +101,13 @@ struct HealthCheckView: View {
             let s = summary
             HStack(spacing: 8) {
                 StatusPill("\(s.healthy) 正常", systemImage: "checkmark.circle.fill", color: .green)
+                    .entrance(delay: 0, distance: 8)
                 StatusPill("\(s.offline) 硬盘未连接", systemImage: "externaldrive.badge.exclamationmark", color: s.offline > 0 ? .orange : .secondary)
+                    .entrance(delay: 0.05, distance: 8)
                 StatusPill("\(s.broken) 断链", systemImage: "link.badge.plus", color: s.broken > 0 ? .red : .secondary)
+                    .entrance(delay: 0.1, distance: 8)
             }
+            .animation(reduceMotion ? nil : Motion.snappy, value: s.healthy + s.offline + s.broken)
 
             if s.broken > 0 {
                 Button {

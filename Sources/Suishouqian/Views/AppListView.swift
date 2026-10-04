@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppListView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var searchText = ""
     @State private var selectedApps = Set<UUID>()
     @State private var filterMode: FilterMode = .all
@@ -179,6 +180,8 @@ struct AppListView: View {
                         .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
                 }
                 .listStyle(.plain)
+                // 搜索/排序/筛选变化时，行变更用弹簧过渡（List 行级动画由系统处理）
+                .animation(reduceMotion ? nil : Motion.snappy, value: filteredApps.map(\.id))
             }
 
             // 6.3（Muse 审查附录 A1）：选中操作条——批量迁部分应用与"一键全部"同一执行链

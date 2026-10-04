@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MigrationPanel: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var batchSummary: String?
     @State private var showPlanSheet = false
     private let dataMigrator = DataMigrator()
@@ -31,6 +32,8 @@ struct MigrationPanel: View {
                         ProgressView(value: task.progress)
                             .progressViewStyle(.linear)
                             .tint(.blue)
+                            // 进度跳变时用弹簧跟随，不是一格一格地蹦
+                            .animation(reduceMotion ? nil : Motion.progress, value: task.progress)
 
                         Text(task.currentFile)
                             .font(.system(size: 11))

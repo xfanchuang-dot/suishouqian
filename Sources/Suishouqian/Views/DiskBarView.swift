@@ -20,34 +20,47 @@ struct DiskBarView: View {
                     driveCard(drive: builtin, label: "内置硬盘",
                               icon: "internaldrive.fill", color: .blue)
                         .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
+                        .entrance(delay: 0)
+                        .hoverLift()
                 }
 
-                ForEach(appState.volumeStore.onlineVolumes) { vol in
+                ForEach(Array(appState.volumeStore.onlineVolumes.enumerated()),
+                        id: \.element.id) { idx, vol in
                     driveCard(drive: vol.info,
                               label: vol.displayName,
                               icon: "externaldrive.fill",
                               color: vol.role == .primary ? .green : .teal,
                               badge: vol.role == .primary ? "主盘" : "目标盘")
                         .task(id: vol.info.mountPoint) { probeLink(mount: vol.info.mountPoint) }
+                        // stagger 入场：每张卡晚 60ms，横条从左到右"铺开"
+                        .entrance(delay: Double(idx + 1) * 0.06)
+                        .hoverLift()
                 }
             } else {
                 if let builtin = appState.builtinDrive {
                     driveCard(drive: builtin, label: "内置硬盘",
                               icon: "internaldrive.fill", color: .blue)
                         .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
+                        .entrance(delay: 0)
+                        .hoverLift()
                 }
 
                 if let external = appState.externalDrive {
                     driveCard(drive: external, label: "外置硬盘",
                               icon: "externaldrive.fill", color: .green)
                         .task(id: external.mountPoint) { probeLink(mount: external.mountPoint) }
+                        .entrance(delay: 0.06)
+                        .hoverLift()
                 } else {
                     offlineCard
+                        .entrance(delay: 0.06)
                 }
             }
 
             GlobalTaskCapsule()   // v3.1 附录 A2：任何面板都能看到在跑的任务
         }
+        // 任务胶囊出现/消失、卡片增减时布局用弹簧过渡
+        .animation(reduceMotion ? nil : Motion.snappy, value: appState.migrationTask?.id)
         // 换线缆/换盒子后重插同一路径：旧链路结论必须作废重探
         .onChange(of: appState.externalDrive?.mountPoint) { _, new in
             guard let new, !new.isEmpty else { return }
@@ -140,7 +153,7 @@ struct DiskBarView: View {
                         .frame(width: max(6, geo.size.width * drive.usageRatio),
                                height: 6)
                         // 空间变化时用量条平滑伸缩（拔盘迁移后立即可感知）
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.4),
+                        .animation(reduceMotion ? nil : Motion.progress,
                                    value: drive.freeSize)
                 }
             }
