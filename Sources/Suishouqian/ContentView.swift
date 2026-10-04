@@ -27,21 +27,58 @@ struct ContentView: View {
     // MARK: - 侧边栏
 
     private var sidebar: some View {
-        List(selection: $appState.activePanel) {
-            Label("概览", systemImage: "speedometer").tag(Panel.overview)
-            Label("应用", systemImage: "square.grid.2x2.fill").tag(Panel.apps)
-            Label("迁移", systemImage: "arrow.left.arrow.right").tag(Panel.migrate)
-            Label("体检", systemImage: "stethoscope").tag(Panel.health)
-            Label("数据", systemImage: "cylinder.fill").tag(Panel.data)
-            Label("设置", systemImage: "gearshape.fill").tag(Panel.settings)
+        // 效果图：选中行是「浅紫底 + 紫图标/紫字」，系统 List 只能给实色 accent 胶囊，
+        // 所以侧栏导航改自绘（按钮行 + 圆角浅紫底），行为与 List 选中等价。
+        VStack(alignment: .leading, spacing: 2) {
+            sidebarRow("概览", icon: "chart.pie", panel: .overview)
+            sidebarRow("应用", icon: "square.grid.2x2", panel: .apps)
+            sidebarRow("迁移", icon: "arrow.left.arrow.right", panel: .migrate)
+            sidebarRow("体检", icon: "checkmark.shield", panel: .health)
+            sidebarRow("数据", icon: "cylinder", panel: .data)
+            sidebarRow("设置", icon: "gearshape", panel: .settings)
+            Spacer(minLength: 0)
         }
-        .listStyle(.sidebar)
+        .padding(.horizontal, 8)
+        .padding(.top, 10)
+        .frame(maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 230)
         .safeAreaInset(edge: .bottom) {
             sidebarDiskCard
                 .padding(.horizontal, 10)
                 .padding(.bottom, 8)
         }
+    }
+
+    /// 效果图紫：选中行高亮与图标着色统一用它
+    private static let sidebarAccent = Color(red: 0.44, green: 0.36, blue: 0.93)
+
+    /// 侧边栏行：未选中＝细线灰图标+深色字；选中＝浅紫圆角底+fill 图标+紫字
+    private func sidebarRow(_ title: String, icon: String, panel: Panel) -> some View {
+        let selected = appState.activePanel == panel
+        return Button {
+            appState.activePanel = panel
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .symbolVariant(selected ? .fill : .none)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(selected ? Self.sidebarAccent : .secondary)
+                    .frame(width: 20, alignment: .center)
+                Text(title)
+                    .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                    .foregroundColor(selected ? Self.sidebarAccent : .primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(selected ? Self.sidebarAccent.opacity(0.13) : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 无填充变体的符号（如双箭头）保持原样即可
     }
 
     /// 左下角磁盘卡（效果图方向）：内置盘用量条 + 外置盘摘要，点按去概览看全貌
