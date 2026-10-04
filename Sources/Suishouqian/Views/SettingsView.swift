@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// 设置（效果图版）：顶部胶囊页签（通用/备份/外置盘守护）+ 标题/副标题/右侧开关行。
 /// 侧栏设置页与 ⌘, 独立窗口共用本视图。
@@ -22,12 +23,16 @@ struct SettingsView: View {
     @State private var daemonOn = LaunchAgentManager.isInstalled
     @State private var tab: Tab = .general
 
-    enum Tab: Hashable { case general, backup, watch }
+    enum Tab: Hashable { case general, backup, watch, about }
+
+    /// 检查更新用（懒启动：点按钮才拉 Sparkle，无启动开销；两实例各自持有无妨）
+    @State private var updateManager = UpdateManager()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             MockCapsuleTabs(
-                tabs: [(.general, "通用"), (.backup, "备份"), (.watch, "外置盘守护")],
+                tabs: [(.general, "通用"), (.backup, "备份"), (.watch, "外置盘守护"),
+                       (.about, "关于")],
                 selection: $tab)
 
             ScrollView {
@@ -36,6 +41,7 @@ struct SettingsView: View {
                     case .general: generalRows
                     case .backup: backupRows
                     case .watch: watchRows
+                    case .about: aboutRows
                     }
                 }
             }
@@ -219,5 +225,53 @@ struct SettingsView: View {
         switchRow("在菜单栏显示随手迁（实验）",
                   "只显示各盘可用空间和打开/退出入口，不做后台轮询",
                   isOn: $menuBarExtra)
+    }
+
+    // MARK: - 关于
+
+    private static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+            as? String ?? "?"
+    }
+
+    @ViewBuilder
+    private var aboutRows: some View {
+        // 头部：应用图标 + 名称 + 版本 + 一句话定位
+        HStack(spacing: 16) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("随手迁")
+                    .font(.system(size: 18, weight: .bold))
+                Text("版本 \(Self.appVersion)")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text("把内置盘上的大应用安全搬到外置磁盘，释放空间")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 16)
+        rowDivider
+        row("检查更新...",
+            "通过 Sparkle 更新通道检查新版本（未配置通道时会说明原因）") {
+            Button("检查") { updateManager.checkForUpdates() }
+                .buttonStyle(.bordered)
+        }
+        rowDivider
+        row("关于面板",
+            "系统标准的应用信息与版权面板") {
+            Button("打开") { NSApp.orderFrontStandardAboutPanel(nil) }
+                .buttonStyle(.bordered)
+        }
+        rowDivider
+        Text("© 2026 随手迁 · 为个人 Mac 打造的应用迁移工具")
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 16)
     }
 }
