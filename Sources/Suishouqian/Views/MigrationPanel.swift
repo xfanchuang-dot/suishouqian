@@ -239,26 +239,6 @@ struct MigrationPanel: View {
         .frame(maxWidth: .infinity)
     }
     
-    var taskIcon: String {
-        guard let task = appState.migrationTask else { return "" }
-        switch task.operation {
-        case .migrate: return "arrow.right.circle.fill"
-        case .restore: return "arrow.left.circle.fill"
-        case .uninstall: return "trash.circle.fill"
-        case .relocate: return "externaldrive.connected.to.line.below"
-        }
-    }
-    
-    var taskColor: Color {
-        guard let task = appState.migrationTask else { return .blue }
-        switch task.operation {
-        case .migrate: return .blue
-        case .restore: return .orange
-        case .uninstall: return .red
-        case .relocate: return .purple
-        }
-    }
-    
     var taskTitle: String {
         guard let task = appState.migrationTask else { return "" }
         let name = task.app.name
