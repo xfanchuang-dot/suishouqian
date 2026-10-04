@@ -30,11 +30,13 @@ struct OverviewPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-
+            VStack(alignment: .leading, spacing: 16) {
+                // —— 效果图头部：大标题 + 双盘卡 + 三统计卡 + 健康评分横幅 ——
+                titleRow
+                diskCardsRow
+                statCardsRow
                 if let score = healthScore {
-                    healthCard(score)
+                    healthBanner(score)
                 }
 
                 if let missing = tmMissingDirs, !missing.isEmpty, !tmDismissed {
@@ -66,6 +68,149 @@ struct OverviewPanel: View {
         .onChange(of: appState.activePanel) { _, panel in
             if panel == .overview { runCheck() }
         }
+    }
+
+    // MARK: - 效果图头部组件
+
+    private var titleRow: some View {
+        HStack {
+            MockPageTitle(text: "概览")
+            if isChecking {
+                ProgressView().controlSize(.small)
+            } else {
+                Button { runCheck() } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("重新检查")
+            }
+        }
+    }
+
+    /// 双盘卡（效果图：内置盘紫条 / 外置盘绿条，已用百分比 + 用量/总量）
+    private var diskCardsRow: some View {
+        HStack(spacing: 16) {
+            if let builtin = appState.builtinDrive {
+                diskCard(
+                    icon: "internaldrive.fill", iconColor: MockTheme.accent,
+                    name: "内置磁盘",
+                    detail: "已用 \(Int(builtin.usageRatio * 100))% · \(usedText(builtin)) / \(builtin.totalFormatted)",
+                    ratio: builtin.usageRatio, bar: MockTheme.builtinBar)
+            }
+            if let external = appState.externalDrive {
+                diskCard(
+                    icon: "externaldrive.fill", iconColor: MockTheme.accent,
+                    name: external.name,
+                    detail: "已用 \(Int(external.usageRatio * 100))% · \(usedText(external)) / \(external.totalFormatted)",
+                    ratio: external.usageRatio, bar: MockTheme.externalBar)
+            } else {
+                diskCard(
+                    icon: "externaldrive.badge.exclamationmark", iconColor: .secondary,
+                    name: "外置盘未连接",
+                    detail: "接入后这里显示用量与剩余空间",
+                    ratio: 0, bar: MockTheme.externalBar)
+            }
+        }
+    }
+
+    private func usedText(_ drive: DriveInfo) -> String {
+        ByteCountFormatter.string(fromByteCount: drive.totalSize - drive.freeSize, countStyle: .file)
+    }
+
+    private func diskCard(icon: String, iconColor: Color, name: String,
+                          detail: String, ratio: Double, bar: LinearGradient) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                MockIconSquare(systemImage: icon, color: iconColor, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            MockUsageBar(ratio: ratio, gradient: bar, height: 10)
+        }
+        .mockCard()
+    }
+
+    /// 三统计卡（效果图：图标方块 + 大数字 + 小标签）
+    private var statCardsRow: some View {
+        let offInternal = appState.apps.filter {
+            $0.status == .migrated || $0.status == .externalOnly
+        }.count
+        let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
+        return HStack(spacing: 16) {
+            statCard(icon: "square.grid.2x2.fill", color: MockTheme.accent,
+                     value: "\(appState.apps.count)", label: "应用总数")
+            statCard(icon: "arrow.up.right", color: MockTheme.statOrange,
+                     value: "\(offInternal)", label: "已迁移")
+            statCard(icon: "leaf.fill", color: MockTheme.healthGreen,
+                     value: savable > 0
+                        ? ByteCountFormatter.string(fromByteCount: savable, countStyle: .file)
+                        : "0 GB",
+                     label: "可省空间")
+        }
+    }
+
+    private func statCard(icon: String, color: Color, value: String, label: String) -> some View {
+        VStack(spacing: 8) {
+            MockIconSquare(systemImage: icon, color: color, size: 44)
+            Text(value)
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .mockCard()
+    }
+
+    /// 健康评分横幅（效果图：浅绿渐变底，盾勾图标 + 标题/副标题 + 右侧大分数）
+    private func healthBanner(_ score: HealthScore.Result) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.shield.fill")
+                .font(.system(size: 26))
+                .foregroundColor(MockTheme.healthGreen)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("健康评分")
+                    .font(.system(size: 16, weight: .semibold))
+                Text(score.topAction ?? "系统运行良好，无异常")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(score.score)分")
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .foregroundColor(scoreColor(score.score))
+                Text("评级 \(score.grade)")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous)
+                .fill(MockTheme.healthBanner)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous)
+                .strokeBorder(MockTheme.healthGreen.opacity(0.25))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { appState.activePanel = .health }
+        .help("查看体检明细")
     }
 
     // MARK: - 建议动作模型
@@ -159,19 +304,6 @@ struct OverviewPanel: View {
     }
 
     // MARK: - 视图
-
-    private var header: some View {
-        HStack {
-            SectionHeader(title: "总览", systemImage: "list.clipboard")
-            Spacer()
-            if isChecking {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("重新检查") { runCheck() }
-                    .controlSize(.small)
-            }
-        }
-    }
 
     private func row(_ action: ActionItem) -> some View {
         HStack(spacing: 10) {
@@ -317,47 +449,7 @@ struct OverviewPanel: View {
         }
     }
 
-    // MARK: - 健康分卡
-
-    private func healthCard(_ score: HealthScore.Result) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .stroke(scoreColor(score.score).opacity(0.2), lineWidth: 6)
-                Circle()
-                    .trim(from: 0, to: CGFloat(score.score) / 100)
-                    .stroke(scoreColor(score.score), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Text("\(score.score)")
-                    .font(.system(size: 17, weight: .heavy, design: .rounded))
-            }
-            .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("外置盘健康分 · \(score.grade)")
-                    .font(.system(size: 13, weight: .medium))
-                if let action = score.topAction {
-                    Text(action)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                } else {
-                    Text("断链、备份、残留、链路都查过了，没有扣分项")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-
-            Button("去体检") { appState.activePanel = .health }
-                .controlSize(.small)
-                .buttonStyle(.bordered)
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .cardStyle()
-    }
+    // MARK: - 健康分
 
     private func scoreColor(_ score: Int) -> Color {
         switch score {

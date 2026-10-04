@@ -17,9 +17,22 @@ struct ContentView: View {
                 .navigationSubtitle(subtitle)
         }
         .onAppear {
+            // 无人值守截图通道：SSQ_PANEL=0..5 直接落到指定页面（概览/迁移/体检/数据/应用/设置）
+            if let raw = ProcessInfo.processInfo.environment["SSQ_PANEL"],
+               let v = Int(raw), let panel = Panel(rawValue: v) {
+                appState.activePanel = panel
+            }
             appState.refreshDrives()
             Task { @MainActor in
                 await appState.scanApps()
+            }
+            // 锁屏/无头下 screencapture 不可用：SSQ_SHOT=/path.png 时延迟自拍后退出
+            if let shot = ProcessInfo.processInfo.environment["SSQ_SHOT"] {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 8_000_000_000)
+                    Self.captureWindow(to: shot)
+                    NSApp.terminate(nil)
+                }
             }
         }
     }
@@ -205,41 +218,48 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detail: some View {
-        VStack(spacing: 0) {
+        Group {
             switch appState.activePanel {
             case .apps:
                 AppListView()
+                    .mockPage()
             case .settings:
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "设置", systemImage: "gearshape.fill")
-                        .padding(.horizontal, 24)
-                        .padding(.top, 16)
+                // 效果图：大白卡内 = 胶囊页签 + 开关行 + 底部统计条
+                VStack(spacing: 0) {
                     SettingsView()
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(Color.primary.opacity(0.05))
-                        )
-                        .padding(.horizontal, 12)
-                    Spacer()
+                        .padding(.horizontal, 28)
+                        .padding(.top, 24)
+                    Divider().padding(.horizontal, 24)
+                    MockBottomBar(items: statsItems)
                 }
-            default:
-                // 概览/迁移/体检/数据保留顶部磁盘横条（SMART 圆点/测速/离线卡都在这）
+                .mockPage()
+            case .health:
+                // 体检页无效果图：保留磁盘横条（SMART 圆点/测速/离线卡都在这）
                 VStack(spacing: 14) {
                     DiskBarView()
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
-                    panelContent
+                    HealthCheckView().padding(.horizontal, 20)
                 }
+            case .overview:
+                OverviewPanel()
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .mockPage()
+            case .migrate:
+                MigrationPanel()
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .mockPage()
+            case .data:
+                DataPanelView()
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .mockPage()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // 效果图皮肤：灰窗底，内容浮在白色卡片上（各页自己包卡）
+        // 效果图皮肤：灰窗底，内容浮在白色大圆角卡上
         .background(Color(NSColor.windowBackgroundColor))
         // 任务胶囊浮在内容区顶部：任何页面（含应用/设置）都能看到在跑的任务
         .overlay(alignment: .top) {
@@ -250,15 +270,29 @@ struct ContentView: View {
                    value: appState.activePanel)
     }
 
-    @ViewBuilder
-    private var panelContent: some View {
-        switch appState.activePanel {
-        case .overview: OverviewPanel().padding(.horizontal, 20)
-        case .migrate: MigrationPanel().padding(.horizontal, 20)
-        case .health: HealthCheckView().padding(.horizontal, 20)
-        case .data: DataPanelView().padding(.horizontal, 20)
-        default: EmptyView()
+    /// 效果图底栏统一口径（应用/设置页共用）：N 个应用 · N 在外置盘 · 可省 N
+    private var statsItems: [String] {
+        let offInternal = appState.apps.filter {
+            $0.status == .migrated || $0.status == .externalOnly
+        }.count
+        let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
+        var items = ["\(appState.apps.count) 个应用", "\(offInternal) 在外置盘"]
+        if savable > 0 {
+            items.append("可省 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))")
         }
+        return items
+    }
+
+    /// 应用内截图（锁屏也能拍：直接渲染窗口内容位图，不走系统截屏服务）
+    @MainActor
+    private static func captureWindow(to path: String) {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }),
+              let view = window.contentView else { return }
+        let rect = view.bounds
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: rect) else { return }
+        view.cacheDisplay(in: rect, to: rep)
+        try? rep.representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: path))
     }
 
     /// 窗口副标题：外置盘状态一目了然

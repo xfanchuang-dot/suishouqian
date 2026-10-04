@@ -10,6 +10,10 @@ struct DataPanelView: View {
     @State private var isScanning = false
     @State private var activeTaskTitle: String?
     @State private var lastError: String?
+    /// 备份总量（所有在线外置卷 .suishouqian-backup 目录的真实大小）
+    @State private var backupBytes: Int64 = 0
+    /// 备份问题项（孤儿/超期，来自体检引擎 overview 口径）
+    @State private var backupIssues: [BackupIssue] = []
 
     private let dataMigrator = DataMigrator()
 
@@ -17,30 +21,151 @@ struct DataPanelView: View {
     private var displayItems: [DataMigrator.DataLocationItem] { items + customItems }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-                hint
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // —— 效果图：数据存储概览（三色分段条 + 圆点图例，全部真实口径）——
+                    MockPageTitle(text: "数据存储概览")
+                    storageOverview
 
-                if !divergences.isEmpty { divergenceSection }
+                    // —— 效果图：备份记录（真实问题项；清理入口在体检页，单一破坏性入口原则）——
+                    backupSection
 
-                ForEach(displayItems) { item in
-                    row(item)
+                    header
+                    hint
+
+                    if !divergences.isEmpty { divergenceSection }
+
+                    ForEach(displayItems) { item in
+                        row(item)
+                    }
+
+                    if displayItems.isEmpty && !isScanning {
+                        emptyState
+                    }
+
+                    if let error = lastError {
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundColor(.red)
+                    }
                 }
+                .padding(.vertical, 4)
+            }
+            .onAppear { rescan() }
 
-                if displayItems.isEmpty && !isScanning {
-                    emptyState
+            Divider().padding(.horizontal, 4)
+            // 效果图底栏摘要（真实口径）
+            MockBottomBar(items: bottomItems)
+        }
+    }
+
+    // MARK: - 数据存储概览（效果图三段条）
+
+    /// 三段：迁移备份（蓝）/ 台账管理的应用数据（紫）/ 其他数据（绿，= 外置盘已用 − 前两项）
+    private var storageOverview: some View {
+        let dataBytes = displayItems.filter(\.managedByUs).reduce(Int64(0)) { $0 + $1.sizeBytes }
+        let externalUsed = appState.externalDrive.map { $0.totalSize - $0.freeSize } ?? 0
+        let otherBytes = max(externalUsed - backupBytes - dataBytes, 0)
+        let segments = [
+            MockSegment(label: "迁移备份", bytes: backupBytes,
+                        color: Color(red: 0.23, green: 0.51, blue: 0.96)),
+            MockSegment(label: "应用数据", bytes: dataBytes, color: MockTheme.accent),
+            MockSegment(label: "其他数据", bytes: otherBytes,
+                        color: Color(red: 0.20, green: 0.78, blue: 0.55)),
+        ]
+        return VStack(alignment: .leading, spacing: 14) {
+            MockSegmentedBar(segments: segments)
+            HStack(spacing: 20) {
+                ForEach(segments) { seg in
+                    HStack(spacing: 6) {
+                        Circle().fill(seg.color).frame(width: 8, height: 8)
+                        Text("\(seg.label) \(seg.formatted)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
                 }
+                Spacer()
+            }
+        }
+    }
 
-                if let error = lastError {
-                    Text(error)
-                        .font(.system(size: 12))
-                        .foregroundColor(.red)
+    // MARK: - 备份记录（效果图行样式：图标方块 + 标题/副标题 + 大小 + 箭头）
+
+    private var backupSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("备份记录")
+                    .font(.system(size: 20, weight: .bold))
+                Spacer()
+                if !backupIssues.isEmpty {
+                    Button("清理残留") { appState.activePanel = .health }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color(red: 0.90, green: 0.35, blue: 0.45))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule().strokeBorder(
+                                Color(red: 0.90, green: 0.35, blue: 0.45).opacity(0.6),
+                                lineWidth: 1)
+                        )
+                        .buttonStyle(.plain)
+                        .help("去体检页清理（破坏性操作全软件只保留一个入口）")
                 }
             }
-            .padding(.vertical, 4)
+
+            if backupIssues.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(MockTheme.healthGreen)
+                    Text(backupBytes > 0
+                         ? "备份健康：没有孤儿或超期备份需要清理"
+                         : "还没有迁移备份，第一次迁移后会自动留底")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .mockCard()
+            } else {
+                ForEach(backupIssues) { issue in
+                    HStack(spacing: 12) {
+                        MockIconSquare(
+                            systemImage: "doc.fill",
+                            color: issue.isOrphan ? MockTheme.accent : MockTheme.healthGreen,
+                            size: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(issue.appName)
+                                .font(.system(size: 15, weight: .semibold))
+                            Text(issue.isOrphan
+                                 ? "孤儿备份（应用已不在）· \(issue.ageDays) 天前"
+                                 : "超过保留期 · \(issue.ageDays) 天前")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Text(issue.sizeFormatted)
+                            .font(.system(size: 15, weight: .semibold))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .mockCard(padding: 14)
+                    .contentShape(Rectangle())
+                    .onTapGesture { appState.activePanel = .health }
+                }
+            }
         }
-        .onAppear { rescan() }
+    }
+
+    private var bottomItems: [String] {
+        let releasable = backupIssues.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        var items = [
+            "共 \(backupIssues.count) 条待清理备份",
+            "备份占用 \(ByteCountFormatter.string(fromByteCount: backupBytes, countStyle: .file))",
+        ]
+        if releasable > 0 {
+            items.append("可释放 \(ByteCountFormatter.string(fromByteCount: releasable, countStyle: .file))")
+        }
+        return items
     }
 
     private var header: some View {
@@ -213,18 +338,30 @@ struct DataPanelView: View {
     private func rescan() {
         isScanning = true
         lastError = nil
+        let drive = appState.externalDrive?.mountPoint
+        let apps = appState.apps
+        let mounts = appState.volumeStore.onlineVolumes.map { $0.info.mountPoint }
         Task {
             // 6.6（Muse 审查）：heal 是同步 IO，OffPool 包一层，不占协作线程池
             _ = await OffPool.run { dataMigrator.healDataLinks() }
             let scanned = await dataMigrator.scanDataLocations()
             let custom = await dataMigrator.scanCustomItems()
             let diverged = await dataMigrator.checkDivergences()
+            // 效果图「数据存储概览」需要备份真实总量：逐卷扫 .suishouqian-backup（IO 走 OffPool）
+            let backupTotal = await OffPool.run {
+                mounts.flatMap { BackupLocations.backupRoots(for: $0) }
+                    .reduce(Int64(0)) { $0 + AppScanner.directorySizeBytes(atPath: $1) }
+            }
+            // 备份问题项：与总览同一引擎口径（overview scope 含备份检查，跳过最慢的两项）
+            let report = await appState.checkEngine.run(drivePath: drive, apps: apps, scope: .overview)
             // @State 必须主线程写：Task 里的 await 会把续体切到协作池，
             // 原 MainActor.run 不是多余的（自审：替换 rescan 时曾被误删）
             await MainActor.run {
                 items = scanned
                 customItems = custom
                 divergences = diverged
+                backupBytes = backupTotal
+                backupIssues = report.backups
                 isScanning = false
             }
         }

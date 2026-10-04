@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 设置窗口（⌘,）：通用提醒 / 备份 / 外置盘守护
+/// 设置（效果图版）：顶部胶囊页签（通用/备份/外置盘守护）+ 标题/副标题/右侧开关行。
+/// 侧栏设置页与 ⌘, 独立窗口共用本视图。
 /// 开关统一走 UserDefaults（App.swift 里注册默认值），
 /// 业务侧每轮 tick/发送前读取，改完即时生效、无需重启。
 struct SettingsView: View {
@@ -19,65 +20,102 @@ struct SettingsView: View {
     /// 升级顶掉自动重迁（opt-in，默认关）
     @AppStorage(AutoRemigrateService.enabledKey) private var autoRemigrate = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
+    @State private var tab: Tab = .general
+
+    enum Tab: Hashable { case general, backup, watch }
 
     var body: some View {
-        TabView {
-            generalForm
-                .tabItem { Label("通用", systemImage: "gearshape") }
-            backupForm
-                .tabItem { Label("备份", systemImage: "archivebox") }
-            guardForm
-                .tabItem { Label("外置盘守护", systemImage: "bolt.badge.clock") }
+        VStack(alignment: .leading, spacing: 18) {
+            MockCapsuleTabs(
+                tabs: [(.general, "通用"), (.backup, "备份"), (.watch, "外置盘守护")],
+                selection: $tab)
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    switch tab {
+                    case .general: generalRows
+                    case .backup: backupRows
+                    case .watch: watchRows
+                    }
+                }
+            }
         }
-        .frame(width: 480)
+        .padding(4)
+    }
+
+    // MARK: - 行组件（效果图：粗标题 + 灰副标题 + 右侧控件，行间发丝分隔线）
+
+    private func switchRow(_ title: String, _ subtitle: String,
+                           isOn: Binding<Bool>, disabled: Bool = false,
+                           onChange: ((Bool) -> Void)? = nil) -> some View {
+        row(title, subtitle) {
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(.blue)  // 效果图：开启态为蓝色开关
+                .disabled(disabled)
+                .onChange(of: isOn.wrappedValue) { _, new in onChange?(new) }
+        }
+    }
+
+    private func row<Control: View>(_ title: String, _ subtitle: String,
+                                    @ViewBuilder control: () -> Control) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            control()
+        }
+        .padding(.vertical, 14)
+    }
+
+    private var rowDivider: some View {
+        Divider().opacity(0.6)
     }
 
     // MARK: - 通用
 
-    private var generalForm: some View {
-        Form {
-            Section("提醒") {
-                Toggle("内置盘空间守卫", isOn: $spaceGuard)
-                Text("内置盘可用空间低于 40GB 时提醒，并附上可迁移应用清单。")
-                    .settingHint()
-                Toggle("新装大应用提醒", isOn: $newAppReminder)
-                Text("发现新安装的 ≥500MB 应用时，提醒是否搬到外置硬盘。")
-                    .settingHint()
-                Toggle("系统通知", isOn: $notifications)
-                Text("迁移完成/失败、插拔盘、空间告警等通知的总开关。")
-                    .settingHint()
-            }
-
-            Section("升级顶掉自动恢复") {
-                Toggle("应用升级顶掉链接后自动重新迁移", isOn: $autoRemigrate)
-                    .onChange(of: autoRemigrate) { _, on in
-                        AuditLog.append("自动重迁开关：\(on ? "开" : "关")")
-                    }
-                Text("应用自带更新器升级时会把软链接换回真目录。开启后，启动/插盘时自动检测并重新迁移。App Store 应用不会自动处理（更新会再次顶掉，需手动）。")
-                    .settingHint()
-            }
-
-            Section("系统授权（各授予一次，更新重装不失效）") {
-                authorizationRow(
-                    title: "修改其他应用（App Management）",
-                    detail: "迁移/回迁/修复都要改动 /Applications。不授予会反复弹「想要修改其他应用程序」。",
-                    pane: "com.apple.preference.security?Privacy_AppManagement",
-                    statusText: "建议授予")
-                Text("注：迁移系统自带安装的、属于 root 的应用时仍会要求输入一次管理员密码（安全设计，5 分钟内连续迁移只输一次），这是正常的，无法也不应绕过。")
-                    .settingHint()
-            }
-
-            Section("大文件扫描范围") {
-                Toggle("扩展扫描桌面/文稿/下载", isOn: $bigFileExtended)
-                    .onChange(of: bigFileExtended) { _, on in
-                        guard on else { return }
-                        confirmExtendedScan()
-                    }
-                Text("默认只扫描「资源库」，零权限弹窗。开启前请先在上方「系统授权」授予完全磁盘访问权限，否则桌面/文稿/下载扫描不到内容、且可能反复弹授权框。")
-                    .settingHint()
-            }
+    @ViewBuilder
+    private var generalRows: some View {
+        switchRow("内置盘空间守卫",
+                  "内置盘可用空间低于 40GB 时提醒，并附上可迁移应用清单",
+                  isOn: $spaceGuard)
+        rowDivider
+        switchRow("新装大应用提醒",
+                  "发现新安装的 ≥500MB 应用时，提醒是否搬到外置硬盘",
+                  isOn: $newAppReminder)
+        rowDivider
+        switchRow("系统通知",
+                  "迁移完成/失败、插拔盘、空间告警等通知的总开关",
+                  isOn: $notifications)
+        rowDivider
+        switchRow("升级顶掉后自动重新迁移",
+                  "应用自带更新器会把软链接换回真目录；开启后启动/插盘时自动检测并重迁（App Store 应用需手动）",
+                  isOn: $autoRemigrate) { on in
+            AuditLog.append("自动重迁开关：\(on ? "开" : "关")")
         }
-        .formStyle(.grouped)
+        rowDivider
+        switchRow("扩展扫描桌面/文稿/下载",
+                  "默认只扫「资源库」零权限弹窗；开启前请先在下方授予完全磁盘访问权限",
+                  isOn: $bigFileExtended) { on in
+            if on { confirmExtendedScan() }
+        }
+        rowDivider
+        row("修改其他应用（App Management）",
+            "迁移/回迁/修复都要改动 /Applications；不授予会反复弹「想要修改其他应用程序」。迁移系统自带 root 应用时仍会要一次管理员密码（安全设计，无法也不应绕过）") {
+            Button("去授权") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .controlSize(.small)
+        }
     }
 
     /// 开启扩展扫描前的知情确认（无法静默探测授权状态，用引导代替）
@@ -101,130 +139,85 @@ struct SettingsView: View {
         }
     }
 
-    private func authorizationRow(title: String, detail: String,
-                                  pane: String, statusText: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                Spacer()
-                Text(statusText)
-                    .font(.system(size: 11, weight: statusText.hasPrefix("已") ? .semibold : .regular))
-                    .foregroundColor(statusText.hasPrefix("已") ? .green : .secondary)
-                Button("去授权") {
-                    if let url = URL(string: "x-apple.systempreferences:\(pane)") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                .controlSize(.small)
-            }
-            Text(detail)
-                .font(.footnote)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     // MARK: - 备份
 
-    private var backupForm: some View {
-        Form {
-            Section("备份保留") {
-                Picker("迁移前备份保留", selection: $backupDays) {
-                    Text("7 天").tag(7)
-                    Text("14 天").tag(14)
-                    Text("30 天").tag(30)
-                    Text("90 天").tag(90)
-                }
-                .pickerStyle(.menu)
-                Text("每次迁移会在外置盘 .suishouqian-backup 目录留底，超过保留期后在下次扫描时自动清理；回迁成功后对应备份即被回收。")
-                    .settingHint()
+    @ViewBuilder
+    private var backupRows: some View {
+        row("迁移前备份保留",
+            "每次迁移在外置盘 .suishouqian-backup 留底，超期后下次扫描自动清理；回迁成功即回收") {
+            Picker("", selection: $backupDays) {
+                Text("7 天").tag(7)
+                Text("14 天").tag(14)
+                Text("30 天").tag(30)
+                Text("90 天").tag(90)
             }
-
-            Section("备份存放位置") {
-                Picker("备份盘", selection: $backupVolume) {
-                    Text("与应用同盘（默认）").tag("")
-                    ForEach(appState.volumeStore.onlineVolumes) { vol in
-                        Text(vol.displayName).tag(vol.id)
-                    }
+            .pickerStyle(.menu)
+            .frame(width: 110)
+        }
+        rowDivider
+        row("备份存放位置",
+            "放另一块外置盘：盘体物理损坏时应用与备份不同时丢失。只影响新备份；指定盘离线自动回退同盘") {
+            Picker("", selection: $backupVolume) {
+                Text("与应用同盘").tag("")
+                ForEach(appState.volumeStore.onlineVolumes) { vol in
+                    Text(vol.displayName).tag(vol.id)
                 }
-                .pickerStyle(.menu)
-                .onChange(of: backupVolume) { _, new in
-                    BackupLocations.alternateVolumeUUID = new.isEmpty ? nil : new
-                    if new.isEmpty {
-                        AuditLog.append("备份存放位置：改回「与应用同盘」")
-                    } else {
-                        let name = appState.volumeStore.volumes
-                            .first { $0.id == new }?.displayName ?? new
-                        AuditLog.append("备份存放位置：指定为「\(name)」")
-                    }
-                }
-                Text("把新备份放到另一块外置盘：盘体物理损坏时应用与备份不同时丢失。只影响新备份；已有备份仍在原位置，体检与清理会继续覆盖它们。指定盘离线时自动回退同盘。")
-                    .settingHint()
             }
-
-            Section("审计日志") {
-                Button("打开审计日志") {
-                    NSWorkspace.shared.activateFileViewerSelecting(
-                        [AuditLog.currentLogURL])
+            .pickerStyle(.menu)
+            .frame(width: 160)
+            .onChange(of: backupVolume) { _, new in
+                BackupLocations.alternateVolumeUUID = new.isEmpty ? nil : new
+                if new.isEmpty {
+                    AuditLog.append("备份存放位置：改回「与应用同盘」")
+                } else {
+                    let name = appState.volumeStore.volumes
+                        .first { $0.id == new }?.displayName ?? new
+                    AuditLog.append("备份存放位置：指定为「\(name)」")
                 }
-                Text("迁移、回迁、卸载、修复、备份清理的全部操作记录，出问题时可回答“这个应用什么时候被动过”。")
-                    .settingHint()
             }
         }
-        .formStyle(.grouped)
+        rowDivider
+        row("审计日志",
+            "迁移、回迁、卸载、修复、备份清理的全部操作记录，可回答「这个应用什么时候被动过」") {
+            Button("打开日志") {
+                NSWorkspace.shared.activateFileViewerSelecting([AuditLog.currentLogURL])
+            }
+            .controlSize(.small)
+        }
     }
 
     // MARK: - 外置盘守护
 
-    private var guardForm: some View {
-        Form {
-            Section("插盘自动打开") {
-                Toggle("外置硬盘接入时自动打开随手迁", isOn: $daemonOn)
-                    .disabled(appState.externalDrive == nil && !daemonOn)
-                    .onChange(of: daemonOn) { _, on in
-                        let ok: Bool
-                        if on {
-                            if let mount = appState.externalDrive?.mountPoint {
-                                // 只监听该盘挂载点 + 挂载边沿检测，
-                                // 不会因盘上文件变动或 Time Machine 快照误触发
-                                ok = LaunchAgentManager.install(watchPath: mount)
-                            } else {
-                                ok = false
-                            }
-                        } else {
-                            ok = LaunchAgentManager.uninstall()
-                        }
-                        if ok != on { daemonOn = ok }  // 失败回弹到真实状态
-                    }
-
-                if let drive = appState.externalDrive {
-                    LabeledContent("当前外置硬盘",
-                                   value: "\(drive.name)（\(drive.mountPoint)）")
+    @ViewBuilder
+    private var watchRows: some View {
+        switchRow("外置硬盘接入时自动打开随手迁",
+                  appState.externalDrive == nil && !daemonOn
+                    ? "插入外置硬盘后才能开启"
+                    : "仅在「未挂载 → 已挂载」瞬间唤起一次，应用已在运行时不重复打开",
+                  isOn: $daemonOn,
+                  disabled: appState.externalDrive == nil && !daemonOn) { on in
+            let ok: Bool
+            if on {
+                if let mount = appState.externalDrive?.mountPoint {
+                    ok = LaunchAgentManager.install(watchPath: mount)
                 } else {
-                    LabeledContent("当前外置硬盘", value: "未连接")
+                    ok = false
                 }
-                Text(appState.externalDrive == nil && !daemonOn
-                     ? "插入外置硬盘后才能开启。"
-                     : "仅在“未挂载 → 已挂载”的瞬间唤起一次，应用已在运行时不重复打开。")
-                    .settingHint()
+            } else {
+                ok = LaunchAgentManager.uninstall()
             }
-
-            Section("菜单栏常驻（实验）") {
-                Toggle("在菜单栏显示随手迁", isOn: $menuBarExtra)
-                Text("只显示各盘可用空间和打开/退出入口，不做后台轮询。")
-                    .settingHint()
-            }
+            if ok != on { daemonOn = ok }  // 失败回弹到真实状态
         }
-        .formStyle(.grouped)
-    }
-}
-
-/// 设置页说明文字统一小号灰字
-private extension View {
-    func settingHint() -> some View {
-        font(.footnote)
-            .foregroundColor(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+        rowDivider
+        row("当前外置硬盘",
+            appState.externalDrive.map { "\($0.name)（\($0.mountPoint)）" } ?? "未连接") {
+            Image(systemName: appState.externalDrive == nil
+                  ? "externaldrive.badge.exclamationmark" : "externaldrive.fill")
+                .foregroundColor(appState.externalDrive == nil ? .secondary : .green)
+        }
+        rowDivider
+        switchRow("在菜单栏显示随手迁（实验）",
+                  "只显示各盘可用空间和打开/退出入口，不做后台轮询",
+                  isOn: $menuBarExtra)
     }
 }

@@ -8,140 +8,156 @@ struct MigrationPanel: View {
     private let dataMigrator = DataMigrator()
     
     var body: some View {
-        // v3.0: 包上 ScrollView（与总览/体检/数据三面板一致）——
-        // 此前操作按钮越加越多，盘要退休按钮已贴着窗口下沿，新按钮直接被裁掉够不着
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                SectionHeader(title: "操作", systemImage: "arrow.left.arrow.right")
-
-            if let task = appState.migrationTask {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Image(systemName: taskIcon)
-                            .foregroundColor(taskColor)
-                        Text(taskTitle)
-                            .font(.system(size: 14, weight: .medium))
-                        Spacer()
-                        if task.status == .completed {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                        } else if task.status == .cancelled {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .help("已取消：半截文件已清理，原应用不受影响")
-                        }
-                    }
-
-                    if !task.status.isTerminal {
-                        ProgressView(value: task.progress)
-                            .progressViewStyle(.linear)
-                            .tint(.blue)
-                            // 进度跳变时用弹簧跟随，不是一格一格地蹦
-                            .animation(reduceMotion ? nil : Motion.progress, value: task.progress)
-
-                        HStack {
-                            Text(task.currentFile)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                            Spacer()
-                            // 协作式取消：token 一置位，管道在下个阶段边界停下
-                            // 并清理半截副本（源目录未动，无数据风险）
-                            Button("取消") {
-                                task.cancellationToken.cancel()
-                                AuditLog.append("用户取消迁移「\(task.app.name)」")
-                            }
-                            .buttonStyle(.borderless)
-                            .font(.system(size: 11))
-                            .foregroundColor(.red)
-                            .help("取消本次迁移：停在当前阶段，清理已复制的半截文件，原应用不受影响")
-                        }
-                    }
-
-                    if case .failed(let msg) = task.status {
-                        Text(msg)
-                            .font(.system(size: 12))
-                            .foregroundColor(.red)
-                    }
-                }
-                .cardStyle()
-            } else {
-                emptyState
-            }
-
-            if let summary = batchSummary {
-                Text(summary)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-
-            if !appState.apps.isEmpty && appState.externalDrive != nil {
-                VStack(spacing: 8) {
-                    let movableApps = appState.apps.filter { $0.status == .normal }
-                    let migratedApps = appState.apps.filter { $0.status == .migrated }
-
-                    if !movableApps.isEmpty {
-                        Button {
+        // 效果图版：居中大号渐变胶囊主按钮 + 任务进度卡 + 底部任务统计条
+        let movableApps = appState.apps.filter { $0.status == .normal }
+        let migratedApps = appState.apps.filter { $0.status == .migrated }
+        return VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // 主按钮（效果图：蓝→紫渐变胶囊，居中）
+                    if !movableApps.isEmpty && appState.externalDrive != nil {
+                        MockGradientButton(
+                            title: "一键迁移全部",
+                            systemImage: "arrow.right",
+                            enabled: appState.migrationTask == nil) {
                             migrateAll()
-                        } label: {
-                            Label("一键迁移全部 (\(movableApps.count) 个应用)",
-                                  systemImage: "arrow.right.circle.fill")
-                                .font(.system(size: 13, weight: .semibold))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(appState.migrationTask != nil)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
                     }
 
-                    if !migratedApps.isEmpty {
-                        Button {
-                            restoreAll()
-                        } label: {
-                            Label("全部回迁 (\(migratedApps.count) 个应用)",
-                                  systemImage: "arrow.uturn.backward.circle.fill")
-                                .font(.system(size: 12, weight: .medium))
+                    // 当前任务卡（效果图：图标+名称+大小 / 进度条+百分比+状态）
+                    if let task = appState.migrationTask {
+                        taskCard(task)
+                    } else if appState.apps.isEmpty || appState.externalDrive == nil {
+                        emptyState
+                    }
+
+                    if let summary = batchSummary {
+                        Text(summary)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
+
+                    // 次级操作（效果图未覆盖，弱化为小号文字按钮横排）
+                    if !appState.apps.isEmpty && appState.externalDrive != nil {
+                        HStack(spacing: 14) {
+                            if !migratedApps.isEmpty {
+                                Button("全部回迁（\(migratedApps.count) 个）") { restoreAll() }
+                            }
+                            Button("一键腾空间…") { showPlanSheet = true }
+                                .disabled(appState.volumeStore.onlineVolumes.isEmpty)
+                                .help("告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由")
+                            Button("盘要退休…") { retireWizard() }
+                                .foregroundColor(.orange)
+                                .help("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘")
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 12))
+                        .foregroundColor(MockTheme.accent)
                         .disabled(appState.migrationTask != nil)
+                        .frame(maxWidth: .infinity)
                     }
-
-                    Button {
-                        retireWizard()
-                    } label: {
-                        Label("盘要退休…（全部迁回内置盘）",
-                              systemImage: "arrow.uturn.backward.square")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .tint(.orange)
-                    .disabled(appState.migrationTask != nil)
-                    .help("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘")
-
-                    // v3.0 一键腾空间：输入目标 → 方案 → 勾选 → 串行执行（可见性优先，不藏菜单）
-                    Button {
-                        showPlanSheet = true
-                    } label: {
-                        Label("一键腾空间…（按方案智能搬迁）",
-                              systemImage: "wand.and.stars")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .tint(.teal)
-                    .disabled(appState.migrationTask != nil
-                              || appState.volumeStore.onlineVolumes.isEmpty)
-                    .help("告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由")
                 }
             }
+            .sheet(isPresented: $showPlanSheet) {
+                SpaceFreePlanSheet { planned in
+                    executePlan(planned)
+                }
+            }
+
+            Divider().padding(.horizontal, 4)
+            // 效果图底栏：任务统计（真实口径：待迁移/已迁移/可释放）
+            MockBottomBar(items: bottomItems(movable: movableApps, migrated: migratedApps))
         }
-        .sheet(isPresented: $showPlanSheet) {
-            SpaceFreePlanSheet { planned in
-                executePlan(planned)
+    }
+
+    /// 任务卡（效果图：左图标 + 名称/大小，右百分比；下进度条 + 状态行）
+    private func taskCard(_ task: MigrationTask) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                IconContainer(icon: task.app.icon)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(taskTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(ByteCountFormatter.string(fromByteCount: task.app.size, countStyle: .file))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                if task.status == .completed {
+                    Label("已完成", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.green)
+                    Text("100%")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundColor(.green)
+                } else if task.status == .cancelled {
+                    Label("已取消", systemImage: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                        .help("半截文件已清理，原应用不受影响")
+                } else if case .failed = task.status {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.red)
+                } else {
+                    Text("\(Int(task.progress * 100))%")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundColor(.blue)
+                }
+            }
+
+            if !task.status.isTerminal {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(Color.primary.opacity(0.08))
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(MockTheme.primaryGradient)
+                                .frame(width: max(8, geo.size.width * task.progress))
+                        }
+                }
+                .frame(height: 8)
+                .clipShape(Capsule())
+                // 进度跳变时用弹簧跟随，不是一格一格地蹦
+                .animation(reduceMotion ? nil : Motion.progress, value: task.progress)
+
+                HStack {
+                    Text(task.currentFile)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    // 协作式取消：token 一置位，管道在下个阶段边界停下
+                    // 并清理半截副本（源目录未动，无数据风险）
+                    Button("取消") {
+                        task.cancellationToken.cancel()
+                        AuditLog.append("用户取消迁移「\(task.app.name)」")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .help("取消本次迁移：停在当前阶段，清理已复制的半截文件，原应用不受影响")
+                }
+            }
+
+            if case .failed(let msg) = task.status {
+                Text(msg)
+                    .font(.system(size: 12))
+                    .foregroundColor(.red)
             }
         }
+        .mockCard()
+    }
+
+    private func bottomItems(movable: [AppItem], migrated: [AppItem]) -> [String] {
+        let savable = movable.reduce(0) { $0 + $1.size }
+        var items = ["\(movable.count) 个待迁移", "\(migrated.count) 个已迁移"]
+        if savable > 0 {
+            items.append("可释放 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))")
         }
+        return items
     }
 
     /// 方案执行链：与 migrateAll 同一套串行安全链（逐应用重跑护栏 + journal 埋点），

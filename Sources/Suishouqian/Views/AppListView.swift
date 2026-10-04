@@ -148,6 +148,8 @@ struct AppListView: View {
                             Text(mode.rawValue)
                                 .font(.system(size: 13, weight: filterMode == mode ? .medium : .regular))
                                 .foregroundColor(filterMode == mode ? .primary : .secondary)
+                                .lineLimit(1)
+                                .fixedSize()
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 6)
                                 .background(
@@ -277,15 +279,6 @@ struct AppListView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.06), radius: 18, y: 6)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.05))
-        )
-        .padding(12)
+        // 大白卡由 ContentView 的 .mockPage() 统一提供，本页不再自包
     }
 }
