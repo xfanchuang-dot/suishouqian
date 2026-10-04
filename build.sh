@@ -308,8 +308,16 @@ if [ -d "$INSTALLED" ]; then
     # （/Applications/随手迁.app/随手迁.app），用户拿到半新半旧的应用。
     # 这里改为挪进 _bak/：挪不动就让 set -e 在安装前中断，绝不制造嵌套包。
     if [ -e "$INSTALLED" ]; then
-        echo "  Finder 删除失败，旧版挪进 _bak/ 后再安装"
-        mv "$INSTALLED" "$BAK_ROOT/app-previous-$(date +%Y%m%d-%H%M%S)"
+        BAK_TARGET="$BAK_ROOT/app-previous-$(date +%Y%m%d-%H%M%S)"
+        if mv "$INSTALLED" "$BAK_TARGET" 2>/dev/null; then
+            echo "  Finder 删除失败，旧版挪进 _bak/ 后再安装"
+        else
+            # 跨卷 rename 必败（EXDEV：/Applications 在内置盘、本项目在外置 SSD）。
+            # 退路：挪进 ~/.Trash —— 与 /Applications 同卷 rename 瞬间完成，且可从废纸篓反悔。
+            TRASH_TARGET="$HOME/.Trash/随手迁-app-previous-$(date +%Y%m%d-%H%M%S).app"
+            mv "$INSTALLED" "$TRASH_TARGET"
+            echo "  Finder 删除失败且 _bak/ 跨卷，旧版已挪进废纸篓（${TRASH_TARGET}）"
+        fi
     fi
 fi
 # 覆盖安装
