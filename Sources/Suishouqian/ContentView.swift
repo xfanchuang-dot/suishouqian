@@ -13,9 +13,9 @@ struct ContentView: View {
             sidebar
         } detail: {
             detail
-                // 顶部「随手迁」文案去掉：副标题（外置盘状态）单独留在标题位
-                .navigationTitle("")
-                .navigationSubtitle(subtitle)
+                // 顶部整条标题栏去掉（用户反馈）：标题+副标题都不留，
+                // 外置盘状态由侧边栏底部磁盘卡承载；侧栏顶部留交通灯安全高度
+                .toolbar(.hidden, for: .windowToolbar)
         }
         .onAppear {
             // 无人值守截图通道：SSQ_PANEL=0..5 直接落到指定页面（概览/迁移/体检/数据/应用/设置）
@@ -56,6 +56,10 @@ struct ContentView: View {
         .padding(.top, 16)
         .frame(maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 185, ideal: 215, max: 255)
+        // 工具栏隐藏后交通灯悬浮在侧边栏左上，菜单从其下方开始
+        .safeAreaInset(edge: .top) {
+            Color.clear.frame(height: 30)
+        }
         .safeAreaInset(edge: .bottom) {
             // 效果图格局：玻璃卡只装内置盘；外置盘摘要是卡下方的一条纯文本行
             VStack(spacing: 8) {
@@ -301,20 +305,5 @@ struct ContentView: View {
         view.cacheDisplay(in: rect, to: rep)
         try? rep.representation(using: .png, properties: [:])?
             .write(to: URL(fileURLWithPath: path))
-    }
-
-    /// 窗口副标题：外置盘状态一目了然
-    private var subtitle: String {
-        guard let drive = appState.externalDrive else { return "外置硬盘未连接" }
-        // 与列表筛选/底部统计同一口径：链接迁移的与"外置盘原住民"都算在外置盘上
-        let offInternal = appState.apps.filter {
-            $0.status == .migrated || $0.status == .externalOnly
-        }.count
-        let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
-        var text = "\(drive.name) · 在外置盘 \(offInternal) 个应用"
-        if savable > 0 {
-            text += " · 可再省 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))"
-        }
-        return text
     }
 }
