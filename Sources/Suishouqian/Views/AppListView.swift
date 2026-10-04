@@ -175,7 +175,8 @@ struct AppListView: View {
                 if searchText.isEmpty {
                     EmptyStateView(
                         symbol: "externaldrive.fill",
-                        accentSymbols: ["app.fill", "sparkles", "arrow.right.circle"],
+                        accentSymbols: ["doc.fill", "music.note", "message.fill",
+                                        "cloud.fill", "video.fill", "gearshape.fill"],
                         gradient: [.blue, .purple],
                         title: "还没有可迁移的应用",
                         subtitle: "连接外置磁盘后，这里会列出可以迁移的应用",
