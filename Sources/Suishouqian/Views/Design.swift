@@ -1,6 +1,10 @@
 import SwiftUI
 
-// MARK: - 设计系统（macOS Tahoe 风格：主题渐变 / 卡片 / 状态胶囊）
+// MARK: - 设计系统（macOS 27 Golden Gate 语法）
+//
+// Golden Gate 精修 Liquid Glass：圆角收紧（12→10，不再夸张）、
+// 顶部高光（specular highlight）+ 底部加深（darker edge）营造玻璃纵深、
+// 投影更柔更散（拒绝反复描边解释层级）。
 
 enum Theme {
     /// 品牌渐变：蓝 → 青
@@ -9,6 +13,13 @@ enum Theme {
         startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static let accentColor = Color.blue
+
+    /// macOS 27 统一圆角：卡片 10，图标容器 8，小徽章 7
+    enum Corner {
+        static let card: CGFloat = 10
+        static let iconBox: CGFloat = 8
+        static let badge: CGFloat = 7
+    }
 }
 
 /// 分区标题：小图标 + 大写小字号副标题
@@ -57,19 +68,31 @@ struct StatusPill: View {
     }
 }
 
-/// 卡片背景：圆角 + 细描边 + 轻投影
+/// 卡片背景：macOS 27 语法——收紧圆角 + 玻璃高光边缘 + 柔化投影。
+/// 顶部 0.5pt 高光（浅色模式白/深色模式亦白，低透明度即玻璃边），
+/// 底部轻微加深，投影更散（radius 8, y 2）不再用生硬小投影。
 struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(14)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
                     .fill(Color(NSColor.controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.05), radius: 4, y: 1)
+                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06))
+                RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                .white.opacity(0.45),
+                                .white.opacity(0.08),
+                                .black.opacity(0.08)
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: 0.5
+                    )
             )
     }
 }
@@ -96,7 +119,7 @@ struct IconContainer: View {
         }
         .frame(width: 38, height: 38)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Corner.iconBox, style: .continuous)
                 .fill(Color.primary.opacity(0.05))
         )
     }
@@ -113,7 +136,7 @@ struct DriveIconBox: View {
             .foregroundColor(color)
             .frame(width: 30, height: 30)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.Corner.badge, style: .continuous)
                     .fill(color.opacity(0.13))
             )
     }

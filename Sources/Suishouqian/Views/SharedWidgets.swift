@@ -16,7 +16,8 @@ struct GlobalTaskCapsule: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Capsule().fill(Color.accentColor.opacity(0.12)))
+            // macOS 27：悬浮瞬态表面用真玻璃（低版本自动回退材质）
+            .liquidGlassCapsule(tint: Color.accentColor.opacity(0.25))
             // 进行中：轻微呼吸，"活着"的暗示；出现/消失用弹簧过渡
             .breathe(range: 0.75...1.0, duration: 1.4)
             .transition(.opacity.combined(with: .scale(scale: 0.9)))

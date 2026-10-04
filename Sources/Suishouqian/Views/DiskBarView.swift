@@ -184,13 +184,23 @@ struct DiskBarView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
                 .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.05), radius: 4, y: 1)
+                .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06))
+            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            .white.opacity(0.45),
+                            .white.opacity(0.08),
+                            .black.opacity(0.08)
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    ),
+                    lineWidth: 0.5
+                )
         )
     }
 
@@ -271,11 +281,11 @@ struct DiskBarView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
                 .fill(Color.orange.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
                 .strokeBorder(Color.orange.opacity(0.18))
         )
     }
