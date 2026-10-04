@@ -56,8 +56,8 @@ struct DiskBarView: View {
                         .entrance(delay: 0.06)
                 }
             }
-
-            GlobalTaskCapsule()   // v3.1 附录 A2：任何面板都能看到在跑的任务
+            // 任务胶囊已上移到 ContentView 的 detail 顶层浮层（v3.1 侧边栏改版）：
+            // 应用/设置两个无磁盘横条的页面也要能看到在跑的任务
         }
         // 任务胶囊出现/消失、卡片增减时布局用弹簧过渡
         .animation(reduceMotion ? nil : Motion.snappy, value: appState.migrationTask?.id)

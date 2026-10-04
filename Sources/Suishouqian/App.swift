@@ -11,6 +11,9 @@ enum Panel: Int {
     case migrate = 1
     case health = 2
     case data = 3
+    /// v3.1 侧边栏改版新增：应用列表从左栏升格为独立页面（raw 值沿用旧序号不迁移）
+    case apps = 4
+    case settings = 5
 }
 
 /// 应用委托：迁移进行中拦截退出，杜绝半完成状态的最后一个人为入口
@@ -42,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu(title: "随手迁")
         let defs: [(title: String, tag: Int)] = [
-            ("立即扫描", 0), ("总览面板", 1), ("迁移面板", 2), ("体检面板", 3), ("数据面板", 4),
+            ("立即扫描", 0), ("总览面板", 1), ("应用面板", 5), ("迁移面板", 2),
+            ("体检面板", 3), ("数据面板", 4), ("设置面板", 6),
         ]
         for (title, tag) in defs {
             let item = NSMenuItem(title: title,
@@ -64,6 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case 2: state.activePanel = .migrate
         case 3: state.activePanel = .health
         case 4: state.activePanel = .data
+        case 5: state.activePanel = .apps
+        case 6: state.activePanel = .settings
         default: break
         }
     }
@@ -109,6 +115,10 @@ struct SuishouqianApp: App {
                     .keyboardShortcut("2", modifiers: .command)
                 Button("数据面板") { appState.activePanel = .data }
                     .keyboardShortcut("3", modifiers: .command)
+                Button("应用面板") { appState.activePanel = .apps }
+                    .keyboardShortcut("4", modifiers: .command)
+                Button("设置面板") { appState.activePanel = .settings }
+                    .keyboardShortcut("5", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
                 Button("关于随手迁") {
