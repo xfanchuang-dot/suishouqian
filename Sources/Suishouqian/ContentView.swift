@@ -58,8 +58,19 @@ struct ContentView: View {
                             .font(.system(size: 12, weight: .medium))
                         Spacer()
                     }
-                    ProgressView(value: builtin.usageRatio)
-                        .tint(.blue)
+                    // 效果图：蓝→紫渐变用量条
+                    GeometryReader { geo in
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.primary.opacity(0.08))
+                            .overlay(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(LinearGradient(
+                                        colors: [.blue, .purple],
+                                        startPoint: .leading, endPoint: .trailing))
+                                    .frame(width: max(6, geo.size.width * builtin.usageRatio))
+                            }
+                    }
+                    .frame(height: 6)
                     HStack {
                         Spacer()
                         Text("已用 \(Int(builtin.usageRatio * 100))%")

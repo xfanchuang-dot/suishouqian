@@ -24,6 +24,7 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 28) {
+            Spacer(minLength: 24)
             illustration
 
             VStack(spacing: 10) {
@@ -37,13 +38,20 @@ struct EmptyStateView: View {
             }
 
             if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                // 效果图：宽蓝药丸按钮（非标准 borderedProminent）
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 52)
+                        .padding(.vertical, 13)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                .buttonStyle(.plain)
             }
+            Spacer(minLength: 24)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .entrance()
     }
 

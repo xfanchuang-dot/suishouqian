@@ -117,7 +117,7 @@ struct AppListView: View {
         let apps = filteredApps
         // 整页浮在一张白色大圆角卡上（对照效果图）：灰窗底 + 白卡 + 圆角搜索 + 胶囊筛选
         return VStack(spacing: 0) {
-            // 工具栏
+            // 工具栏（对照效果图：搜索左 / 筛选中 / 排序右）
             HStack(spacing: 12) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
@@ -137,23 +137,57 @@ struct AppListView: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture { searchFocused = true }
+                .frame(width: 210)
 
-                // 分段筛选（对照效果图：中性灰分段，选中白色药丸）
-                Picker("", selection: $filterMode) {
+                Spacer(minLength: 8)
+
+                // 分段筛选（对照效果图：米色选中药丸 + 分隔线，非原生分段样式）
+                HStack(spacing: 0) {
                     ForEach(FilterMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        Button { filterMode = mode } label: {
+                            Text(mode.rawValue)
+                                .font(.system(size: 13, weight: filterMode == mode ? .medium : .regular))
+                                .foregroundColor(filterMode == mode ? .primary : .secondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule().fill(filterMode == mode
+                                        // 效果图：暖米色选中（非系统灰）
+                                        ? Color(red: 0.90, green: 0.86, blue: 0.78)
+                                        : Color.clear)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        if mode != FilterMode.allCases.last {
+                            Divider().frame(height: 16)
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 300)
+                .padding(3)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
 
-                Picker("", selection: $sortOrder) {
+                Spacer(minLength: 8)
+
+                // 排序（对照效果图：“排序 ⌄”药丸按钮）
+                Menu {
                     ForEach(SortOrder.allCases, id: \.self) { order in
-                        Text(order.rawValue).tag(order)
+                        Button(order.rawValue) { sortOrder = order }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("排序")
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .font(.system(size: 13))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                    )
                 }
-                .pickerStyle(.menu)
-                .frame(width: 80)
+                .menuStyle(.borderlessButton)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -244,11 +278,12 @@ struct AppListView: View {
             .padding(.vertical, 8)
         }
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(NSColor.controlBackgroundColor))
+                .shadow(color: .black.opacity(0.06), radius: 18, y: 6)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.05))
         )
         .padding(12)
