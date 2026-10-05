@@ -17,6 +17,7 @@ struct AppRowView: View {
                     Text(app.sizeFormatted)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
+                        .monospacedDigit()
 
                     if let version = app.version {
                         Text("·")

@@ -97,6 +97,7 @@ struct MigrationPanel: View {
                     Text(ByteCountFormatter.string(fromByteCount: task.app.size, countStyle: .file))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                        .monospacedDigit()
                 }
                 Spacer()
                 if task.status == .completed {
@@ -105,6 +106,7 @@ struct MigrationPanel: View {
                         .foregroundColor(.green)
                     Text("100%")
                         .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .monospacedDigit()
                         .foregroundColor(.green)
                 } else if task.status == .cancelled {
                     Label("已取消", systemImage: "xmark.circle.fill")
@@ -117,7 +119,8 @@ struct MigrationPanel: View {
                 } else {
                     Text("\(Int(task.progress * 100))%")
                         .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(.blue)
+                        .monospacedDigit()
+                        .foregroundColor(MockTheme.accent)
                 }
             }
 

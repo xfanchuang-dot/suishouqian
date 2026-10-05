@@ -7,12 +7,8 @@ import SwiftUI
 // 投影更柔更散（拒绝反复描边解释层级）。
 
 enum Theme {
-    /// 品牌渐变：蓝 → 青
-    static let accent = LinearGradient(
-        colors: [.blue, .teal],
-        startPoint: .topLeading, endPoint: .bottomTrailing)
-
-    static let accentColor = Color.blue
+    // 品牌色与渐变统一由 MockTheme 提供（baseline-ui 审计：旧蓝青渐变已退役，
+    // 全应用唯一强调色 = MockTheme.accent 紫）
 
     /// macOS 27 统一圆角：卡片 10，图标容器 8，小徽章 7
     enum Corner {
@@ -31,7 +27,7 @@ struct SectionHeader: View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(MockTheme.accent)
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.secondary)

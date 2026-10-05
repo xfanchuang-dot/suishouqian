@@ -152,6 +152,7 @@ struct OverviewPanel: View {
                     Text("已用 \(Int(drive.usageRatio * 100))% · \(usedText(drive)) / \(drive.totalFormatted)")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
+                        .monospacedDigit()
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -183,6 +184,7 @@ struct OverviewPanel: View {
                 Text(speed)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
+                    .monospacedDigit()
             }
         }
         .mockCard()
@@ -243,6 +245,7 @@ struct OverviewPanel: View {
             HStack(alignment: .lastTextBaseline, spacing: 2) {
                 Text(value)
                     .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .monospacedDigit()
                     .lineLimit(1)
                 if let unit {
                     Text(unit)
@@ -276,6 +279,7 @@ struct OverviewPanel: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(score.score)分")
                     .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
                     .foregroundColor(scoreColor(score.score))
                 Text("评级 \(score.grade)")
                     .font(.system(size: 11))
@@ -423,7 +427,7 @@ struct OverviewPanel: View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 32))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(MockTheme.accent)
             Text("一切正常")
                 .font(.system(size: 13, weight: .semibold))
             Text("没有待处理的事项。断链、备份、残留、自启、盘面都检查过了")

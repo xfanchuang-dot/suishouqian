@@ -317,7 +317,7 @@ struct DataPanelView: View {
         VStack(spacing: 10) {
             Image(systemName: "shippingbox")
                 .font(.system(size: 28))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(MockTheme.accent)
             Text("没有发现可处理的数据目录")
                 .font(.system(size: 13, weight: .semibold))
             Text("装了剪映、LM Studio、Docker 等应用后，这里会自动出现搬迁入口")
