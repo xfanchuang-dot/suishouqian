@@ -70,6 +70,20 @@ jobs:
           bash build.sh --dist-only
           bash scripts/package_dmg.sh --no-build
 
+      # 常驻护栏：这个问题此前只在真发版时才暴露，代价是"全体用户自动更新 404"。
+      # 现在每次推送都拦一遍，不用等到打 tag。
+      - name: 产物文件名必须纯 ASCII（否则 Release 资产名会被 GitHub 改写）
+        run: |
+          set -euo pipefail
+          DMG_NAME="$(bash scripts/artifact_name.sh)"
+          if printf '%s' "${DMG_NAME}" | LC_ALL=C grep -q '[^ -~]'; then
+            echo "::error::产物名含非 ASCII 字符：${DMG_NAME}"
+            echo "::error::GitHub 会剥掉 Release 资产名里的非 ASCII 字符，而 appcast 的下载 URL 按本地文件名生成 → 用户端 404"
+            exit 1
+          fi
+          [ -f "dist/${DMG_NAME}" ] || { echo "::error::dist/ 里没有打包产物 ${DMG_NAME}"; exit 1; }
+          echo "产物名 OK: ${DMG_NAME}"
+
       - name: 校验签名与可执行文件覆盖
         run: |
           codesign --verify --strict "dist/随手迁.app"

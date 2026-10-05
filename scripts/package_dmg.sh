@@ -6,7 +6,9 @@
 #   bash scripts/package_dmg.sh --no-build   # 只用 dist 里现有的 .app
 #   SIGN_IDENTITY="Developer ID Application: ..." bash scripts/package_dmg.sh
 #
-# 产物: dist/随手迁-<version>.dmg
+# 产物: dist/<ASCII 名>.dmg，文件名取自 scripts/artifact_name.sh（唯一来源）
+#       为什么不能叫「随手迁-x.y.z.dmg」见该脚本头部注释：GitHub 会剥掉
+#       资产名里的非 ASCII 字符，导致 appcast 的下载 URL 指向不存在的资产。
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,7 +17,7 @@ DIST_DIR="$PROJECT_DIR/dist"
 BUNDLE="$DIST_DIR/$APP_NAME.app"
 
 VERSION="$(tr -d ' \t\r\n' < "$PROJECT_DIR/VERSION")"
-DMG="$DIST_DIR/$APP_NAME-$VERSION.dmg"
+DMG="$DIST_DIR/$(bash "$PROJECT_DIR/scripts/artifact_name.sh")"
 
 NO_BUILD=0
 for arg in "$@"; do

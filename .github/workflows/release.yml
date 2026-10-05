@@ -205,11 +205,12 @@ jobs:
             echo "未配 Developer ID 证书或 Apple 账号 —— 跳过公证"
             exit 0
           fi
-          xcrun notarytool submit "dist/随手迁-${VERSION}.dmg" \
+          DMG="dist/$(bash scripts/artifact_name.sh)"
+          xcrun notarytool submit "${DMG}" \
             --apple-id "${APPLE_ID}" --team-id "${APPLE_TEAM_ID}" \
             --password "${APPLE_APP_PASSWORD}" --wait
-          xcrun stapler staple "dist/随手迁-${VERSION}.dmg"
-          xcrun stapler validate "dist/随手迁-${VERSION}.dmg"
+          xcrun stapler staple "${DMG}"
+          xcrun stapler validate "${DMG}"
 
       - name: 从 CHANGELOG 抽出版本说明
         run: |
@@ -222,8 +223,10 @@ jobs:
             echo "::error::CHANGELOG.md 里找不到「## ${VERSION}」段落，无法生成更新说明"
             exit 1
           fi
-          # Sparkle 的更新弹窗会读与安装包同名的说明文件（generate_appcast 一并收进 appcast）
-          cp release_notes.md "dist/随手迁-${VERSION}.md"
+          # Sparkle 的更新弹窗会读与安装包**同名**的说明文件（generate_appcast 一并收进
+          # appcast）。文件名必须与 DMG 同名不同后缀，所以同样取自 artifact_name.sh。
+          DMG_NAME="$(bash scripts/artifact_name.sh)"
+          cp release_notes.md "dist/${DMG_NAME%.dmg}.md"
           echo "--- release_notes.md ---"
           cat release_notes.md
 
@@ -238,7 +241,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          DMG="dist/随手迁-${VERSION}.dmg"
+          DMG="dist/$(bash scripts/artifact_name.sh)"
           APPCAST="dist/appcast.xml"
           if gh release view "${PUBLISH_TAG}" >/dev/null 2>&1; then
             # 可重跑：此前用 gh release create，重跑必卡在 "release already exists"，

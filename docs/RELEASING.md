@@ -147,8 +147,14 @@ bash scripts/package_dmg.sh --no-build
 bash scripts/make_appcast.sh
 
 # 产物
-ls dist/          # 随手迁-2.16.0.dmg  appcast.xml  随手迁.app
+ls dist/          # Suishouqian-2.16.0.dmg  appcast.xml  随手迁.app
 ```
+
+> ⚠️ **DMG 文件名必须是纯 ASCII**，唯一来源是 `scripts/artifact_name.sh`，
+> 不要改回「随手迁-x.y.z.dmg」。GitHub 会剥掉 Release 资产名里的非 ASCII 字符
+> （`随手迁-3.1.0.dmg` 上传后变成 `-3.1.0.dmg`），而 appcast 的下载 URL 是按本地
+> 文件名生成的 → 资产名与 URL 不一致 → **全体用户自动更新 404**（v3.1.0 首发实测踩中）。
+> 中文只保留在用户看得见的地方：App 名 `随手迁.app`、DMG 卷名、界面文案。
 
 日常开发只需 `bash build.sh` —— 编译 + 签名 + 装进 `/Applications` + 启动，一条命令。
 

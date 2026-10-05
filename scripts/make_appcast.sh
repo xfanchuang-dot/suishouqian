@@ -88,7 +88,7 @@ fi
 # appcast 里每个 enclosure 的下载地址都钉死在 v$VERSION 上，而 generate_appcast
 # 会把目录里**所有**归档都收进去：dist 里残留旧版 DMG 时会生成指向不存在资产的
 # item（用户端 404 / 签名错配）。与其静默产出坏 appcast，不如让用户先清干净 dist。
-EXPECTED_DMG="$DIST_DIR/随手迁-$VERSION.dmg"
+EXPECTED_DMG="$DIST_DIR/$(bash "$PROJECT_DIR/scripts/artifact_name.sh")"
 for d in "${DMGS[@]}"; do
     if [ "$d" != "$EXPECTED_DMG" ]; then
         echo "错误: dist/ 里还有其它版本的 DMG：$(basename "$d")"
