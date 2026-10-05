@@ -269,6 +269,10 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 效果图皮肤：灰窗底，内容浮在白色大圆角卡上
         .background(Color(NSColor.windowBackgroundColor))
+        // 顶掉系统顶部安全区（hiddenTitleBar 下约 50pt，会把白卡推得离窗口顶过远、
+        // 悬出一条灰带——与侧栏同款修法）。任务胶囊走 safeAreaInset 区域，
+        // 不受 container 忽略影响，出现时仍会把内容往下推、不压磁盘卡
+        .ignoresSafeArea(.container, edges: .top)
         // 任务胶囊浮在内容区顶部：任何页面（含应用/设置）都能看到在跑的任务。
         // 用 safeAreaInset 而非 overlay——胶囊出现时把内容往下推，不压磁盘卡
         .safeAreaInset(edge: .top, spacing: 0) {
