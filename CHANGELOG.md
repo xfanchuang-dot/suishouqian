@@ -2,6 +2,32 @@
 
 ## 未发布（发下一版时把这行改成 `## <版本号> — <日期>` 并同步 VERSION）
 
+### 2026-10-04/05 大版本迭代（36 个提交的累积，待发版时归入版本号）
+
+**功能**
+- v3.1 四件套：多盘横条、应用行内盘间迁移（迁移标记调和中断恢复契约）、
+  残留深清理、菜单栏常驻实验开关
+- 高危五连：回迁防误删真目录、三处自愈原子化（swapSymlink）、目标占用护栏、
+  数据迁移崩溃窗口四件套（data-pending 台账+启动认领）、台账损坏逐条抢救
+- SMART 磁盘健康预警 + 备份分盘（BackupLocations）+ 失联卷检测与死链清理
+- 升级顶掉自动重迁（opt-in）+ 迁移可取消（协作式令牌，取消检查点纪律）+
+  exFAT 硬拦截 + 备份盘空间预检
+- 卸载撤销闭环（废纸篓定位含外置卷 .Trashes）+ 速度基线塌陷告警
+- 迁移历史时间线（#4）+ 应用大小可视化图表（#5）
+- 设置「权限」页签（FDA/App Management/管理员密码；探测仅按钮触发——TCC 红线）
+
+**UI（对照效果图全面改版）**
+- NavigationSplitView 侧边栏（应用/设置升格独立页；⌘4/⌘5）
+- hiddenTitleBar 极简窗口：无标题条、无底栏，白卡浮灰底（mockPage 体系）
+- 动效体系 Motion.swift（弹簧/stagger/呼吸/微光，全量 Reduce Motion 闸）
+- v3/v4 AI 插画空状态 + 效果图本图抠图；液体玻璃氛围光
+- 概览测速按钮、TM 卡精简、统计卡数字单位分离、hoverLift/pressScale 微交互
+
+**工程**
+- 修 build.sh 从未拷贝资源 bundle 的本源断链；深色模式自适应（去 Color.white）
+- 进度节流 ProgressThrottle（0.5%+250ms，含收尾直通）；CI 已通（GitHub Actions）
+- 像素测量脚本 measure_topgap/window_bounds（UI 校准闭环）
+
 ### 自审抓漏（v3.1 预览提交后全量复审）
 
 - **[修] relocate 改写后校验是死代码**：回读护栏被插进 guard-else 的 return 之后，永不执行

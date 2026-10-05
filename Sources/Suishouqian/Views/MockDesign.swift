@@ -94,13 +94,16 @@ extension View {
 
 // MARK: - 微交互
 
-/// 按压缩放：给主按钮加的触感反馈
+/// 按压缩放：给主按钮加的触感反馈（Reduce Motion 下跳过缩放——终审补闸，
+/// 动效批立的规矩：裸 .animation 必带 reduceMotion 闸）
 private struct PressScaleModifier: ViewModifier {
     @State private var pressing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func body(content: Content) -> some View {
         content
-            .scaleEffect(pressing ? 0.97 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: pressing)
+            .scaleEffect(pressing && !reduceMotion ? 0.97 : 1.0)
+            .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.7),
+                       value: pressing)
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in pressing = true }
