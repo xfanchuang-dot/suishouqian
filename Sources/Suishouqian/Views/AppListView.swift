@@ -23,6 +23,13 @@ struct AppListView: View {
         case size = "大小"
         case name = "名称"
     }
+
+    /// 视图模式：列表 / 大小横条图
+    enum ViewMode: String, CaseIterable {
+        case list = "列表"
+        case chart = "大小"
+    }
+    @State private var viewMode: ViewMode = .list
     
     /// 选中操作条（附录 A1）：有选中才出现
     @ViewBuilder
@@ -82,6 +89,83 @@ struct AppListView: View {
             appState.migrationTask = nil
             selectedApps.removeAll()
             await appState.scanApps()
+        }
+    }
+
+    /// 大小横条图：按大小降序，横条长度正比于大小，一眼定位巨无霸
+    private func sizeChartView(apps: [AppItem]) -> some View {
+        let sorted = apps.sorted { $0.size > $1.size }
+        let maxSize = max(sorted.first?.size ?? 1, 1)
+        // 只显示前 30，避免超长列表卡顿
+        let top = Array(sorted.prefix(30))
+        return ScrollView {
+            VStack(spacing: 8) {
+                ForEach(top) { app in
+                    HStack(spacing: 10) {
+                        // 应用图标
+                        if let icon = app.icon {
+                            Image(nsImage: icon)
+                                .resizable()
+                                .frame(width: 28, height: 28)
+                                .cornerRadius(6)
+                        } else {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.primary.opacity(0.08))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Image(systemName: "app.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                )
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(app.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: app.size, countStyle: .file))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .monospacedDigit()
+                            }
+                            GeometryReader { geo in
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.primary.opacity(0.07))
+                                    .overlay(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill(barColor(for: app))
+                                            .frame(width: max(4, geo.size.width * CGFloat(app.size) / CGFloat(maxSize)))
+                                    }
+                            }
+                            .frame(height: 8)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .mockCard(padding: 0)
+                    .padding(.horizontal, 16)
+                }
+                if sorted.count > 30 {
+                    Text("仅显示最大的 30 个，共 \(sorted.count) 个")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(.top, 8)
+                }
+            }
+            .padding(.vertical, 12)
+        }
+    }
+
+    /// 横条颜色：>5GB 红 / >1GB 橙 / 其他蓝紫渐变
+    private func barColor(for app: AppItem) -> LinearGradient {
+        let gb = Double(app.size) / 1_073_741_824
+        if gb >= 5 {
+            return LinearGradient(colors: [.red, .orange], startPoint: .leading, endPoint: .trailing)
+        } else if gb >= 1 {
+            return LinearGradient(colors: [.orange, .yellow], startPoint: .leading, endPoint: .trailing)
+        } else {
+            return MockTheme.builtinBar
         }
     }
 
@@ -170,6 +254,17 @@ struct AppListView: View {
 
                 Spacer(minLength: 8)
 
+                // 视图切换：列表 / 大小横条图
+                Picker("", selection: $viewMode) {
+                    ForEach(ViewMode.allCases, id: \.self) { mode in
+                        Image(systemName: mode == .list ? "list.bullet" : "chart.bar.fill")
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 72)
+                .help("切换列表/大小图表")
+
                 // 排序（对照效果图：“排序 ⌄”药丸按钮）
                 Menu {
                     ForEach(SortOrder.allCases, id: \.self) { order in
@@ -235,6 +330,9 @@ struct AppListView: View {
                         imageName: "empty-search"
                     )
                 }
+            } else if viewMode == .chart {
+                // 大小横条图：一眼看出巨无霸
+                sizeChartView(apps: apps)
             } else {
                 List(apps, selection: $selectedApps) { app in
                     AppRowView(app: app)

@@ -5,6 +5,7 @@ struct MigrationPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var batchSummary: String?
     @State private var showPlanSheet = false
+    @State private var showHistory = false
     private let dataMigrator = DataMigrator()
     
     var body: some View {
@@ -43,6 +44,7 @@ struct MigrationPanel: View {
                     // 次级操作（效果图未覆盖，弱化为小号文字按钮横排）
                     if !appState.apps.isEmpty && appState.externalDrive != nil {
                         HStack(spacing: 14) {
+                            Button("迁移历史") { showHistory = true }
                             if !migratedApps.isEmpty {
                                 Button("全部回迁（\(migratedApps.count) 个）") { restoreAll() }
                             }
@@ -65,6 +67,10 @@ struct MigrationPanel: View {
                 SpaceFreePlanSheet { planned in
                     executePlan(planned)
                 }
+            }
+            .sheet(isPresented: $showHistory) {
+                MigrationHistoryView()
+                    .environmentObject(appState)
             }
 
             Divider().padding(.horizontal, 4)
