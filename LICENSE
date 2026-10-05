@@ -19,19 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## Pro 许可证（附加说明 / Additional note on Pro licenses）
-
-本仓库以 MIT 授权，源码可自由使用、修改、再分发。
-
-购买 Pro（¥29 买断）购买的是**一份离线许可证文件**与开发者支持，
-不是对 MIT 授权的额外限制——它不改变、也不削减任何人在 MIT 下已获得的权利。
-许可证由 Ed25519 签名离线校验，不联网、不收集数据。
-
-The repository is MIT-licensed; the source may be freely used, modified and
-redistributed. A Pro purchase buys an offline license file and developer
-support — it adds no restriction on top of MIT and removes none of the rights
-MIT already grants. Licenses are verified offline via Ed25519, with no network
-calls and no telemetry.
