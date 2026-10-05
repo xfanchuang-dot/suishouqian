@@ -49,7 +49,8 @@ private struct MockPageModifier: ViewModifier {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: MockTheme.Corner.page, style: .continuous)
-                    .fill(Color.white)
+                    // 深色模式自适应：浅色白 / 深色深灰（写死 Color.white 深色下瞎眼）
+                    .fill(Color(NSColor.controlBackgroundColor))
                     .shadow(color: .black.opacity(0.05), radius: 20, y: 8)
             )
             .overlay(
@@ -69,7 +70,8 @@ private struct MockCardModifier: ViewModifier {
             .padding(padding)
             .background(
                 RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous)
-                    .fill(Color.white)
+                    // 深色模式自适应
+                    .fill(Color(NSColor.controlBackgroundColor))
                     .shadow(color: .black.opacity(0.05), radius: 12, y: 4)
             )
             .overlay(

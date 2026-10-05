@@ -105,7 +105,7 @@ struct HealthCheckView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                SectionHeader(title: "体检", systemImage: "stethoscope")
+                MockPageTitle(text: "体检")
                 Spacer()
                 if model.isChecking {
                     HStack(spacing: 6) {

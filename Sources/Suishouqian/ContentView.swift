@@ -231,7 +231,7 @@ struct ContentView: View {
             case .settings:
                 // 设置页也走统一 mockPage 大白卡；底部统计条已按用户要求移除
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionHeader(title: "设置", systemImage: "gearshape.fill")
+                    MockPageTitle(text: "设置")
                         .padding(.horizontal, 24)
                         .padding(.top, 20)
                     SettingsView()

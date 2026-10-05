@@ -28,6 +28,10 @@ struct OverviewPanel: View {
     @State private var isUndoing = false
     @State private var isExcludingTM = false
 
+    /// 外置盘测速状态（概览页磁盘卡内嵌，DiskBarView 的轻量版）
+    @State private var overviewSpeedText: String?
+    @State private var overviewSpeedRunning = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -100,11 +104,7 @@ struct OverviewPanel: View {
                     ratio: builtin.usageRatio, bar: MockTheme.builtinBar)
             }
             if let external = appState.externalDrive {
-                diskCard(
-                    icon: "externaldrive.fill", iconColor: MockTheme.accent,
-                    name: external.name,
-                    detail: "已用 \(Int(external.usageRatio * 100))% · \(usedText(external)) / \(external.totalFormatted)",
-                    ratio: external.usageRatio, bar: MockTheme.externalBar)
+                externalDiskCard(external)
             } else {
                 diskCard(
                     icon: "externaldrive.badge.exclamationmark", iconColor: .secondary,
@@ -138,6 +138,75 @@ struct OverviewPanel: View {
             MockUsageBar(ratio: ratio, gradient: bar, height: 10)
         }
         .mockCard()
+    }
+
+    /// 外置盘卡（含测速按钮）：新 UI 下 DiskBarView 只在体检页，概览页需要测速入口
+    private func externalDiskCard(_ drive: DriveInfo) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                MockIconSquare(systemImage: "externaldrive.fill", color: MockTheme.accent, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(drive.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                    Text("已用 \(Int(drive.usageRatio * 100))% · \(usedText(drive)) / \(drive.totalFormatted)")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                // 测速按钮
+                Button {
+                    runOverviewSpeedTest(mount: drive.mountPoint)
+                } label: {
+                    HStack(spacing: 4) {
+                        if overviewSpeedRunning {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+                                .font(.system(size: 11))
+                        }
+                        Text(overviewSpeedRunning ? "测速中" : "测速")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                }
+                .buttonStyle(.plain)
+                .disabled(overviewSpeedRunning)
+                .help("实测外置盘读写速度（写入几百 MB，需几秒）")
+            }
+            MockUsageBar(ratio: drive.usageRatio, gradient: MockTheme.externalBar, height: 10)
+            if let speed = overviewSpeedText {
+                Text(speed)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .mockCard()
+    }
+
+    private func runOverviewSpeedTest(mount: String) {
+        guard !mount.isEmpty, !overviewSpeedRunning else { return }
+        overviewSpeedRunning = true
+        overviewSpeedText = nil
+        Task {
+            let result = await OffPool.run { DiskSpeedTest.run(mountPoint: mount) }
+            await MainActor.run {
+                overviewSpeedRunning = false
+                overviewSpeedText = result.map {
+                    "写入 \(Int($0.writeMBps)) · 读取 \(Int($0.readMBps)) MB/s"
+                } ?? "测速失败（盘可能只读或已满）"
+                // 与体检页 DiskBarView 的测速同口径：喂速度基线（塌陷告警靠样本）
+                if let result,
+                   let uuid = appState.volumeStore.volumes
+                       .first(where: { $0.info.mountPoint == mount })?.id {
+                    VolumeSpeedBaseline.record(volumeUUID: uuid, readMBps: result.readMBps)
+                }
+            }
+        }
     }
 
     /// 三统计卡（效果图：图标方块 + 大数字 + 小标签）
