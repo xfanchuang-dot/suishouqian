@@ -230,16 +230,14 @@ struct ContentView: View {
                 AppListView()
                     .mockPage()
             case .settings:
-                // 设置页也走统一 mockPage 大白卡（此前是手搓 r=12 卡，与设计系统 r=18 不一致）；
-                // 底部统计条（效果图元素）保留
-                VStack(spacing: 0) {
+                // 设置页也走统一 mockPage 大白卡；底部统计条已按用户要求移除
+                VStack(alignment: .leading, spacing: 12) {
                     SectionHeader(title: "设置", systemImage: "gearshape.fill")
                         .padding(.horizontal, 24)
                         .padding(.top, 20)
                     SettingsView()
                         .padding(.horizontal, 24)
-                    Divider().padding(.horizontal, 24)
-                    MockBottomBar(items: statsItems)
+                    Spacer()
                 }
                 .mockPage()
             case .health:
@@ -280,19 +278,6 @@ struct ContentView: View {
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18),
                    value: appState.activePanel)
-    }
-
-    /// 效果图底栏统一口径（应用/设置页共用）：N 个应用 · N 在外置盘 · 可省 N
-    private var statsItems: [String] {
-        let offInternal = appState.apps.filter {
-            $0.status == .migrated || $0.status == .externalOnly
-        }.count
-        let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
-        var items = ["\(appState.apps.count) 个应用", "\(offInternal) 在外置盘"]
-        if savable > 0 {
-            items.append("可省 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))")
-        }
-        return items
     }
 
     /// 应用内截图（锁屏也能拍：直接渲染窗口内容位图，不走系统截屏服务）

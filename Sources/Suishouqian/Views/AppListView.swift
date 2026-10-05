@@ -249,36 +249,9 @@ struct AppListView: View {
 
             // 6.3（Muse 审查附录 A1）：选中操作条——批量迁部分应用与"一键全部"同一执行链
             selectionBar
-
-            Divider()
-                .padding(.horizontal, 16)
-
-            // 底部统计（对照效果图：纯灰文本 · 分隔，无图标无彩色）
-            HStack(spacing: 8) {
-                // 与「在外置盘」筛选口径一致：链接迁移的 + 外置盘原住民都算
-                let offInternal = appState.apps.filter {
-                    $0.status == .migrated || $0.status == .externalOnly
-                }
-                let movable = appState.apps.filter { $0.status == .normal }
-                let totalSavable = movable.reduce(0) { $0 + $1.size }
-
-                Spacer()
-
-                Text("\(appState.apps.count) 个应用")
-                Text("·")
-                Text("\(offInternal.count) 在外置盘")
-                if totalSavable > 0 {
-                    Text("·")
-                    Text("可省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))")
-                }
-
-                Spacer()
-            }
-            .font(.system(size: 13))
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
+        // 底部统计条已按用户要求移除；列表直贴卡底，裁进大白卡圆角内防穿角
+        .clipShape(RoundedRectangle(cornerRadius: MockTheme.Corner.page, style: .continuous))
         // 大白卡由 ContentView 的 .mockPage() 统一提供，本页不再自包
     }
 }
