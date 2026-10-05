@@ -21,9 +21,11 @@ struct SettingsView: View {
     /// 升级顶掉自动重迁（opt-in，默认关）
     @AppStorage(AutoRemigrateService.enabledKey) private var autoRemigrate = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
-    @State private var tab: Tab = .general
+    @State private var tab: Tab = .permissions
+    /// 权限状态缓存（进设置页时检测一次，避免每次 body 重算都打文件系统）
+    @State private var fdaGranted: Bool?
 
-    enum Tab: Hashable { case general, backup, watch, about }
+    enum Tab: Hashable { case permissions, general, backup, watch, about }
 
     /// 检查更新用（懒启动：点按钮才拉 Sparkle，无启动开销；两实例各自持有无妨）
     @State private var updateManager = UpdateManager()
@@ -31,13 +33,14 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             MockCapsuleTabs(
-                tabs: [(.general, "通用"), (.backup, "备份"), (.watch, "外置盘守护"),
-                       (.about, "关于")],
+                tabs: [(.permissions, "权限"), (.general, "通用"), (.backup, "备份"),
+                       (.watch, "外置盘守护"), (.about, "关于")],
                 selection: $tab)
 
             ScrollView {
                 VStack(spacing: 0) {
                     switch tab {
+                    case .permissions: permissionsRows
                     case .general: generalRows
                     case .backup: backupRows
                     case .watch: watchRows
@@ -47,6 +50,75 @@ struct SettingsView: View {
             }
         }
         .padding(4)
+        // ⚠️ 不做 onAppear 自动探测（v2.3.3 红线）：读 TCC 保护目录在未授予时会弹
+        // 授权框，打开设置就弹=弹窗轰炸重演。默认「未知」，用户点「刷新状态」
+        // 才真正探测一次——那一刻弹框是用户预期的、可点掉的
+    }
+
+    // MARK: - 权限检测
+
+    /// 完全磁盘访问权限：尝试读取 TCC 保护目录。
+    /// 任一可读即视为已授予；都不存在时返回 nil（未知，不误报）。
+    private static func checkFullDiskAccess() -> Bool? {
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+        let candidates = ["Library/Safari", "Library/Mail", "Library/Messages"]
+        var anyExists = false
+        for rel in candidates {
+            let path = (home as NSString).appendingPathComponent(rel)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { continue }
+            anyExists = true
+            // 能列出目录内容 = 有 FDA（无 FDA 时 contentsOfDirectory 抛错）
+            if (try? fm.contentsOfDirectory(atPath: path)) != nil { return true }
+        }
+        return anyExists ? false : nil
+    }
+
+    private func refreshPermissionStatus() {
+        fdaGranted = Self.checkFullDiskAccess()
+    }
+
+    /// 权限行：标题 + 状态点 + 副标题 + 右侧「去授权」按钮
+    private func permissionRow(_ title: String, _ subtitle: String,
+                               status: PermissionStatus,
+                               settingsURL: String) -> some View {
+        row(title, subtitle) {
+            HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(status.dotColor)
+                        .frame(width: 8, height: 8)
+                    Text(status.label)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Button("去授权") {
+                    if let url = URL(string: settingsURL) {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    enum PermissionStatus {
+        case granted, denied, unknown
+        var dotColor: Color {
+            switch self {
+            case .granted: return .green
+            case .denied: return .orange
+            case .unknown: return .gray
+            }
+        }
+        var label: String {
+            switch self {
+            case .granted: return "已授予"
+            case .denied: return "未授予"
+            case .unknown: return "未知"
+            }
+        }
     }
 
     // MARK: - 行组件（效果图：粗标题 + 灰副标题 + 右侧控件，行间发丝分隔线）
@@ -85,6 +157,44 @@ struct SettingsView: View {
         Divider().opacity(0.6)
     }
 
+    // MARK: - 权限
+
+    @ViewBuilder
+    private var permissionsRows: some View {
+        // 顶部提示：权限是迁移/卸载的前提，一次配好后面不折腾
+        HStack(spacing: 8) {
+            Image(systemName: "lock.shield.fill")
+                .foregroundColor(.blue)
+            Text("随手迁需要以下权限才能迁移、回迁和卸载应用。配一次，后面不再打扰。")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Spacer()
+            Button("刷新状态") { refreshPermissionStatus() }
+                .controlSize(.small)
+                .buttonStyle(.plain)
+                .foregroundColor(.blue)
+        }
+        .padding(.vertical, 12)
+        rowDivider
+        permissionRow(
+            "完全磁盘访问权限",
+            "用于扫描桌面/文稿/下载的大文件。未授予时「扩展扫描」不可用，卸载也可能因权限不足失败（如截图中的错误）。",
+            status: fdaGranted.map { $0 ? .granted : .denied } ?? .unknown,
+            settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        rowDivider
+        permissionRow(
+            "修改其他应用（App Management）",
+            "迁移/回迁/卸载都要改动 /Applications；不授予会反复弹「想要修改其他应用程序」。",
+            status: .unknown,  // 系统不提供 API 查询，只能引导用户手动确认
+            settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement")
+        rowDivider
+        row("管理员密码",
+            "迁移系统自带 root 应用（如 Xcode 命令行工具）时仍会要一次管理员密码。这是安全设计，无法也不应绕过。") {
+            Image(systemName: "key.fill")
+                .foregroundColor(.secondary)
+        }
+    }
+
     // MARK: - 通用
 
     @ViewBuilder
@@ -108,19 +218,9 @@ struct SettingsView: View {
         }
         rowDivider
         switchRow("扩展扫描桌面/文稿/下载",
-                  "默认只扫「资源库」零权限弹窗；开启前请先在下方授予完全磁盘访问权限",
+                  "默认只扫「资源库」零权限弹窗；开启前请先在「权限」页签授予完全磁盘访问权限",
                   isOn: $bigFileExtended) { on in
             if on { confirmExtendedScan() }
-        }
-        rowDivider
-        row("修改其他应用（App Management）",
-            "迁移/回迁/修复都要改动 /Applications；不授予会反复弹「想要修改其他应用程序」。迁移系统自带 root 应用时仍会要一次管理员密码（安全设计，无法也不应绕过）") {
-            Button("去授权") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            .controlSize(.small)
         }
     }
 
