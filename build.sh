@@ -86,10 +86,12 @@ mkdir -p "$MACOS_DIR" "$FW_DIR" "$RESOURCES_DIR"
 # 内置盘无此问题且顺带更快。属构建产物，随删随建。
 SCRATCH_DIR="${SUISHOUQIAN_SCRATCH:-$HOME/Library/Caches/suishouqian-scratch}"
 
-# 架构：默认出**通用二进制**（arm64 + x86_64），与 README 声明的「Apple Silicon / Intel」一致。
-# 此前只出本机架构 arm64，发出去的包 Intel 用户根本装不了，而 appcast 里还老实写着 arm64。
-# 只想要本机架构、图快：SUISHOUQIAN_ARCHS=arm64 bash build.sh
-ARCHS="${SUISHOUQIAN_ARCHS:-arm64 x86_64}"
+# 架构：默认 **arm64 单架构**（2026-10-05 改）——macOS 27 SDK 已把 x86_64 标记为
+# 弃用（每次构建刷 x86_64 deprecated 警告），且本应用无 Intel 用户实测渠道，
+# 通用二进制的 x64 腿只带来体积和警告。仍需要 Intel 包：SUISHOUQIAN_ARCHS="arm64 x86_64"
+# bash build.sh（警告回归属预期）。历史上默认通用是为了 Intel 用户能装——现在
+# README 声明已同步改为 Apple Silicon。
+ARCHS="${SUISHOUQIAN_ARCHS:-arm64}"
 ARCH_FLAGS=()
 for a in $ARCHS; do ARCH_FLAGS+=(--arch "$a"); done
 

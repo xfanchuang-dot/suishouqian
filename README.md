@@ -43,7 +43,7 @@ Dock 右键图标可直达：立即扫描、三个面板。
 
 ## 系统要求
 
-- macOS 14.0 及以上（Apple Silicon / Intel）
+- macOS 14.0 及以上（Apple Silicon；Intel 需自行用 `SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh` 构建通用包）
 - 外置硬盘建议 APFS 格式
 
 ## 使用
