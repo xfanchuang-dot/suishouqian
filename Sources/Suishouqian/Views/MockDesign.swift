@@ -86,6 +86,27 @@ extension View {
     func mockPage() -> some View { modifier(MockPageModifier()) }
     /// 页内白卡（概览统计卡、迁移任务卡、备份记录行…）
     func mockCard(padding: CGFloat = 16) -> some View { modifier(MockCardModifier(padding: padding)) }
+    /// 悬停浮起：复用 Motion.swift 的 hoverLift（动效批已定义——重复声明会撞
+    /// ambiguous use 编译错，本文件不再定义）
+    /// 按压缩放（主按钮用）：按下时缩到 0.97，松开回弹
+    func pressScale() -> some View { modifier(PressScaleModifier()) }
+}
+
+// MARK: - 微交互
+
+/// 按压缩放：给主按钮加的触感反馈
+private struct PressScaleModifier: ViewModifier {
+    @State private var pressing = false
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(pressing ? 0.97 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: pressing)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in pressing = true }
+                    .onEnded { _ in pressing = false }
+            )
+    }
 }
 
 // MARK: - 大标题（效果图：28pt 粗体左对齐）
@@ -206,6 +227,7 @@ struct MockGradientButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+        .pressScale()
     }
 }
 

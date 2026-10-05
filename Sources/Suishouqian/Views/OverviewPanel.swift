@@ -217,29 +217,39 @@ struct OverviewPanel: View {
         let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
         return HStack(spacing: 16) {
             statCard(icon: "square.grid.2x2.fill", color: MockTheme.accent,
-                     value: "\(appState.apps.count)", label: "应用总数")
+                     value: "\(appState.apps.count)", unit: nil, label: "应用总数")
             statCard(icon: "arrow.up.right", color: MockTheme.statOrange,
-                     value: "\(offInternal)", label: "已迁移")
+                     value: "\(offInternal)", unit: nil, label: "已迁移")
             statCard(icon: "leaf.fill", color: MockTheme.healthGreen,
-                     value: Self.shortSize(savable), label: "可省空间")
+                     value: Self.shortValue(savable), unit: Self.shortUnit(savable), label: "可省空间")
         }
     }
 
-    /// 统计卡的体积值缩到一位小数（"9.28 GB"→"9.3 GB"）：位数多会把 26pt
-    /// 大数字压缩到和相邻卡不齐，短一位三卡字号就统一了
-    private static func shortSize(_ bytes: Int64) -> String {
+    /// 统计卡的体积值：数字与单位分离（"9.3"+"GB"），数字保持 26pt 不被压缩，
+    /// 解决"9.28 GB"长文本被 minimumScaleFactor 压小导致三卡字号不齐
+    private static func shortValue(_ bytes: Int64) -> String {
         bytes >= 1_073_741_824
-            ? String(format: "%.1f GB", Double(bytes) / 1_073_741_824)
-            : "\(bytes / 1_048_576) MB"
+            ? String(format: "%.1f", Double(bytes) / 1_073_741_824)
+            : "\(bytes / 1_048_576)"
     }
 
-    private func statCard(icon: String, color: Color, value: String, label: String) -> some View {
+    private static func shortUnit(_ bytes: Int64) -> String {
+        bytes >= 1_073_741_824 ? "GB" : "MB"
+    }
+
+    private func statCard(icon: String, color: Color, value: String, unit: String?, label: String) -> some View {
         VStack(spacing: 8) {
             MockIconSquare(systemImage: icon, color: color, size: 44)
-            Text(value)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            HStack(alignment: .lastTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                if let unit {
+                    Text(unit)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+            }
             Text(label)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
@@ -282,6 +292,7 @@ struct OverviewPanel: View {
             RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous)
                 .strokeBorder(MockTheme.healthGreen.opacity(0.25))
         )
+        .hoverLift()
         .contentShape(Rectangle())
         .onTapGesture { appState.activePanel = .health }
         .help("查看体检明细")
@@ -589,9 +600,9 @@ struct OverviewPanel: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Time Machine 正在重复备份外置盘")
+                Text("Time Machine 在重复备份外置盘应用")
                     .font(.system(size: 13, weight: .medium))
-                Text("排除后省出备份盘空间（应用已有快照+留底+台账三重保护）")
+                Text("建议排除，省备份空间（已有三重保护，不影响恢复）")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .lineLimit(1)

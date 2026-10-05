@@ -15,6 +15,13 @@ struct MigrationPanel: View {
         return VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 20) {
+                    // 页标题（与其他页统一：MockPageTitle 26pt 大标题）
+                    HStack {
+                        MockPageTitle(text: "迁移")
+                        Spacer()
+                    }
+                    .padding(.top, 4)
+
                     // 主按钮（效果图：蓝→紫渐变胶囊，居中）
                     if !movableApps.isEmpty && appState.externalDrive != nil {
                         MockGradientButton(
