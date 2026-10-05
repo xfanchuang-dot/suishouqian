@@ -221,11 +221,16 @@ struct OverviewPanel: View {
             statCard(icon: "arrow.up.right", color: MockTheme.statOrange,
                      value: "\(offInternal)", label: "已迁移")
             statCard(icon: "leaf.fill", color: MockTheme.healthGreen,
-                     value: savable > 0
-                        ? ByteCountFormatter.string(fromByteCount: savable, countStyle: .file)
-                        : "0 GB",
-                     label: "可省空间")
+                     value: Self.shortSize(savable), label: "可省空间")
         }
+    }
+
+    /// 统计卡的体积值缩到一位小数（"9.28 GB"→"9.3 GB"）：位数多会把 26pt
+    /// 大数字压缩到和相邻卡不齐，短一位三卡字号就统一了
+    private static func shortSize(_ bytes: Int64) -> String {
+        bytes >= 1_073_741_824
+            ? String(format: "%.1f GB", Double(bytes) / 1_073_741_824)
+            : "\(bytes / 1_048_576) MB"
     }
 
     private func statCard(icon: String, color: Color, value: String, label: String) -> some View {
@@ -234,7 +239,7 @@ struct OverviewPanel: View {
             Text(value)
                 .font(.system(size: 26, weight: .bold, design: .rounded))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.8)
             Text(label)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
@@ -584,13 +589,15 @@ struct OverviewPanel: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Time Machine 正在重复备份外置盘应用")
+                Text("Time Machine 正在重复备份外置盘")
                     .font(.system(size: 13, weight: .medium))
-                Text("这些目录在备份盘上还有一整份副本（应用本身已有快照+留底+台账三重保护），排除后省的是备份盘空间")
+                Text("排除后省出备份盘空间（应用已有快照+留底+台账三重保护）")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
+            .help("这些目录在备份盘上还有一整份副本。排除后省的是备份盘空间，"
+                + "不影响本机的快照、留底与台账三重保护")
 
             Spacer()
 
