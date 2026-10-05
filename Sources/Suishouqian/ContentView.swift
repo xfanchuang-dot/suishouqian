@@ -52,13 +52,13 @@ struct ContentView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.top, 8)
+        // 顶部起点自己精确控制：hiddenTitleBar 下系统仍保留约 50pt 顶部安全区，
+        // 会导致菜单与交通灯之间空 56pt（实测）。ignoresSafeArea 顶掉系统区，
+        // 34pt = 交通灯下沿（24）+ 呼吸 10，脚本实测校准
+        .ignoresSafeArea(.container, edges: .top)
+        .padding(.top, 42)
         .frame(maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 185, ideal: 215, max: 255)
-        // 工具栏隐藏后交通灯悬浮在侧边栏左上（约占顶部 24pt），留刚好够的高度
-        .safeAreaInset(edge: .top) {
-            Color.clear.frame(height: 22)
-        }
         .safeAreaInset(edge: .bottom) {
             // 效果图格局：玻璃卡只装内置盘；外置盘摘要是卡下方的一条纯文本行
             VStack(spacing: 8) {
