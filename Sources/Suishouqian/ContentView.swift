@@ -13,9 +13,8 @@ struct ContentView: View {
             sidebar
         } detail: {
             detail
-                // 顶部整条标题栏去掉（用户反馈）：标题+副标题都不留，
-                // 外置盘状态由侧边栏底部磁盘卡承载；侧栏顶部留交通灯安全高度
-                .toolbar(.hidden, for: .windowToolbar)
+            // 标题条已在 App 层用 hiddenTitleBar 整体去掉（含「随手迁」窗口标题文字）；
+            // 侧栏顶部 safeAreaInset 留交通灯安全高度
         }
         .onAppear {
             // 无人值守截图通道：SSQ_PANEL=0..5 直接落到指定页面（概览/迁移/体检/数据/应用/设置）

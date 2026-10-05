@@ -89,8 +89,9 @@ struct SuishouqianApp: App {
                 .environmentObject(appState)
                 .frame(minWidth: 800, minHeight: 560)
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified)
+        // 整个标题条去掉（用户反馈：顶部「随手迁」文字所在一块全去）——
+        // 交通灯直接悬浮在侧边栏上，窗口拖拽走顶部边缘
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("操作") {
