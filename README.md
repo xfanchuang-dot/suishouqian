@@ -1,107 +1,152 @@
-# 随手迁
+# 随手迁 Suishouqian
 
-把 macOS 大应用搬到外置硬盘、给内置盘腾空间的工具。迁移后 `/Applications` 里留一个软链接，应用照常启动、照常升级，使用方式完全不变。
+> 把 Mac 内置盘上的大应用，安全地搬到外置硬盘，释放空间。
+> Move large Mac apps to external drives safely, free up internal storage.
 
-![主界面](docs/screenshots/main-window.png)
+[![Tests](https://github.com/xfanchuang-dot/suishouqian/actions/workflows/tests.yml/badge.svg)](https://github.com/xfanchuang-dot/suishouqian/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 功能特性
+---
 
-- **一键迁移 / 回迁**：单个迁移或批量搬运，链接对用户透明，启动台、Spotlight、Dock 全部照旧
-- **外置盘原住民应用**：安装时就装在外置盘的应用（如 WPS）也会出现在列表（「在外置盘」徽章），可一键搬回内置盘
-- **链接体检**：软链接按「正常 / 硬盘未连接 / 断链」三态分类，断链按迁移台账自动自愈（卷改名免疫），也可手动修复；备份孤儿与超龄备份审计清理
-- **应用数据迁移（⌘3 数据面板）**：自动发现剪映草稿、LM Studio 模型、Docker 磁盘镜像、iPhone 备份等大数据目录；优先给应用自带的搬迁指引，苹果没给入口的走同级别安全链的链接迁移；拔盘分叉自动对账
-- **升级回退检测**：应用自升级把链接换回真目录时体检会发现，一键重新迁移释放内置盘
-- **空间守卫**：内置盘低于 40GB 自动告警，附可迁移应用清单与预计腾出空间
-- **新应用提醒**：新装 ≥500MB 应用主动问要不要搬（防复发：大应用总会再住回内置盘）
-- **大文件 TOP / 残留扫描**：体检页可查 ≥500MB 大文件、已卸载应用的无主数据，清理走废纸篓
-- **设置窗口（⌘,）**：提醒开关、备份保留期、审计日志直达、插盘自动打开
+## 为什么是随手迁？
 
-## 安全设计（本项目北极星）
+256GB 的 MacBook，装个 Xcode 就没了一半。随手迁把不常用的大应用搬到外置盘，
+在原位置留一个符号链接——应用以为自己还在老地方，双击照常用。
 
-把「迁移 + 省空间」的安全与稳定做到极致，数据安全链条无已知缺口：
+**核心承诺：数据安全优先。** 迁移前自动备份，任何一步失败都回滚，绝不丢数据。
+200+ 自动化测试覆盖每一条安全红线。
 
-| 环节 | 措施 |
+## 安全设计（代码可审计）
+
+- ✅ 迁移前完整备份，失败自动回滚
+- ✅ 取消/中断走回滚语义，绝不删源数据
+- ✅ exFAT 硬拦截（不支持符号链接的文件系统直接拒绝）
+- ✅ 备份盘空间预检，跨盘备份防单点故障
+- ✅ 操作日志完整可查（`~/Library/Application Support/随手迁/`）
+
+详见 [CHANGELOG.md](CHANGELOG.md) 里的每一次安全修复记录。
+
+## 功能
+
+| 免费版 | Pro 版 |
 |---|---|
-| 迁移前 | 目标盘挂载点 + 卷类型（排除 Time Machine / 网络共享 / 只读卷）+ 剩余空间校验（按「目标副本 + 同盘留底备份」两份算）；应用正在运行则拒绝迁移；APFS 本地快照整机保险（1 小时节流） |
-| 迁移中 | `ditto` 复制保留全部元数据 → 逻辑字节数对比 → 随机抽样 SHA256（≤32 文件全量哈希） |
-| 迁移后 | 校验通过才原子切换软链接；任一步失败自动回滚；外置盘 `.suishouqian-backup` 留底（保留期可调，过期自动清理——但只在应用另有可用副本时才清，可能是唯一副本的留底绝不被后台删除）；卷 UUID 台账记账 |
-| 使用期 | 卷改名断链按台账自动自愈（插盘/启动时触发）；应用升级撤销迁移会被体检发现并可一键重新迁移 |
-| 全程 | append-only 审计日志；迁移进行中强退需二次确认；拔盘时点名仍在盘上运行的应用 |
+| 应用迁移 / 回迁 | 智能迁移建议 |
+| 健康体检（断链/备份/残留） | 版本化备份 |
+| 磁盘测速 / SMART 监控 | 多 Mac 配置同步 |
+| 迁移历史时间线 | 优先支持 |
 
-工程侧沉淀：所有子进程「先读输出再等待退出」防管道死锁、阻塞等待全部走 GCD 不占 Swift 协作线程池、扫描并发限流（两次真实冻结事故的修复经验，见 CHANGELOG）。
+> **Pro 现状说明（诚实版）**：Pro 的三项功能（智能迁移建议 / 版本化备份 / 多 Mac 配置同步）
+> **仍在开发中**，当前版本激活 Pro 并不会扩大或限制免费功能的使用范围。
+> ¥29 为**买断制**：一次付费，后续所有 Pro 功能上线后自动解锁，并优先获得支持。
+> 许可证离线 Ed25519 校验，不联网、不上传任何数据。
+> 签发机制与运维手册见 [docs/LICENSE_ISSUING.md](docs/LICENSE_ISSUING.md)。
 
-## 快捷键
+购买入口：[爱发电](https://afdian.com/a/suishouqian)（⏳ 购买页筹备中，上线后才会收款）
 
-| 快捷键 | 功能 |
-|---|---|
-| ⌘R | 重新扫描应用 |
-| ⌘F | 聚焦搜索框 |
-| ⌘1 / ⌘2 / ⌘3 | 切换 迁移 / 体检 / 数据 面板 |
-| ⌘, | 打开设置 |
+## 安装
 
-Dock 右键图标可直达：立即扫描、三个面板。
+> ⚠️ **当前只有方式三可用。** Releases 尚无二进制，Homebrew cask 也未上架
+> （`brew install --cask suishouqian` 会 404）。方式一、方式二随首个 Release 生效。
 
-## 系统要求
+### 方式一：下载已编译版（待首个 Release）
 
-- macOS 14.0 及以上（Apple Silicon；Intel 需自行用 `SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh` 构建通用包）
-- 外置硬盘建议 APFS 格式
+从 [Releases](https://github.com/xfanchuang-dot/suishouqian/releases) 下载最新 `.dmg`。
 
-## 使用
+> ⚠️ 未签名版本：首次打开时按住 Control 键点击 → 选择"打开"，之后即可正常使用。
 
-1. 插上外置硬盘，打开随手迁（可在设置里开启「插盘自动打开」）
-2. 左侧选择应用点「迁移」，或直接「一键迁移全部」
-3. 之后照常用应用——链接在 `/Applications`，本体在外置盘
-4. 想搬回来：点「全部回迁」，或体检页单独处理
-
-## 构建与测试
+### 方式二：Homebrew（待 cask 上架）
 
 ```bash
-swift build                     # 编译
-swift test                      # 单元测试（链接三态、残留匹配、审计日志隔离、防死锁回归等）
-bash build.sh                   # 构建 + 签名 + 安装到 /Applications + 启动（覆盖旧版，旧版进废纸篓）
-bash build.sh --dist-only       # 只构建 + 签名，产物留在 dist/（CI / 发版用）
-bash scripts/package_dmg.sh     # dist/ 里的 .app 打成 DMG
-bash scripts/make_appcast.sh    # 生成 Sparkle 的 appcast.xml
-make help                       # 上面这些的快捷目标一览
+brew install --cask suishouqian
 ```
 
-版本号唯一来源是根目录 `VERSION`（`build.sh` 会校验它与 `CHANGELOG.md` 顶部一致）。
+### 方式三：从源码编译（当前可用）
 
-## 项目结构
-
-```
-Sources/Suishouqian/
-├── App.swift                  # 入口、AppState、强退保护、空间守卫
-├── Services/
-│   ├── AppMigrator.swift      # 迁移/回迁/卸载核心（校验、回滚、备份清理）
-│   ├── AppScanner.swift       # /Applications 扫描（并行 TaskGroup）
-│   ├── DiskMonitor.swift      # 磁盘容量与挂载/卸载监听
-│   └── HealthChecker.swift    # 链接三态/备份审计/残留扫描/大文件
-├── Utilities/                 # AuditLog / OffPool / SystemSnapshot
-└── Views/                     # Design.swift 设计系统 + 各面板
+```bash
+git clone https://github.com/xfanchuang-dot/suishouqian.git
+cd suishouqian
+bash build.sh
 ```
 
-## 常见问题
+需要 Xcode 16+、macOS 14+、**Apple Silicon（arm64）**。默认只编 arm64；
+要出 Intel 包：`SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`。
 
-- **体检会弹「想访问下载/桌面文件夹」的权限框吗？** 不会。大文件扫描默认只碰「资源库」，且已彻底移除任何对受保护目录的探测；桌面/文稿/下载需在 设置 → 通用 里显式开启扩展扫描（开启前引导授予完全磁盘访问权限），不开启就永不触碰。
-- **外置盘改名后链接断了？** 插上硬盘随手迁会按迁移台账里的卷 UUID 自动重写链接（发通知告知），无需手动处理；极端情况可用体检页手动修复。
-- **应用自升级后又回到内置盘？** 个别更新器会用真目录替换链接（"迁移被悄悄撤销"）。体检页「迁移被撤销」分区会发现它，一键重新迁移即可释放内置盘空间。
-- **拔盘后应用打不开？** 正常现象，插回即恢复。拔盘前建议先退出住在外置盘的应用，随手迁会点名提醒。
-- **Time Machine / 挂载 dmg 会误触发「插盘自动打开」吗？** 不会：守护只监听目标盘的挂载点，且只在「未挂载 → 已挂载」的瞬间触发一次。
-- **应用数据（素材、模型）会一起搬吗？** 暂不。数据目录和程序本体行为不同（持续热写入、断链后有数据分叉风险），规划为独立能力分阶段上线（见路线图）。
+## 截图
 
-## 路线图
+（待补充）
 
-- **v3.0 工程化收官**
-  - ✅ **已完成**（2.16.0）：GitHub Actions 测试 CI + 发布流水线（推 tag 即产 DMG / appcast / Release）、DMG 打包、Sparkle 更新通道（EdDSA 密钥 + `appcast.xml`）、版本号单一来源、发布手册
-  - ⚠️ **前置条件：自动更新要求仓库公开**。Sparkle 匿名拉 appcast，仓库私有时一律 404 —— 此时 DMG 分发照旧，但已安装的用户收不到更新。修法见 [docs/RELEASING.md](docs/RELEASING.md) §1.4
-  - ⏳ **待 Apple Developer 账号**（$99/年）：Developer ID 签名 + 公证。流水线已按双路径写好——配好 secrets 即自动升级为正式签名 + 公证；没有账号也能发布（首次打开需右键「打开」）。详见 [docs/RELEASING.md](docs/RELEASING.md)
-- 备选：任意大目录的手动链接迁移（当前仅清单内目录）、数据分叉的内容合并向导、多盘支持
+## 支持开发者
 
-## 发布
+随手迁是个人独立开发，0 成本运营。如果它帮你省下了买大容量 Mac 的钱：
 
-见 [docs/RELEASING.md](docs/RELEASING.md)：版本号纪律、Sparkle 密钥备份、GitHub Secrets 清单、本地与 CI 两种发版流程。
+- ⭐ 给个 Star，让更多人看到
+- 💰 [爱发电赞助](https://afdian.com/a/suishouqian)（¥29 解锁 Pro）
+- 🐛 [提 Issue](https://github.com/xfanchuang-dot/suishouqian/issues) 帮我改进
 
-## 更新日志
+## 许可证
 
-见 [CHANGELOG.md](CHANGELOG.md)。
+MIT，详见 [LICENSE](LICENSE)。
+
+---
+
+## Why Suishouqian?
+
+Your 256GB MacBook is half gone after installing Xcode. Suishouqian moves
+infrequently-used large apps to an external drive, leaving a symlink behind —
+apps think they're still home, double-click and they just work.
+
+**Core promise: data safety first.** Automatic backup before every migration,
+rollback on any failure, never lose data. 200+ automated tests guard every
+safety invariant.
+
+## Safety Design (Auditable)
+
+- ✅ Full backup before migration, auto-rollback on failure
+- ✅ Cancel/interrupt follows rollback semantics, never deletes source data
+- ✅ exFAT hard block (filesystems without symlink support are refused)
+- ✅ Backup volume space pre-check, cross-volume backup against single-point failure
+- ✅ Complete operation journal (`~/Library/Application Support/随手迁/`)
+
+See [CHANGELOG.md](CHANGELOG.md) for every safety fix on record.
+
+## Install
+
+> ⚠️ **Only option 3 works today.** There are no binaries in Releases yet and the
+> Homebrew cask is not published (`brew install --cask suishouqian` returns 404).
+> Options 1 and 2 will go live with the first release.
+
+Download the latest `.dmg` from [Releases](https://github.com/xfanchuang-dot/suishouqian/releases).
+
+> ⚠️ Unsigned build: on first launch, Control-click → "Open", then it works normally.
+
+Or via Homebrew (once the cask lands):
+
+```bash
+brew install --cask suishouqian
+```
+
+Or build from source — works today. Requires Xcode 16+, macOS 14+, and
+**Apple Silicon (arm64)**: builds are arm64-only by default. For an Intel
+binary: `SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`.
+
+```bash
+git clone https://github.com/xfanchuang-dot/suishouqian.git
+cd suishouqian
+bash build.sh
+```
+
+## Support
+
+> **Honest note on Pro:** the three Pro features (migration advice, versioned
+> backups, multi-Mac config sync) are **still in development**. Activating Pro
+> today does not restrict or expand any free feature. ¥29 is a **one-time
+> purchase** that unlocks every future Pro feature once shipped, plus priority
+> support. Licenses verify offline via Ed25519 — no network calls, no telemetry.
+
+- ⭐ Star this repo to help others discover it
+- 💰 [Sponsor](https://afdian.com/a/suishouqian) (¥29 one-time for Pro — ⏳ page in preparation, no charges collected yet)
+- 🐛 [File issues](https://github.com/xfanchuang-dot/suishouqian/issues)
+
+## License
+
+MIT, see [LICENSE](LICENSE).

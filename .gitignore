@@ -17,6 +17,12 @@ xcuserdata/
 private_key*.txt
 sparkle_private_key*
 
+# Pro 许可证签发私钥：同样绝不允许进仓库
+# （license_tool.swift 默认导出到 ~/Library/Caches/suishouqian-license/，
+#   也接受任意 --out / --key 路径；丢掉它 = 再也签发不出许可证）
+license_private_key*
+*license*private*
+
 # 系统文件
 .DS_Store
 

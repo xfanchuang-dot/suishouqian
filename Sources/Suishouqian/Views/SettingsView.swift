@@ -327,6 +327,69 @@ struct SettingsView: View {
                   isOn: $menuBarExtra)
     }
 
+    // MARK: - 支持开发者
+
+    @StateObject private var licenseManager = LicenseManager.shared
+    @State private var licenseInput = ""
+    @State private var licenseMessage: String?
+    @State private var showLicenseField = false
+
+    @ViewBuilder
+    private var supportDeveloperRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "heart.fill")
+                    .foregroundColor(.red)
+                    .font(.system(size: 16))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("支持开发者")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(licenseManager.isPro
+                         ? "Pro 已激活（\(licenseManager.licensedEmail ?? ""))，感谢支持！"
+                         : "随手迁是个人独立开发。¥29 解锁 Pro，支持持续更新。")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                if !licenseManager.isPro {
+                    Button("购买 Pro ¥29") {
+                        if let url = URL(string: "https://afdian.com/a/suishouqian") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    Button(showLicenseField ? "收起" : "输入许可证") {
+                        showLicenseField.toggle()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            if showLicenseField && !licenseManager.isPro {
+                HStack(spacing: 8) {
+                    TextField("粘贴许可证", text: $licenseInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                    Button("激活") {
+                        let result = licenseManager.activate(license: licenseInput)
+                        licenseMessage = result.message
+                        if result.ok {
+                            licenseInput = ""
+                            showLicenseField = false
+                        }
+                    }
+                    .controlSize(.small)
+                }
+                if let msg = licenseMessage {
+                    Text(msg)
+                        .font(.system(size: 11))
+                        .foregroundColor(licenseManager.isPro ? .green : .red)
+                }
+            }
+        }
+        .padding(.vertical, 14)
+    }
+
     // MARK: - 关于
 
     private static var appVersion: String {
@@ -367,6 +430,9 @@ struct SettingsView: View {
             Button("打开") { NSApp.orderFrontStandardAboutPanel(nil) }
                 .buttonStyle(.bordered)
         }
+        rowDivider
+        // 支持开发者：Pro 激活 + 打赏入口
+        supportDeveloperRow
         rowDivider
         Text("© 2026 随手迁 · 为个人 Mac 打造的应用迁移工具")
             .font(.system(size: 11))
