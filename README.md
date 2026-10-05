@@ -5,6 +5,10 @@
 
 [![Tests](https://github.com/xfanchuang-dot/suishouqian/actions/workflows/tests.yml/badge.svg)](https://github.com/xfanchuang-dot/suishouqian/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9%E9%9A%8F%E6%89%8B%E8%BF%81-946ce6)](https://afdian.com/a/suishouqian)
+
+> ☕ 如果随手迁帮你省下了买大容量 Mac 的钱：
+> [**在爱发电支持我（¥29 一次性买断 Pro，非订阅）**](https://afdian.com/a/suishouqian)
 
 ---
 
