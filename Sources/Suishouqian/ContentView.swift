@@ -52,12 +52,12 @@ struct ContentView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .padding(.top, 16)
+        .padding(.top, 8)
         .frame(maxHeight: .infinity, alignment: .top)
         .navigationSplitViewColumnWidth(min: 185, ideal: 215, max: 255)
-        // 工具栏隐藏后交通灯悬浮在侧边栏左上，菜单从其下方开始
+        // 工具栏隐藏后交通灯悬浮在侧边栏左上（约占顶部 24pt），留刚好够的高度
         .safeAreaInset(edge: .top) {
-            Color.clear.frame(height: 30)
+            Color.clear.frame(height: 22)
         }
         .safeAreaInset(edge: .bottom) {
             // 效果图格局：玻璃卡只装内置盘；外置盘摘要是卡下方的一条纯文本行
