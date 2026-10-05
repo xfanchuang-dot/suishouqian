@@ -52,7 +52,10 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-14
+    # macos-15 = Xcode 16 / Swift 6.x（与 tests.yml 保持一致）。
+    # 此前是 macos-14：自带 Swift 5.10，而 Package.swift 要求 tools-version 6.0，
+    # 发版流水线会在编译第一步就挂，DMG 和 Release 都出不来。
+    runs-on: macos-15
     steps:
       # fetch-depth: 0 —— workflow_dispatch 手动发布时要能校验目标 tag 确实存在
       - uses: actions/checkout@v4

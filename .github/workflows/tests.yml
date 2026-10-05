@@ -9,12 +9,31 @@ on:
 
 jobs:
   test:
-    runs-on: macos-14
+    # macos-15 = Xcode 16 / Swift 6.x。
+    # 此前是 macos-14（自带 Swift 5.10），而 Package.swift 声明 swift-tools-version 6.0，
+    # 于是两个 job 都在 20 秒内以 "package is using Swift tools version 6.0.0 but the
+    # installed version is 5.10.0" 秒挂 —— 报错指向包而不是 runner，极易误判成代码问题。
+    # 结果是 CI 徽章长期是红的、测试从来没在 CI 里真跑过。
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
       - name: Toolchain
-        run: swift --version
+        run: |
+          swift --version
+          # 工具链版本是本流水线的前置条件，单独断言：
+          # 将来 runner 镜像回退时，这里给出人话报错，而不是让 swift test 抛包版本错误。
+          SWIFT_VER="$(swift --version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p' | head -1)"
+          SWIFT_MAJOR="${SWIFT_VER%%.*}"
+          if [ -z "${SWIFT_MAJOR}" ]; then
+            echo "::error::无法从 swift --version 解析出 Swift 版本号（输出格式变了？）"
+            exit 1
+          fi
+          if [ "${SWIFT_MAJOR}" -lt 6 ]; then
+            echo "::error::需要 Swift 6.0+（Package.swift 为 swift-tools-version 6.0），当前 ${SWIFT_VER}"
+            exit 1
+          fi
+          echo "工具链满足要求: Swift ${SWIFT_VER}"
 
       - name: Run tests
         run: swift test
@@ -23,7 +42,7 @@ jobs:
   # 而它们此前完全不在 CI 里 —— 新 clone 缺 _bak、签名漏项、覆盖安装拷成嵌套包
   # 这类问题只能在打 tag 时才暴露（那时 release 流水线直接失败）。
   build-scripts:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
