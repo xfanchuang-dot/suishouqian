@@ -68,8 +68,9 @@ cd suishouqian
 bash build.sh
 ```
 
-需要 Xcode 16+、macOS 14+、**Apple Silicon（arm64）**。默认只编 arm64；
-要出 Intel 包：`SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`。
+**编译**需要 Xcode 26+（macOS 26 SDK，代码里用了 Liquid Glass 的 `Glass`/`glassEffect`，
+旧 SDK 里连类型都没有）；**运行**需要 macOS 14+；**架构**为 Apple Silicon（arm64），
+默认只编 arm64，要出 Intel 包：`SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`。
 
 ## 截图
 
@@ -125,9 +126,10 @@ Or via Homebrew (once the cask lands):
 brew install --cask suishouqian
 ```
 
-Or build from source — works today. Requires Xcode 16+, macOS 14+, and
-**Apple Silicon (arm64)**: builds are arm64-only by default. For an Intel
-binary: `SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`.
+Or build from source — works today. **Building** requires Xcode 26+ (macOS 26 SDK:
+the code uses Liquid Glass `Glass`/`glassEffect`, which older SDKs do not declare);
+**running** requires macOS 14+; and builds are Apple Silicon (arm64) only by
+default. For an Intel binary: `SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`.
 
 ```bash
 git clone https://github.com/xfanchuang-dot/suishouqian.git

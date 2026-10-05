@@ -9,20 +9,32 @@ on:
 
 jobs:
   test:
-    # macos-15 = Xcode 16 / Swift 6.x。
-    # 此前是 macos-14（自带 Swift 5.10），而 Package.swift 声明 swift-tools-version 6.0，
-    # 于是两个 job 都在 20 秒内以 "package is using Swift tools version 6.0.0 but the
-    # installed version is 5.10.0" 秒挂 —— 报错指向包而不是 runner，极易误判成代码问题。
-    # 结果是 CI 徽章长期是红的、测试从来没在 CI 里真跑过。
-    runs-on: macos-15
+    # ── runner 版本不是随便选的 ────────────────────────────────────────────
+    # 本项目用了 `Glass` / `.glassEffect`（macOS 26 Liquid Glass），
+    # 以及 macOS 26 SDK 才标注 Sendable 的 AppKit 类型（如 AppItem.icon: NSImage?）。
+    # `@available(macOS 26, *)` 只挡运行时，挡不住"旧 SDK 里根本没有 Glass 这个类型"，
+    # 所以必须用 macOS 26 SDK 编译 —— 即 macos-26 runner。
+    #
+    # 历史：这里曾是 macos-14（Swift 5.10），与 Package.swift 的 tools-version 6.0
+    # 直接冲突，两个 job 都在 20 秒内秒挂；换成 macos-15 后又死在找不到 Glass。
+    # 结果就是 CI 徽章长期是红的、测试从来没在 CI 里真跑过。
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
+      # 工具链是整条流水线的前置条件，单独断言并给出人话报错。
+      # 否则失败会伪装成代码问题（"找不到 glassEffect" / "包版本不符"），极难定位。
       - name: Toolchain
         run: |
           swift --version
-          # 工具链版本是本流水线的前置条件，单独断言：
-          # 将来 runner 镜像回退时，这里给出人话报错，而不是让 swift test 抛包版本错误。
+          xcodebuild -version
+          SDK_VER="$(xcrun --sdk macosx --show-sdk-version)"
+          echo "macOS SDK: ${SDK_VER}"
+          SDK_MAJOR="${SDK_VER%%.*}"
+          if [ -z "${SDK_MAJOR}" ] || [ "${SDK_MAJOR}" -lt 26 ]; then
+            echo "::error::需要 macOS 26 SDK（当前 ${SDK_VER:-未知}）。Glass/glassEffect 是 macOS 26 API，旧 SDK 里连类型都不存在。"
+            exit 1
+          fi
           SWIFT_VER="$(swift --version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p' | head -1)"
           SWIFT_MAJOR="${SWIFT_VER%%.*}"
           if [ -z "${SWIFT_MAJOR}" ]; then
@@ -33,7 +45,7 @@ jobs:
             echo "::error::需要 Swift 6.0+（Package.swift 为 swift-tools-version 6.0），当前 ${SWIFT_VER}"
             exit 1
           fi
-          echo "工具链满足要求: Swift ${SWIFT_VER}"
+          echo "工具链满足要求: Swift ${SWIFT_VER} / macOS SDK ${SDK_VER}"
 
       - name: Run tests
         run: swift test
@@ -42,7 +54,7 @@ jobs:
   # 而它们此前完全不在 CI 里 —— 新 clone 缺 _bak、签名漏项、覆盖安装拷成嵌套包
   # 这类问题只能在打 tag 时才暴露（那时 release 流水线直接失败）。
   build-scripts:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
