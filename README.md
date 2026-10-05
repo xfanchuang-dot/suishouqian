@@ -41,7 +41,7 @@
 > 许可证离线 Ed25519 校验，不联网、不上传任何数据。
 > 签发机制与运维手册见 [docs/LICENSE_ISSUING.md](docs/LICENSE_ISSUING.md)。
 
-购买入口：[爱发电](https://afdian.com/a/suishouqian)（⏳ 购买页筹备中，上线后才会收款）
+购买入口：[爱发电](https://afdian.com/a/suishouqian) —— ¥29 **一次性购买**（不是订阅，不会重复扣费）。
 
 ## 安装
 
@@ -146,7 +146,7 @@ bash build.sh
 > support. Licenses verify offline via Ed25519 — no network calls, no telemetry.
 
 - ⭐ Star this repo to help others discover it
-- 💰 [Sponsor](https://afdian.com/a/suishouqian) (¥29 one-time for Pro — ⏳ page in preparation, no charges collected yet)
+- 💰 [Sponsor](https://afdian.com/a/suishouqian) — ¥29 **one-time** for Pro (not a subscription, no recurring charge)
 - 🐛 [File issues](https://github.com/xfanchuang-dot/suishouqian/issues)
 
 ## License
