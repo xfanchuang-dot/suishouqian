@@ -20,6 +20,16 @@
 **核心承诺：数据安全优先。** 迁移前自动备份，任何一步失败都回滚，绝不丢数据。
 200+ 自动化测试覆盖每一条安全红线。
 
+## 截图
+
+![随手迁 · 界面预览 1](docs/screenshots/shot-01.png)
+
+![随手迁 · 界面预览 2](docs/screenshots/shot-02.png)
+
+![随手迁 · 界面预览 3](docs/screenshots/shot-03.png)
+
+![随手迁 · 界面预览 4](docs/screenshots/shot-04.png)
+
 ## 安全设计（代码可审计）
 
 - ✅ 迁移前完整备份，失败自动回滚
@@ -49,12 +59,9 @@
 
 ## 安装
 
-> ⚠️ **当前只有方式三可用。** Releases 尚无二进制，Homebrew cask 也未上架
-> （`brew install --cask suishouqian` 会 404）。方式一、方式二随首个 Release 生效。
+### 方式一：下载已编译版（推荐）
 
-### 方式一：下载已编译版（待首个 Release）
-
-从 [Releases](https://github.com/xfanchuang-dot/suishouqian/releases) 下载最新 `.dmg`。
+从 [Releases](https://github.com/xfanchuang-dot/suishouqian/releases/latest) 下载最新 `.dmg`（当前 **v3.1.0**），打开后把随手迁拖进「应用程序」即可。
 
 > ⚠️ 未签名版本：首次打开时按住 Control 键点击 → 选择"打开"，之后即可正常使用。
 
@@ -75,10 +82,6 @@ bash build.sh
 **编译**需要 Xcode 26+（macOS 26 SDK，代码里用了 Liquid Glass 的 `Glass`/`glassEffect`，
 旧 SDK 里连类型都没有）；**运行**需要 macOS 14+；**架构**为 Apple Silicon（arm64），
 默认只编 arm64，要出 Intel 包：`SUISHOUQIAN_ARCHS="arm64 x86_64" bash build.sh`。
-
-## 截图
-
-（待补充）
 
 ## 支持开发者
 
@@ -116,11 +119,8 @@ See [CHANGELOG.md](CHANGELOG.md) for every safety fix on record.
 
 ## Install
 
-> ⚠️ **Only option 3 works today.** There are no binaries in Releases yet and the
-> Homebrew cask is not published (`brew install --cask suishouqian` returns 404).
-> Options 1 and 2 will go live with the first release.
-
-Download the latest `.dmg` from [Releases](https://github.com/xfanchuang-dot/suishouqian/releases).
+Download the latest `.dmg` (currently **v3.1.0**) from
+[Releases](https://github.com/xfanchuang-dot/suishouqian/releases/latest).
 
 > ⚠️ Unsigned build: on first launch, Control-click → "Open", then it works normally.
 
