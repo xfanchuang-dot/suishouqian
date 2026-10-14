@@ -166,7 +166,11 @@ struct AppRowView: View {
     private func migrateApp() {
         // App Store 应用先讲清"更新会把迁移顶掉"，用户确认后才继续
         guard MigrationAdvisor.confirmRelocation(of: app, linkBack: true) else { return }
-        runRelocation(createLink: true)
+        // Task 4：普通迁移入口统一先进全局计划评审（确认后由迁移页执行链接管）。
+        // 纯搬迁不走新 Sheet：不留链接是用户在此显式做的选择，评审明细的
+        // 建链口径（按 updateMechanism 推导）无法表达它；回迁、盘间搬迁、
+        // 搬回内置盘与卸载同理，仍走各自原有链路
+        appState.migrationPlanRequest = MigrationPlanRequest(apps: [app])
     }
 
     /// 纯搬迁：搬到外置盘但不在「应用程序」留链接（理由见按钮说明）。
@@ -177,8 +181,8 @@ struct AppRowView: View {
         runRelocation(createLink: false)
     }
 
-    /// 迁移与纯搬迁走同一条链路（运行检测→空间预检→快照→复制→校验→备份），
-    /// 只差"是否在源位置留链接"这一步
+    /// 纯搬迁专属执行链（Task 4 后「迁移」改走全局计划评审，不再进这里）：
+    /// 运行检测→空间预检→快照→复制→校验→备份，只是不在源位置留链接
     private func runRelocation(createLink: Bool) {
         guard let drive = appState.externalDrive else { return }
         Task { @MainActor [weak appState] in

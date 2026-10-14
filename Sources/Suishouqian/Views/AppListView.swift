@@ -58,7 +58,7 @@ struct AppListView: View {
         }
     }
 
-    /// 选中批量执行：与 migrateAll 同一套串行安全链（逐个走 migrator 入口，护栏与 journal 都在）
+    /// 选中批量执行：迁移走全局计划评审（Task 4），回迁保持原有直接执行链
     private func runSelected(migrate: Bool) {
         guard let drive = appState.externalDrive else { return }
         // 重扫会重建 AppItem（id 是新 UUID），执行时按"当刻 apps ∩ 选中"取交集
@@ -67,6 +67,14 @@ struct AppListView: View {
                 && (migrate ? $0.status == .normal : $0.status == .migrated)
         }
         guard !targets.isEmpty else { return }
+
+        if migrate {
+            // Task 4：普通应用迁移一律先进计划评审，这里只构造请求、不动任何文件；
+            // 「确认并开始」后由迁移页的 executeReviewedPlan 统一执行
+            appState.migrationPlanRequest = MigrationPlanRequest(apps: targets)
+            return
+        }
+
         Task { @MainActor in
             for app in targets {
                 let op: MigrationTask.MigrationOperation = migrate ? .migrate : .restore

@@ -155,6 +155,14 @@ class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var migrationTask: MigrationTask?
 
+    /// 迁移计划评审请求（Task 4）：普通应用迁移入口的唯一路由。
+    /// 各入口只构造请求（迁移面板一键 / 应用列表多选 / 应用行「迁移」），
+    /// 用户在全局评审 Sheet 看到计划并点「确认并开始」后，请求才被消费。
+    @Published var migrationPlanRequest: MigrationPlanRequest?
+    /// 评审通过的迁移计划。MigrationPanel 是唯一消费者：
+    /// 取走即置 nil（consumeApprovedPlan），保证一份计划恰好执行一次。
+    @Published var approvedMigrationPlan: MigrationPlanSummary?
+
     /// 进度节流上报：ditto 复制回调每秒触发几十次，直接写 @Published 会让
     /// 200+ 列表行跟着重算 body。0.5% + 250ms 双节流后，进度条依然平滑
     /// （200 步），全量重算从每秒几十次降到最多 4 次。

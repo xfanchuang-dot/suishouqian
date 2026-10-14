@@ -52,6 +52,19 @@ final class MigrationPlanPresentationTests: XCTestCase {
         XCTAssertNil(state.summary)
     }
 
+    // MARK: - 计划准入（Task 4）
+
+    /// 选中集里混入非 .normal 应用必须在执行前拦下：
+    /// 计划准入拒绝它，执行链还会在真正动手前按当刻状态复查一遍
+    func testNonNormalSelectedAppBlocksBeforeExecution() {
+        var migrated = app(name: "Moved", size: gb)
+        migrated.status = .migrated
+        let state = MigrationPlanPresentation.makePlan(
+            apps: [migrated], drive: drive(freeSize: 10 * gb))
+        guard case .blocked(let reasons) = state else { return XCTFail("expected blocked") }
+        XCTAssertTrue(reasons.joined().contains("不可迁移"))
+    }
+
     // MARK: - 阶段与结果映射
 
     /// 取消 ≠ 失败：标题绝不能像成功，正文必须交代源应用未动、半截副本已清理

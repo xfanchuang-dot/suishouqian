@@ -94,6 +94,13 @@ struct MigrationPanel: View {
             // 效果图底栏：任务统计（真实口径：待迁移/已迁移/可释放）
             MockBottomBar(items: bottomItems(movable: movableApps, migrated: migratedApps))
         }
+        // Task 4：评审通过的计划唯一消费点。
+        // onAppear 覆盖「从别的页面确认后切到迁移页」的挂载场景；
+        // onChange 覆盖「已在本页（一键迁移全部）确认」的场景。
+        // 取走即置 nil：两条路即使同时触发，也只会有一方拿到非 nil 值，
+        // 一份计划恰好执行一次。
+        .onAppear { consumeApprovedPlan() }
+        .onChange(of: appState.approvedMigrationPlan?.id) { _, _ in consumeApprovedPlan() }
     }
 
     // 旧 taskCard 已移除（Task 3 Step 4）：无法完全委托给 MigrationExecutionView
@@ -192,8 +199,11 @@ struct MigrationPanel: View {
     
     // 任务标题由 MigrationExecutionView 内部按 task.operation 生成。
 
+    /// 一键迁移全部（Task 4）：跑完既有的 App Store 顾问决策后不再直接执行，
+    /// 改为构造评审请求——用户在全局计划 Sheet 看到完整计划并点「确认并开始」，
+    /// 摘要才会进入 executeReviewedPlan 的安全执行链。
     private func migrateAll() {
-        guard let drive = appState.externalDrive else { return }
+        guard appState.externalDrive != nil else { return }
         let movableApps = appState.apps.filter { $0.status == .normal }
 
         // App Store 应用迁完会被更新顶掉，批量前一次问清是否跳过（只问一次，不打扰）
@@ -204,40 +214,106 @@ struct MigrationPanel: View {
             return
         }
 
+        appState.migrationPlanRequest = MigrationPlanRequest(apps: targets)
+    }
+
+    // MARK: - 计划执行（Task 4）
+
+    /// 评审通过的计划的唯一消费者：取走摘要并置 nil，交给执行链恰好一次。
+    private func consumeApprovedPlan() {
+        guard let summary = appState.approvedMigrationPlan else { return }
+        appState.approvedMigrationPlan = nil
+        executeReviewedPlan(summary)
+    }
+
+    /// 评审通过的执行链：沿用旧批量迁移的同一套串行安全链（逐应用重跑护栏 +
+    /// journal 埋点 + 协作式取消），入口多了「按当刻状态复查计划」这一道——
+    /// 批准与执行之间盘可能被拔、应用可能被升级顶掉、列表可能重新扫描
+    /// （重扫会重建 AppItem，id 全换），任一条目在当刻 apps 里对不上号或
+    /// 状态已非 .normal，整批拦下、绝不触碰文件系统；
+    /// AppMigrator 自身的执行时校验原样保留，兜住批准之后的盘变化。
+    private func executeReviewedPlan(_ summary: MigrationPlanSummary) {
+        guard appState.migrationTask == nil, !summary.items.isEmpty else { return }
+
+        // 复查不碰文件系统：只对照内存里的当刻列表
+        var freshApps: [AppItem] = []
+        for item in summary.items {
+            guard let app = appState.apps.first(where: { $0.id == item.id }),
+                  app.status == .normal else {
+                lastOutcome = MigrationOutcome(
+                    kind: .failure,
+                    title: "计划已过期，未开始迁移",
+                    detail: "「\(item.name)」在计划批准后已不可迁移"
+                        + "（可能已被迁移、正在运行或列表已重新扫描），"
+                        + "本批迁移未开始，未改动任何文件。请重新发起迁移。",
+                    spaceSaved: 0)
+                return
+            }
+            freshApps.append(app)
+        }
+
+        let total = freshApps.count
         Task { @MainActor in
             var okCount = 0, failCount = 0
+            var cancelledName: String?
             lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
-            for app in targets {
+            for (index, app) in freshApps.enumerated() {
                 appState.migrationTask = MigrationTask(app: app, operation: .migrate)
 
                 let appState = self.appState  // 值类型捕获
+                // 建链口径与评审明细同源：!prefersNoLink（App Store 类纯搬迁）
+                let createLink = !app.updateMechanism.prefersNoLink
                 let result = await appState.migrator.migrate(
-                    app: app, to: drive.mountPoint,
+                    app: app, to: summary.destinationPath, createLink: createLink,
                     cancellationToken: appState.migrationTask?.cancellationToken
-                ) { @Sendable pct, desc in
+                ) { progress, file in
                     Task { @MainActor in
+                        // 整批进度 = 已完成个数 + 当前应用进度，再除以总数；
                         // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                        appState.reportMigrationProgress(pct, desc)
+                        appState.reportMigrationProgress(
+                            (Double(index) + progress) / Double(total), file)
                     }
                 }
 
-                // Task 3：真实 MigrationResult 先折成终态呈现（必须在清任务之前）
+                // 真实 MigrationResult 先折成终态呈现（必须在清任务之前）
                 lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
                 if result.success {
                     okCount += 1
+                    if var t = appState.migrationTask {
+                        t.status = .completed
+                        appState.migrationTask = t
+                    }
                     appState.notificationManager.notifyMigrationComplete(
                         appName: app.name, spaceSaved: result.spaceSaved)
+                } else if result.cancelled {
+                    // 取消不算失败：半截副本已清理，源目录未动；
+                    // 批量中取消即停，后面的条目不再继续
+                    if var t = appState.migrationTask {
+                        t.status = .cancelled
+                        appState.migrationTask = t
+                    }
+                    cancelledName = app.name
+                    break
                 } else {
+                    // 普通失败：记录后继续剩余条目（与既有批量行为一致）
                     failCount += 1
+                    if var t = appState.migrationTask {
+                        t.status = .failed(result.error ?? "未知错误")
+                        appState.migrationTask = t
+                    }
                     appState.notificationManager.notifyMigrationFailed(
                         appName: app.name, error: result.error ?? "未知错误")
                 }
             }
 
-            batchSummary = (failCount == 0
-                ? "批量迁移完成：\(okCount) 个全部成功"
-                : "批量迁移结束：\(okCount) 成功 / \(failCount) 失败")
-                + (skipped > 0 ? "；已跳过 \(skipped) 个 App Store 应用" : "")
+            // 取消的汇总绝不使用成功口径
+            if let cancelledName {
+                batchSummary = "已取消「\(cancelledName)」的迁移，本批其余条目未开始"
+            } else {
+                batchSummary = failCount == 0
+                    ? "批量迁移完成：\(okCount) 个全部成功"
+                    : "批量迁移结束：\(okCount) 成功 / \(failCount) 失败"
+            }
             appState.migrationTask = nil
             await appState.scanApps()
         }

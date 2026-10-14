@@ -281,6 +281,19 @@ struct ContentView: View {
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18),
                    value: appState.activePanel)
+        // Task 4：全局唯一的迁移计划评审 Sheet。所有普通应用迁移入口
+        // （迁移面板一键 / 应用列表多选 / 应用行「迁移」）只构造
+        // migrationPlanRequest，在这里统一评审；「确认并开始」通过后
+        // 摘要交给迁移页的唯一消费者 executeReviewedPlan 执行。
+        // .sheet(item:) 挂在内容区容器上：应用页、迁移页任何位置发起都走同一扇门。
+        .sheet(item: $appState.migrationPlanRequest) { request in
+            MigrationPlanReviewSheet(request: request) { summary in
+                appState.migrationPlanRequest = nil
+                appState.approvedMigrationPlan = summary
+                appState.activePanel = .migrate
+            }
+            .environmentObject(appState)
+        }
     }
 
     /// 应用内截图（锁屏也能拍：直接渲染窗口内容位图，不走系统截屏服务）
