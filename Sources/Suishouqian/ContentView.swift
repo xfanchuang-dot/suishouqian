@@ -85,6 +85,7 @@ struct ContentView: View {
                 Spacer()
                 Text("可用 \(external.freeFormatted)")
                     .font(.system(size: 11))
+                    .monospacedDigit()
                     .foregroundColor(.secondary)
             } else {
                 Image(systemName: "externaldrive.badge.exclamationmark")
@@ -206,6 +207,7 @@ struct ContentView: View {
                         Spacer()
                         Text("已用 \(Int(builtin.usageRatio * 100))%")
                             .font(.system(size: 11))
+                            .monospacedDigit()
                             .foregroundColor(.secondary)
                     }
                 }

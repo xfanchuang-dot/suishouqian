@@ -40,6 +40,7 @@ struct AppListView: View {
             HStack(spacing: 10) {
                 Text("已选 \(chosen.count) 个（\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))）")
                     .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
                 Spacer()
                 Button("迁移选中") { runSelected(migrate: true) }
                     .controlSize(.small)

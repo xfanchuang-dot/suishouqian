@@ -13,7 +13,7 @@ struct MigrationPanel: View {
     private let dataMigrator = DataMigrator()
     
     var body: some View {
-        // 效果图版：居中大号渐变胶囊主按钮 + 任务进度卡 + 底部任务统计条
+        // 冷静控制台版：唯一主操作（实色 accent 胶囊）+ 状态卡 + 底部任务统计条
         let movableApps = appState.apps.filter { $0.status == .normal }
         let migratedApps = appState.apps.filter { $0.status == .migrated }
         return VStack(spacing: 0) {
@@ -26,11 +26,12 @@ struct MigrationPanel: View {
                     }
                     .padding(.top, 4)
 
-                    // 主按钮（效果图：蓝→紫渐变胶囊，居中）
+                    // 唯一主操作（Task 5）：实色 accent「生成安全计划」——
+                    // 点击后先进全局计划评审 Sheet，看到完整计划并「确认并开始」才执行
                     if !movableApps.isEmpty && appState.externalDrive != nil {
-                        MockGradientButton(
-                            title: "一键迁移全部",
-                            systemImage: "arrow.right",
+                        PrimaryActionButton(
+                            title: "生成安全计划",
+                            systemImage: "doc.text.magnifyingglass",
                             enabled: appState.migrationTask == nil) {
                             migrateAll()
                         }
@@ -46,7 +47,9 @@ struct MigrationPanel: View {
                             outcome: lastOutcome,
                             onOpenApps: { appState.activePanel = .apps },
                             onShowHistory: { showHistory = true })
-                            .mockCard()
+                            // Task 5：迁移状态卡统一 10pt 圆角（Theme.Corner.card）
+                            // + 细边框/阴影，与评审 Sheet 的卡片同一套静观感
+                            .cardStyle()
                     } else if appState.apps.isEmpty || appState.externalDrive == nil {
                         emptyState
                     }
@@ -54,27 +57,31 @@ struct MigrationPanel: View {
                     if let summary = batchSummary {
                         Text(summary)
                             .font(.system(size: 11))
+                            .monospacedDigit()
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity)
                     }
 
-                    // 次级操作（效果图未覆盖，弱化为小号文字按钮横排）
+                    // 次级命令（Task 5 降级）：文字 + 发丝描边胶囊，权重一律低于
+                    // 唯一主操作；「盘要退休」保留橙色文字以携带既有警告语义
                     if !appState.apps.isEmpty && appState.externalDrive != nil {
-                        HStack(spacing: 14) {
+                        HStack(spacing: 10) {
                             Button("迁移历史") { showHistory = true }
+                                .secondaryCommand()
                             if !migratedApps.isEmpty {
                                 Button("全部回迁（\(migratedApps.count) 个）") { restoreAll() }
+                                    .secondaryCommand()
                             }
                             Button("一键腾空间…") { showPlanSheet = true }
+                                .secondaryCommand()
                                 .disabled(appState.volumeStore.onlineVolumes.isEmpty)
                                 .help("告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由")
                             Button("盘要退休…") { retireWizard() }
-                                .foregroundColor(.orange)
+                                .secondaryCommand(tint: MockTheme.statOrange)
                                 .help("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘")
                         }
                         .buttonStyle(.borderless)
-                        .font(.system(size: 12))
-                        .foregroundColor(MockTheme.accent)
+                        .monospacedDigit()
                         .disabled(appState.migrationTask != nil)
                         .frame(maxWidth: .infinity)
                     }
@@ -91,8 +98,9 @@ struct MigrationPanel: View {
             }
 
             Divider().padding(.horizontal, 4)
-            // 效果图底栏：任务统计（真实口径：待迁移/已迁移/可释放）
+            // 效果图底栏：任务统计（真实口径：待迁移/已迁移/可释放）；数字统一等宽
             MockBottomBar(items: bottomItems(movable: movableApps, migrated: migratedApps))
+                .monospacedDigit()
         }
         // Task 4：评审通过的计划唯一消费点。
         // onAppear 覆盖「从别的页面确认后切到迁移页」的挂载场景；
@@ -176,7 +184,8 @@ struct MigrationPanel: View {
             EmptyStateView(
                 symbol: "externaldrive.badge.plus",
                 accentSymbols: ["arrow.right", "sparkles"],
-                gradient: [.blue, .cyan],
+                // Task 5：插画氛围光改用唯一强调色的低饱和紫对，去掉蓝→青竞争性渐变
+                gradient: [MockTheme.accent, MockTheme.accent.opacity(0.6)],
                 title: "把大应用搬到外置硬盘",
                 subtitle: "去「应用」页面挑选，点击「迁移」释放内置盘空间",
                 reduceMotion: reduceMotion,

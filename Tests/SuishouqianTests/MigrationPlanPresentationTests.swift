@@ -52,6 +52,20 @@ final class MigrationPlanPresentationTests: XCTestCase {
         XCTAssertNil(state.summary)
     }
 
+    // MARK: - 视觉状态数据保真（Task 5）
+
+    /// UI 等宽渲染拿到的是原始字节值而非预格式化字符串：
+    /// summary 只携带 Int64，格式化推迟到渲染层（ByteCountFormatter + monospacedDigit）。
+    /// Task 1 的数据保真已保证这一点，本测试把该契约固定下来。
+    func testReadyPlanSummaryRetainsExactByteValuesForMonospacedRendering() {
+        guard case .ready(let summary) = MigrationPlanPresentation.makePlan(
+            apps: [app(name: "Xcode", size: gb)], drive: drive(freeSize: 10 * gb)) else {
+            return XCTFail("expected ready")
+        }
+        XCTAssertEqual(summary.totalFreedBytes, gb)
+        XCTAssertEqual(summary.requiredBytes, AppMigrator.requiredTargetBytes(appSize: gb))
+    }
+
     // MARK: - 计划准入（Task 4）
 
     /// 选中集里混入非 .normal 应用必须在执行前拦下：

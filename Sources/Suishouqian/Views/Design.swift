@@ -200,3 +200,62 @@ struct MigrationStageNode: View {
         }
     }
 }
+
+// MARK: - 迁移入口统一控件（Task 5：冷静控制台层级）
+
+/// 唯一主操作按钮：实色 `MockTheme.accent` 胶囊。
+/// 冷静控制台规范（Task 5 Step 3）：主操作只用单一低饱和强调色，
+/// 不再使用蓝→紫渐变；按压缩放复用 pressScale（内部自带 reduceMotion 闸）。
+struct PrimaryActionButton: View {
+    let title: String
+    var systemImage: String? = nil
+    var enabled: Bool = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 12)
+            .background(
+                Capsule().fill(enabled ? MockTheme.accent : Color.primary.opacity(0.2)))
+            .shadow(color: enabled ? MockTheme.accent.opacity(0.25) : .clear,
+                    radius: 10, y: 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .pressScale()
+    }
+}
+
+/// 次级命令样式：文字 + 发丝描边胶囊，视觉权重一律低于 `PrimaryActionButton`。
+/// 「迁移历史 / 全部回迁 / 一键腾空间 / 盘要退休」等降级命令的统一外观；
+/// `tint` 默认中性灰，仅在命令本身携带既有警告语义时传入（如盘要退休的橙）。
+private struct SecondaryCommandModifier: ViewModifier {
+    var tint: Color = .secondary
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().strokeBorder(Color.primary.opacity(0.14), lineWidth: 1))
+    }
+}
+
+extension View {
+    /// 次级命令：文字/描边控件，弱于唯一主操作
+    func secondaryCommand(tint: Color = .secondary) -> some View {
+        modifier(SecondaryCommandModifier(tint: tint))
+    }
+}
