@@ -43,6 +43,15 @@ final class MigrationPlanPresentationTests: XCTestCase {
         XCTAssertFalse(plan.items[0].createsLink)
     }
 
+    /// 被拦的计划没有任何可确认的东西：没有 summary，
+    /// 「确认并开始」就没有主语——评审界面因此不可能渲染出主操作
+    func testBlockedStateContainsNoExecutableSummary() {
+        let state = MigrationPlanPresentation.makePlan(
+            apps: [app(name: "Xcode", size: gb)], drive: nil)
+        guard case .blocked = state else { return XCTFail("expected blocked") }
+        XCTAssertNil(state.summary)
+    }
+
     // MARK: - 阶段与结果映射
 
     /// 取消 ≠ 失败：标题绝不能像成功，正文必须交代源应用未动、半截副本已清理

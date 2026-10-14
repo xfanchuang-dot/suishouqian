@@ -137,3 +137,66 @@ struct DriveIconBox: View {
             )
     }
 }
+
+// MARK: - 迁移阶段节点（计划评审/执行视图共用的「固定阶段」可视化原语）
+
+/// 阶段节点的视觉状态。图标 + 文字双通道：颜色只做辅助，语义靠符号与文案。
+enum MigrationStageVisualState: Equatable {
+    /// 尚未开始
+    case pending
+    /// 正在进行
+    case active
+    /// 已完成
+    case done
+    /// 终止且非成功（已取消 / 已失败）
+    case stopped
+}
+
+/// 单个迁移阶段的节点：圆环符号 + 阶段名。
+/// 评审 sheet 里四个固定阶段全部以 `.pending` 呈现；
+/// 执行视图（Task 3）按 `MigrationExecutionPhase` 推进同一组件。
+struct MigrationStageNode: View {
+    let title: String
+    let state: MigrationStageVisualState
+
+    private var systemImage: String {
+        switch state {
+        case .pending: return "circle"
+        case .active: return "arrowtriangle.right.circle.fill"
+        case .done: return "checkmark.circle.fill"
+        case .stopped: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .pending: return .secondary
+        case .active: return MockTheme.accent
+        case .done: return MockTheme.healthGreen
+        case .stopped: return MockTheme.statOrange
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(color)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(state == .pending ? .secondary : color)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title)，\(accessibilityState)")
+    }
+
+    private var accessibilityState: String {
+        switch state {
+        case .pending: return "未开始"
+        case .active: return "进行中"
+        case .done: return "已完成"
+        case .stopped: return "已停止"
+        }
+    }
+}
