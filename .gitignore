@@ -29,6 +29,9 @@ license_private_key*
 # 设计讨论的本地视觉稿会话，不属于产品源码
 .superpowers/
 
+# 本地隔离开发工作树，不属于产品源码
+.worktrees/
+
 # 备份副本（有 git 后不再需要）
 *.bak
 *~
