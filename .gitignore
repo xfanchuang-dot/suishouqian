@@ -26,6 +26,9 @@ license_private_key*
 # 系统文件
 .DS_Store
 
+# 设计讨论的本地视觉稿会话，不属于产品源码
+.superpowers/
+
 # 备份副本（有 git 后不再需要）
 *.bak
 *~
