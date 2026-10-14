@@ -4,6 +4,10 @@ struct MigrationPanel: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var batchSummary: String?
+    /// 最近一条真实 `MigrationResult` 折出的终态呈现（Task 3）：
+    /// 每次真实结果返回后、清除 appState.migrationTask 之前赋值；
+    /// 新一轮执行开始时清空。
+    @State private var lastOutcome: MigrationOutcome?
     @State private var showPlanSheet = false
     @State private var showHistory = false
     private let dataMigrator = DataMigrator()
@@ -34,9 +38,15 @@ struct MigrationPanel: View {
                         .padding(.top, 12)
                     }
 
-                    // 当前任务卡（效果图：图标+名称+大小 / 进度条+百分比+状态）
-                    if let task = appState.migrationTask {
-                        taskCard(task)
+                    // 当前任务 / 终态结果：统一委托给执行视图
+                    // （Task 3：阶段时间线 + 协作式取消 + 成功/取消/失败安全文案面）
+                    if appState.migrationTask != nil || lastOutcome != nil {
+                        MigrationExecutionView(
+                            task: appState.migrationTask,
+                            outcome: lastOutcome,
+                            onOpenApps: { appState.activePanel = .apps },
+                            onShowHistory: { showHistory = true })
+                            .mockCard()
                     } else if appState.apps.isEmpty || appState.externalDrive == nil {
                         emptyState
                     }
@@ -86,86 +96,8 @@ struct MigrationPanel: View {
         }
     }
 
-    /// 任务卡（效果图：左图标 + 名称/大小，右百分比；下进度条 + 状态行）
-    private func taskCard(_ task: MigrationTask) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                IconContainer(icon: task.app.icon)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(taskTitle)
-                        .font(.system(size: 15, weight: .semibold))
-                    Text(ByteCountFormatter.string(fromByteCount: task.app.size, countStyle: .file))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                }
-                Spacer()
-                if task.status == .completed {
-                    Label("已完成", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.green)
-                    Text("100%")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(.green)
-                } else if task.status == .cancelled {
-                    Label("已取消", systemImage: "xmark.circle.fill")
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .help("半截文件已清理，原应用不受影响")
-                } else if case .failed = task.status {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(.red)
-                } else {
-                    Text("\(Int(task.progress * 100))%")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(MockTheme.accent)
-                }
-            }
-
-            if !task.status.isTerminal {
-                GeometryReader { geo in
-                    Capsule()
-                        .fill(Color.primary.opacity(0.08))
-                        .overlay(alignment: .leading) {
-                            Capsule()
-                                .fill(MockTheme.primaryGradient)
-                                .frame(width: max(8, geo.size.width * task.progress))
-                        }
-                }
-                .frame(height: 8)
-                .clipShape(Capsule())
-                // 进度跳变时用弹簧跟随，不是一格一格地蹦
-                .animation(reduceMotion ? nil : Motion.progress, value: task.progress)
-
-                HStack {
-                    Text(task.currentFile)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                    Spacer()
-                    // 协作式取消：token 一置位，管道在下个阶段边界停下
-                    // 并清理半截副本（源目录未动，无数据风险）
-                    Button("取消") {
-                        task.cancellationToken.cancel()
-                        AuditLog.append("用户取消迁移「\(task.app.name)」")
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .help("取消本次迁移：停在当前阶段，清理已复制的半截文件，原应用不受影响")
-                }
-            }
-
-            if case .failed(let msg) = task.status {
-                Text(msg)
-                    .font(.system(size: 12))
-                    .foregroundColor(.red)
-            }
-        }
-        .mockCard()
-    }
+    // 旧 taskCard 已移除（Task 3 Step 4）：无法完全委托给 MigrationExecutionView
+    // （进度条、取消控制、状态呈现整体迁入执行视图），按计划整卡替换。
 
     private func bottomItems(movable: [AppItem], migrated: [AppItem]) -> [String] {
         let savable = movable.reduce(0) { $0 + $1.size }
@@ -184,6 +116,7 @@ struct MigrationPanel: View {
         Task { @MainActor in
             var okCount = 0
             var failCount = 0
+            lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
             for (index, pair) in planned.enumerated() {
                 let app = pair.0
                 let drivePath = pair.1
@@ -199,6 +132,8 @@ struct MigrationPanel: View {
                         appState.reportMigrationProgress((Double(index) + progress) / Double(total), file)
                     }
                 }
+                // Task 3：真实 MigrationResult 先折成终态呈现（必须在清任务之前）
+                lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
                 if result.success {
                     okCount += 1
                     if var t = appState.migrationTask {
@@ -255,17 +190,8 @@ struct MigrationPanel: View {
         .frame(maxWidth: .infinity)
     }
     
-    var taskTitle: String {
-        guard let task = appState.migrationTask else { return "" }
-        let name = task.app.name
-        switch task.operation {
-        case .migrate: return "迁移 \(name)"
-        case .restore: return "回迁 \(name)"
-        case .uninstall: return "卸载 \(name)"
-        case .relocate: return "盘间迁移 \(name)"
-        }
-    }
-    
+    // 任务标题由 MigrationExecutionView 内部按 task.operation 生成。
+
     private func migrateAll() {
         guard let drive = appState.externalDrive else { return }
         let movableApps = appState.apps.filter { $0.status == .normal }
@@ -280,6 +206,7 @@ struct MigrationPanel: View {
 
         Task { @MainActor in
             var okCount = 0, failCount = 0
+            lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
             for app in targets {
                 appState.migrationTask = MigrationTask(app: app, operation: .migrate)
 
@@ -294,6 +221,8 @@ struct MigrationPanel: View {
                     }
                 }
 
+                // Task 3：真实 MigrationResult 先折成终态呈现（必须在清任务之前）
+                lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
                 if result.success {
                     okCount += 1
                     appState.notificationManager.notifyMigrationComplete(
@@ -319,6 +248,7 @@ struct MigrationPanel: View {
         let migratedApps = appState.apps.filter { $0.status == .migrated }
 
         Task { @MainActor in
+            lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
             for app in migratedApps {
                 appState.migrationTask = MigrationTask(app: app, operation: .restore)
 
@@ -332,6 +262,8 @@ struct MigrationPanel: View {
                     }
                 }
 
+                // Task 3：真实 MigrationResult 先折成终态呈现（必须在清任务之前）
+                lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
                 if result.success {
                     appState.notificationManager.notifyMigrationComplete(
                         appName: app.name, spaceSaved: result.spaceSaved)
@@ -410,6 +342,7 @@ struct MigrationPanel: View {
                                   size: totalBytes, isSymlink: false,
                                   symlinkTarget: nil, icon: nil)
             appState.migrationTask = MigrationTask(app: taskApp, operation: .restore)
+            lastOutcome = nil  // 该向导不走 MigrationResult 口径，清掉旧结果卡防残留
 
             // 显式 @MainActor 闭包：嵌套 async 函数不继承隔离，读 migrationTask 会报错
             let runRestore: @MainActor (

@@ -68,4 +68,28 @@ final class MigrationPlanPresentationTests: XCTestCase {
     func testFailedStatusMapsToBlockedPhase() {
         XCTAssertEqual(MigrationExecutionPhase(status: .failed("磁盘已断开")), .blocked)
     }
+
+    // MARK: - 终态结果映射（Task 3）
+
+    /// 成功终态的唯一准入：服务端返回 success == true，
+    /// 释放空间保留原始字节数并进 detail（上层做等宽渲染）。
+    /// 计划示例断言字面量 "1 GB"；实测 zh_CN 下 ByteCountFormatter 把
+    /// 1 GiB 渲染成 "1.07 GB"——按「以真实为准保持语义」改为断言
+    /// 同一 formatter 的产物确实出现在 detail 里。
+    func testSuccessfulOutcomeReportsFreedSpace() {
+        let outcome = MigrationPlanPresentation.outcome(
+            result: .init(success: true, spaceSaved: 1_073_741_824), appName: "Xcode")
+        XCTAssertEqual(outcome.kind, .success)
+        let freed = ByteCountFormatter.string(
+            fromByteCount: 1_073_741_824, countStyle: .file)
+        XCTAssertTrue(outcome.detail.contains(freed))
+    }
+
+    /// 失败终态必须保留服务端错误原文，不能被笼统文案吞掉
+    func testFailureOutcomePreservesServiceError() {
+        let outcome = MigrationPlanPresentation.outcome(
+            result: .init(success: false, error: "目标盘已断开"), appName: "Xcode")
+        XCTAssertEqual(outcome.kind, .failure)
+        XCTAssertTrue(outcome.detail.contains("目标盘已断开"))
+    }
 }
