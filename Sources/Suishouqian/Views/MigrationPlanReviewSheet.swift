@@ -23,6 +23,7 @@ extension MigrationExecutionPhase {
     var displayName: String {
         switch self {
         case .preflight: return "预检"
+        case .transfer: return "传输中"
         case .copyAndSwitch: return "复制"
         case .verify: return "文件校验"
         case .backupAndSwitch: return "留底与切换"
@@ -111,6 +112,7 @@ struct MigrationPlanReviewSheet: View {
             destinationCard(plan)
             spaceBudgetCard(plan)
             itemsCard(plan)
+            updateImpactCard(plan)
             stagesCard()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -213,6 +215,50 @@ struct MigrationPlanReviewSheet: View {
                        color: item.createsLink ? MockTheme.accent : Color.secondary)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// 把「更新会不会顶掉迁移」的后果放进这唯一一次确认里：入口不再先弹
+    /// NSAlert 再进评审，避免同一件事确认两次。
+    ///
+    /// 注意 App Store 应用默认就推导为不建链，`updateConsequence(linkBack: false)`
+    /// 返回 nil；这里不能拿它当“是否展示”的门槛，否则整张卡永远不会出现。
+    /// App Store 至少展示 guidance（离开「应用程序」后的启动/卸载变化），
+    /// 只有确实有额外后果时才多显示一段 consequence。
+    @ViewBuilder
+    private func updateImpactCard(_ plan: MigrationPlanSummary) -> some View {
+        let appsByID = Dictionary(uniqueKeysWithValues: request.apps.map { ($0.id, $0) })
+        let warnings: [(id: UUID, name: String, consequence: String?, guidance: String)] =
+            plan.items.compactMap { item in
+                guard let app = appsByID[item.id],
+                      app.updateMechanism == .appStore else { return nil }
+                return (
+                    item.id,
+                    item.name,
+                    app.updateMechanism.updateConsequence(linkBack: item.createsLink),
+                    app.updateMechanism.guidance
+                )
+            }
+        if !warnings.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "更新影响", systemImage: "arrow.triangle.2.circlepath")
+                ForEach(warnings, id: \.id) { warning in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("「\(warning.name)」")
+                            .font(.system(size: 12, weight: .semibold))
+                        if let consequence = warning.consequence {
+                            Text(consequence)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Text(warning.guidance)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .cardStyle()
+        }
     }
 
     /// 展示迁移服务当前真实阶段顺序；评审时全部未开始。

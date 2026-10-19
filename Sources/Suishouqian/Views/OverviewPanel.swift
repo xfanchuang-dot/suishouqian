@@ -657,7 +657,7 @@ struct OverviewPanel: View {
         Task { @MainActor in
             let fresh = await computeUndoPlans([entry])
             guard let plan = fresh[entry.id], plan.feasible,
-                  appState.migrationTask == nil else { return }
+                  !appState.isMigrationActive else { return }
             // 无逆操作的特殊路径：目前只有卸载撤销（废纸篓恢复），不走迁移任务通道
             guard let inverseOp = plan.inverseOp else {
                 await undoUninstallFromTrash(entry)
@@ -685,6 +685,11 @@ struct OverviewPanel: View {
                     appState.reportMigrationProgress(pct, file, taskID: taskID)
                 }
             }
+            let phaseProgress: @Sendable (AppMigrator.MigrationProgressUpdate) -> Void = { update in
+                Task { @MainActor in
+                    appState.reportMigrationProgress(update, taskID: taskID)
+                }
+            }
 
             isUndoing = true
             let result: AppMigrator.MigrationResult
@@ -697,7 +702,8 @@ struct OverviewPanel: View {
                     isUndoing = false
                     return
                 }
-                result = await appState.migrator.restore(app: app, from: from, progress: progress)
+                result = await appState.migrator.restore(
+                    app: app, from: from, phaseProgress: phaseProgress, progress: progress)
             case .migrate, .moveBack, .remigrate:
                 guard let to = primaryMount else {
                     appState.migrationTask = nil
@@ -707,6 +713,7 @@ struct OverviewPanel: View {
                 result = await appState.migrator.migrate(
                     app: app, to: to, createLink: true,
                     cancellationToken: appState.migrationTask?.cancellationToken,
+                    phaseProgress: phaseProgress,
                     progress: progress)
             case .relocate:
                 guard let origin = entry.params["fromUUID"].flatMap({ volumeMounts[$0] }),
@@ -716,7 +723,8 @@ struct OverviewPanel: View {
                     return
                 }
                 result = await appState.migrator.relocate(
-                    app: app, fromVolume: current, toVolume: origin, progress: progress)
+                    app: app, fromVolume: current, toVolume: origin,
+                    phaseProgress: phaseProgress, progress: progress)
             case .uninstall, .undo:
                 // 不可达：uninstall 已在入口分流到 undoUninstallFromTrash，
                 // .undo 的按钮永不亮。留个防御兜底并说明原因

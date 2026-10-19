@@ -72,16 +72,30 @@ struct DriveInfo {
     }
 }
 
+enum VolumeIdentity {
+    /// A reviewed destination is executable only when both the reviewed and
+    /// currently mounted identities are known and match.
+    static func matches(expected: String?, current: String?) -> Bool {
+        guard let expected, let current else { return false }
+        return expected.caseInsensitiveCompare(current) == .orderedSame
+    }
+}
+
 /// Real execution phases emitted by AppMigrator during a normal migration.
 /// These follow the service's actual order; they do not imply app-launch testing.
 enum MigrationPhase: Int, Equatable, Sendable {
     case preflight = 0
-    case copying = 1
-    case verifying = 2
-    case backupAndSwitch = 3
+    /// Legacy progress callbacks do not identify the concrete service phase.
+    case transferring = 1
+    case copying = 2
+    case verifying = 3
+    case backupAndSwitch = 4
 
     func advancing(to proposed: MigrationPhase) -> MigrationPhase {
-        rawValue >= proposed.rawValue ? self : proposed
+        if proposed == .transferring {
+            return self == .preflight ? .transferring : self
+        }
+        return rawValue >= proposed.rawValue ? self : proposed
     }
 }
 

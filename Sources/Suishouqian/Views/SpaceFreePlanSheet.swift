@@ -83,7 +83,7 @@ struct SpaceFreePlanSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(selected.isEmpty || appState.migrationTask != nil)
+                    .disabled(selected.isEmpty || appState.isMigrationActive)
                 }
             } else if !isPlanning {
                 Text("输入目标后点「生成方案」：引擎按体积 × 更新方式风险 × 使用频率排序，"

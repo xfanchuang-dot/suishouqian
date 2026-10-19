@@ -217,13 +217,18 @@ extension HealthCheckView {
             appState.migrationTask = task
             let state = appState
             let result = await state.migrator.moveBackToInternal(
-                app: app, drivePath: drive.mountPoint
-            ) { @Sendable pct, desc in
+                app: app, drivePath: drive.mountPoint,
+                phaseProgress: { update in
+                    Task { @MainActor in
+                        state.reportMigrationProgress(update, taskID: taskID)
+                    }
+                },
+                progress: { @Sendable pct, desc in
                 Task { @MainActor in
                     // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
                     state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
-            }
+            })
 
             if result.success {
                 if var task = state.migrationTask {

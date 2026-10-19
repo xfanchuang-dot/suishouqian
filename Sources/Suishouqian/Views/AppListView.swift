@@ -44,11 +44,11 @@ struct AppListView: View {
                 Spacer()
                 Button("迁移选中") { runSelected(migrate: true) }
                     .controlSize(.small)
-                    .disabled(appState.externalDrive == nil || appState.migrationTask != nil
+                    .disabled(appState.externalDrive == nil || appState.isMigrationActive
                               || chosen.allSatisfy { $0.status != .normal })
                 Button("回迁选中") { runSelected(migrate: false) }
                     .controlSize(.small)
-                    .disabled(appState.externalDrive == nil || appState.migrationTask != nil
+                    .disabled(appState.externalDrive == nil || appState.isMigrationActive
                               || chosen.allSatisfy { $0.status != .migrated })
                 Button("取消选择") { selectedApps.removeAll() }
                     .controlSize(.small)
@@ -88,7 +88,13 @@ struct AppListView: View {
                     }
                 }
                 let result = await appState.migrator.restore(
-                    app: app, from: drive.mountPoint, progress: progress)
+                    app: app, from: drive.mountPoint,
+                    phaseProgress: { update in
+                        Task { @MainActor in
+                            appState.reportMigrationProgress(update, taskID: taskID)
+                        }
+                    },
+                    progress: progress)
                 if var current = appState.migrationTask {
                     current.status = result.success
                         ? .completed : .failed(result.error ?? "未知错误")

@@ -85,3 +85,69 @@ No dependency or lockfile changes were made.
 
 - A disk can be removed or its free space can change between review and execution; the existing service-time validation remains responsible for safely rejecting that state.
 - Existing compiler warnings in unrelated code were present during test compilation; they did not prevent the full suite or build from succeeding.
+
+---
+
+# Round 2 post-review fix wave (2026-10-19)
+
+## Context
+
+The first wave was re-reviewed at `e6988a1` and returned **Request changes** with three Important and three Minor findings. A second fix wave started on the same worktree; the previous agent hit its usage limit mid-wave, leaving uncommitted edits and no final verification. This wave completed that work.
+
+## Findings mapped to changes
+
+1. **Pure relocation still bypassed plan review** — `AppRowView.moveToExternal` now submits `MigrationPlanRequest(apps: [app], createsLink: false)`. The reviewed execution path is the only manual dispatcher; `runRelocation`/`moveToExternal` custom chain is gone. `createsLink` is carried through `MigrationPlanRequestItem` and `MigrationPlanItem`, and the review sheet shows the “建链/不建链” outcome.
+2. **Reviewed destination identity was a path, not a volume** — `MigrationPlanItem` now carries `destinationVolumeUUID`. Execution re-reads the UUID from the reviewed mount path for the whole batch before any item starts and again immediately before each dispatch (`MigrationPanel.executeReviewedPlan`). `AppMigrator.validateTarget` takes `expectedVolumeUUID` and re-reads it at the write boundary, before any filesystem mutation. Plans whose destination UUID cannot be read are blocked at review time rather than approved and rejected later.
+3. **Legacy paths did not report real phases** — `relocate`, `relocateCore`, `restore`, `moveBackToInternal`, and the legacy `migrate` paths now report actual `MigrationPhase` values through an optional `phaseProgress` callback; every direct caller (row restore/relocate/move-back, list restore, migration panel, retire wizard, history undo) passes it. Legacy progress callbacks advance to the neutral `.transferring` phase, rendered as “正在传输”; no unknown operation is labelled as copy/verify/switch.
+4. **Restore success showed “已释放 0 B”** — `MigrationOutcome` exposes `reportedFreedBytes` only when the service reported a positive value; success cards and accessibility labels omit the amount otherwise. Restore flows still do not retain the service result, so a real positive amount is not displayed (see residual concerns).
+5. **Single reviewed-batch success lost “查看应用”** — `MigrationPlanPresentation.shouldOfferOpenAppsAction` keeps the shortcut for one successful item; per-item results still take precedence for multi-item batches.
+6. **Duplicate App Store confirmation** — the App Store consequence and guidance are now rendered inside the single plan-review sheet (`updateImpactCard`). `HealthCheckView+Issues` and `AppRowView` no longer pre-alert before opening the sheet; `MigrationAdvisor.confirmRelocation` was removed. Batch selection still uses one `resolveBatch` decision, because it chooses which apps to include rather than confirming a plan.
+
+## Additional hardening found during verification
+
+- `MigrationPanel` now associates a destination-identity failure with the current task ID, so clearing `migrationTask` at the end of the batch cannot replace the failure card with the previous task’s fallback outcome.
+- `AppState.isMigrationActive` includes `isExecutingReviewedPlan`, closing the pre-check window in which the batch had started but no task existed yet and row actions were still enabled. Every remaining `migrationTask == nil/!= nil` gate that controls whether a **new** operation can start (migration panel primary/secondary actions, retire wizard, history undo, selected-app buttons, space-free confirmation) now uses `!isMigrationActive`.
+- Batch interruption copy says “本批剩余条目未开始” instead of “其余”, so it stays truthful when earlier items already completed.
+- `updateImpactCard` gates on `updateMechanism == .appStore` rather than on `updateConsequence(linkBack:) != nil`. App Store items derive `createsLink == false`, for which `updateConsequence` returns nil; gating on it made the card unreachable. The card now always shows the App Store guidance and adds the extra link-back consequence only when it applies.
+- `executeReviewedPlan` rejects a second approved plan while a batch is already executing (`!isMigrationActive`).
+
+## RED / GREEN evidence
+
+- **RED 1:** `Tests/SuishouqianTests/CancellationTests.swift` no longer compiled after `validateTarget` gained `expectedVolumeUUID`; the override signature was updated.
+- **RED 2:** `testRelocateCoreMovesCopyVerifiesAndRemovesSource` asserted an exact phase array, but ditto reports several copy progress callbacks; the assertion now deduplicates consecutive phases before comparing the monotonic order.
+- **GREEN (focused):** `swift test --filter 'MigrationPlanPresentationTests|CancellationTests|MigrationPlannerTests|RelocateTests'` — 45 tests, 0 failures.
+- **GREEN (full):** `swift test --scratch-path /Volumes/Samsung990/Projects/suishouqian-xcode/.build` — **278 tests, 0 failures**.
+- **Build:** `swift build --scratch-path /Volumes/Samsung990/Projects/suishouqian-xcode/.build` — succeeded.
+- **Diff hygiene:** `git diff --check` — passed.
+
+## Changed files in this wave
+
+- `Sources/Suishouqian/App.swift`
+- `Sources/Suishouqian/Models/AppItem.swift`
+- `Sources/Suishouqian/Services/AppMigrator.swift`
+- `Sources/Suishouqian/Views/AppListView.swift`
+- `Sources/Suishouqian/Views/AppRowView.swift`
+- `Sources/Suishouqian/Views/HealthCheckView+Advisors.swift`
+- `Sources/Suishouqian/Views/HealthCheckView+Issues.swift`
+- `Sources/Suishouqian/Views/MigrationAdvisor.swift`
+- `Sources/Suishouqian/Views/MigrationExecutionView.swift`
+- `Sources/Suishouqian/Views/MigrationPanel.swift`
+- `Sources/Suishouqian/Views/MigrationPlanPresentation.swift`
+- `Sources/Suishouqian/Views/MigrationPlanReviewSheet.swift`
+- `Sources/Suishouqian/Views/OverviewPanel.swift`
+- `Sources/Suishouqian/Views/SpaceFreePlanSheet.swift`
+- `Tests/SuishouqianTests/CancellationTests.swift`
+- `Tests/SuishouqianTests/MigrationPlanPresentationTests.swift`
+- `Tests/SuishouqianTests/RelocateTests.swift`
+
+## Residual concerns
+
+- Restore/retire flows do not retain the service’s `spaceSaved`; the UI suppresses the amount instead of showing a wrong “0 B”. The prior review allowed either preserving the result or suppressing the amount.
+- Review capacity facts are snapshots; `AppMigrator.validateTarget` remains the live authority at write time.
+- `DataMigrator` progress still uses the legacy callback and therefore renders the neutral “传输中” phase rather than data-specific phases.
+- The UUID check pins the reviewed volume at execution and at the write boundary; it cannot detect a cloned volume that presents the same UUID (outside this review’s threat model).
+- The SwiftUI review sheet itself is not covered by end-to-end UI automation in this package; the pure presentation logic is unit tested.
+
+## Verification status
+
+`swift build` succeeded; full suite 278 tests / 0 failures; `git diff --check` clean. Independent re-review by a read-only reviewer: **merge-ready** — all six findings closed or accepted as the documented residual, no Critical/Important, one duplicate-SwiftUI-ID nit in the update-impact card fixed before commit.

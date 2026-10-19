@@ -284,9 +284,7 @@ extension HealthCheckView {
                 return
             }
 
-            // 与迁移页同一套判断：App Store 应用重新迁移后会再次被更新顶掉，先讲清楚
-            guard MigrationAdvisor.confirmRelocation(of: app, linkBack: true) else { return }
-            // 手动重迁也必须走与应用列表相同的计划评审。
+            // 手动重迁由统一计划审阅一次性呈现目标、空间与链接策略。
             appState.migrationPlanRequest = MigrationPlanRequest(apps: [app])
         }
     }

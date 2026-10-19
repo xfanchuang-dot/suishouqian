@@ -16,14 +16,14 @@ final class MigrationPlanPresentationTests: XCTestCase {
         DriveInfo(
             name: "Backup", mountPoint: "/Volumes/Backup",
             totalSize: freeSize * 2, freeSize: freeSize,
-            isExternal: true, volumeUUID: nil)
+            isExternal: true, volumeUUID: "UUID-Backup")
     }
 
     private func drive(name: String, mountPoint: String, freeSize: Int64) -> DriveInfo {
         DriveInfo(
             name: name, mountPoint: mountPoint,
             totalSize: freeSize * 2, freeSize: freeSize,
-            isExternal: true, volumeUUID: nil)
+            isExternal: true, volumeUUID: "UUID-\(name)")
     }
 
     // MARK: - 计划状态
@@ -106,6 +106,55 @@ final class MigrationPlanPresentationTests: XCTestCase {
         guard case .blocked(let reasons) = state else { return XCTFail("expected blocked") }
         XCTAssertTrue(reasons.joined().contains("Planned"))
         XCTAssertTrue(reasons.joined().contains("断开"))
+    }
+
+    func testManualPureMoveRequestUsesReviewedPlanWithoutCreatingLink() {
+        let app = app(name: "Tool", size: gb)
+        let target = DriveInfo(
+            name: "Target", mountPoint: "/Volumes/Target", totalSize: 10 * gb,
+            freeSize: 8 * gb, isExternal: true, volumeUUID: "TARGET-UUID")
+        let request = MigrationPlanRequest(apps: [app], createsLink: false)
+
+        let state = MigrationPlanPresentation.makePlan(
+            request: request, defaultDrive: target,
+            availableDrives: [target], backupDrive: nil)
+
+        guard case .ready(let summary) = state else { return XCTFail("expected ready") }
+        XCTAssertFalse(summary.items[0].createsLink)
+        XCTAssertEqual(summary.items[0].destinationVolumeUUID, "TARGET-UUID")
+    }
+
+    func testReviewedItemCapturesDestinationVolumeUUID() {
+        let app = app(name: "Tool", size: gb)
+        let target = DriveInfo(
+            name: "Target", mountPoint: "/Volumes/Target", totalSize: 10 * gb,
+            freeSize: 8 * gb, isExternal: true, volumeUUID: "TARGET-UUID")
+        guard case .ready(let summary) = MigrationPlanPresentation.makePlan(
+            apps: [app], drive: target) else { return XCTFail("expected ready") }
+
+        XCTAssertEqual(summary.items[0].destinationVolumeUUID, "TARGET-UUID")
+    }
+
+    func testReviewedDestinationIdentityRequiresTheCapturedUUID() {
+        XCTAssertTrue(VolumeIdentity.matches(expected: "Target-UUID", current: "target-uuid"))
+        XCTAssertFalse(VolumeIdentity.matches(expected: "OLD-UUID", current: "NEW-UUID"))
+        XCTAssertFalse(VolumeIdentity.matches(expected: "OLD-UUID", current: nil))
+        XCTAssertFalse(VolumeIdentity.matches(expected: nil, current: "NEW-UUID"))
+    }
+
+    /// 读不到卷身份的盘不能进入“可确认”状态：执行链必然用它复查目标，
+    /// 否则用户确认后才被拦，文案还会误称“目标盘身份已变化”。
+    func testPlanBlocksDestinationWithoutReadableVolumeIdentity() {
+        let target = DriveInfo(
+            name: "NoID", mountPoint: "/Volumes/NoID",
+            totalSize: 20 * gb, freeSize: 10 * gb,
+            isExternal: true, volumeUUID: nil)
+        let state = MigrationPlanPresentation.makePlan(
+            apps: [app(name: "Tool", size: gb)], drive: target)
+
+        guard case .blocked(let reasons) = state else { return XCTFail("expected blocked") }
+        XCTAssertTrue(reasons.joined().contains("卷身份"))
+        XCTAssertNil(state.summary)
     }
 
     /// 被拦的计划没有任何可确认的东西：没有 summary，
@@ -265,6 +314,12 @@ final class MigrationPlanPresentationTests: XCTestCase {
         XCTAssertEqual(MigrationExecutionPhase(servicePhase: .backupAndSwitch), .backupAndSwitch)
     }
 
+    func testLegacyProgressUsesGenericTransferInsteadOfClaimingCopyPhase() {
+        XCTAssertEqual(MigrationPhase.preflight.advancing(to: .transferring), .transferring)
+        XCTAssertEqual(MigrationPhase.verifying.advancing(to: .transferring), .verifying)
+        XCTAssertEqual(MigrationExecutionPhase(servicePhase: .transferring), .transfer)
+    }
+
     func testLateProgressCallbackCannotRegressAnAlreadyReachedPhase() {
         XCTAssertEqual(MigrationPhase.verifying.advancing(to: .copying), .verifying)
         XCTAssertEqual(MigrationPhase.copying.advancing(to: .verifying), .verifying)
@@ -316,6 +371,14 @@ final class MigrationPlanPresentationTests: XCTestCase {
         XCTAssertTrue(outcome.detail.contains(freed))
     }
 
+    func testSuccessfulOutcomeWithUnavailableSpaceDoesNotReportZeroFreed() {
+        let outcome = MigrationPlanPresentation.outcome(
+            result: .init(success: true, spaceSaved: 0), appName: "Xcode")
+
+        XCTAssertNil(outcome.reportedFreedBytes)
+        XCTAssertFalse(outcome.detail.contains("释放了 0"))
+    }
+
     /// 失败终态必须保留服务端错误原文，不能被笼统文案吞掉
     func testFailureOutcomePreservesServiceError() {
         let outcome = MigrationPlanPresentation.outcome(
@@ -356,5 +419,20 @@ final class MigrationPlanPresentationTests: XCTestCase {
         XCTAssertEqual(results[1].outcome?.kind, .success)
         XCTAssertEqual(results[2].outcome?.kind, .cancelled)
         XCTAssertNil(results[3].outcome)
+    }
+
+    func testSingleSuccessfulReviewedBatchOffersOpenAppsAction() {
+        let app = app(name: "Only app", size: gb)
+        guard case .ready(let plan) = MigrationPlanPresentation.makePlan(
+            apps: [app], drive: drive(freeSize: 10 * gb)) else {
+            return XCTFail("expected ready")
+        }
+        let succeeded = MigrationPlanPresentation.outcome(
+            result: .init(success: true, spaceSaved: gb), appName: app.name)
+        let results = MigrationPlanPresentation.recordBatchOutcome(
+            succeeded, itemID: plan.items[0].id,
+            in: MigrationPlanPresentation.batchResults(for: plan.items))
+
+        XCTAssertTrue(MigrationPlanPresentation.shouldOfferOpenAppsAction(for: results))
     }
 }

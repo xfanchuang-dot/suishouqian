@@ -164,67 +164,15 @@ struct AppRowView: View {
     }
     
     private func migrateApp() {
-        // App Store 应用先讲清"更新会把迁移顶掉"，用户确认后才继续
-        guard MigrationAdvisor.confirmRelocation(of: app, linkBack: true) else { return }
         // Task 4：普通迁移入口统一先进全局计划评审（确认后由迁移页执行链接管）。
-        // 纯搬迁不走新 Sheet：不留链接是用户在此显式做的选择，评审明细的
-        // 建链口径（按 updateMechanism 推导）无法表达它；回迁、盘间搬迁、
-        // 搬回内置盘与卸载同理，仍走各自原有链路
+        // App Store 的更新后果在评审页内展示，入口不再重复确认。
         appState.migrationPlanRequest = MigrationPlanRequest(apps: [app])
     }
 
     /// 纯搬迁：搬到外置盘但不在「应用程序」留链接（理由见按钮说明）。
-    /// 同样要过确认框——对 App Store 应用来说，不留链接的失败形态（下次更新
-    /// 可能往「应用程序」再装一份，两份并存）比留链接更糟，这个必须讲清楚
+    /// 与普通迁移共用同一计划评审和显式确认；更新后果在评审页内展示。
     private func moveToExternal() {
-        guard MigrationAdvisor.confirmRelocation(of: app, linkBack: false) else { return }
-        runRelocation(createLink: false)
-    }
-
-    /// 纯搬迁专属执行链（Task 4 后「迁移」改走全局计划评审，不再进这里）：
-    /// 运行检测→空间预检→快照→复制→校验→备份，只是不在源位置留链接
-    private func runRelocation(createLink: Bool) {
-        guard let drive = appState.externalDrive else { return }
-        Task { @MainActor [weak appState] in
-            guard let appState else { return }
-            let task = MigrationTask(app: app, operation: .migrate)
-            let taskID = task.id
-            appState.migrationTask = task
-            
-            let state = self.appState  // 值类型捕获，避免 Sendable 警告
-            let onProgress: @Sendable (Double, String) -> Void = { @Sendable pct, desc in
-                Task { @MainActor in
-                    state.reportMigrationProgress(pct, desc, taskID: taskID)
-                }
-            }
-
-            let result: AppMigrator.MigrationResult
-            if createLink {
-                result = await state.migrator.migrate(
-                    app: app, to: drive.mountPoint,
-                    cancellationToken: state.migrationTask?.cancellationToken,
-                    progress: onProgress)
-            } else {
-                result = await state.migrator.moveToExternal(
-                    app: app, drivePath: drive.mountPoint, progress: onProgress)
-            }
-            
-            if result.success {
-                if var task = state.migrationTask {
-                    task.status = .completed
-                    state.migrationTask = task
-                }
-                state.migrationTask = nil
-                state.notificationManager.notifyMigrationComplete(
-                    appName: app.name, spaceSaved: result.spaceSaved)
-                await state.scanApps()
-            } else if var t = state.migrationTask {
-                t.status = .failed(result.error ?? "未知错误")
-                state.migrationTask = t
-                state.notificationManager.notifyMigrationFailed(
-                    appName: app.name, error: result.error ?? "未知错误")
-            }
-        }
+        appState.migrationPlanRequest = MigrationPlanRequest(apps: [app], createsLink: false)
     }
     
     private func restoreApp() {
@@ -237,12 +185,17 @@ struct AppRowView: View {
             
             let state = self.appState  // 值类型捕获，避免 Sendable 警告
             let result = await state.migrator.restore(
-                app: app, from: drive.mountPoint
-            ) { @Sendable pct, desc in
+                app: app, from: drive.mountPoint,
+                phaseProgress: { update in
+                    Task { @MainActor in
+                        state.reportMigrationProgress(update, taskID: taskID)
+                    }
+                },
+                progress: { @Sendable pct, desc in
                 Task { @MainActor in
                     state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
-            }
+            })
             
             if result.success {
                 if var task = state.migrationTask {
@@ -299,12 +252,17 @@ struct AppRowView: View {
 
             let state = self.appState
             let result = await state.migrator.relocate(
-                app: app, fromVolume: fromMount, toVolume: volume.info.mountPoint
-            ) { @Sendable pct, desc in
+                app: app, fromVolume: fromMount, toVolume: volume.info.mountPoint,
+                phaseProgress: { update in
+                    Task { @MainActor in
+                        state.reportMigrationProgress(update, taskID: taskID)
+                    }
+                },
+                progress: { @Sendable pct, desc in
                 Task { @MainActor in
                     state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
-            }
+            })
 
             if result.success {
                 if var task = state.migrationTask {
@@ -334,12 +292,17 @@ struct AppRowView: View {
 
             let state = self.appState
             let result = await state.migrator.moveBackToInternal(
-                app: app, drivePath: drive.mountPoint
-            ) { @Sendable pct, desc in
+                app: app, drivePath: drive.mountPoint,
+                phaseProgress: { update in
+                    Task { @MainActor in
+                        state.reportMigrationProgress(update, taskID: taskID)
+                    }
+                },
+                progress: { @Sendable pct, desc in
                 Task { @MainActor in
                     state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
-            }
+            })
 
             if result.success {
                 if var task = state.migrationTask {

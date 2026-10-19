@@ -124,7 +124,9 @@ class AppMigrator: @unchecked Sendable {
     /// 安全关键：A 副本在链接改写成功前**绝不删**——任一步失败，应用仍从 A 盘完整可用。
     /// 失败清场只动 B 盘上的半截副本。
     func relocate(app: AppItem, fromVolume: String, toVolume: String,
+                  phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                   progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        phaseProgress(.init(phase: .preflight, progress: 0, message: "正在预检盘间迁移…"))
         let appName = app.bundleName
         let sourcePath = app.symlinkTarget ?? app.path
         let from = (fromVolume as NSString).standardizingPath
@@ -167,7 +169,8 @@ class AppMigrator: @unchecked Sendable {
         // 护栏全过后交给 core（core 是可测入口，自己记 journal——护栏路径用 finish 记，
         // core 路径由 core 记，两边不会重复）
         return await relocateCore(app: app, sourcePath: sourcePath,
-                                  fromVolume: from, toVolume: to, progress: progress)
+                                  fromVolume: from, toVolume: to,
+                                  phaseProgress: phaseProgress, progress: progress)
     }
 
     // MARK: - 目标占用与迁移标记（高-3 × 中断恢复的和解）
@@ -208,6 +211,7 @@ class AppMigrator: @unchecked Sendable {
     /// 单一出口记 journal；测试注入 temp 目录即可全流程验证。
     func relocateCore(app: AppItem, sourcePath: String, fromVolume: String, toVolume: String,
                       linkDirectory: String = "/Applications",
+                      phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                       progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let appName = app.bundleName
         let relative = (sourcePath as NSString).lastPathComponent
@@ -217,6 +221,7 @@ class AppMigrator: @unchecked Sendable {
         let targetPath = "\(toVolume)/\(parentName)/\(relative)"
         let linkPath = "\(linkDirectory)/\(appName)"
         let hadLink = (try? fileManager.destinationOfSymbolicLink(atPath: linkPath)) != nil
+        phaseProgress(.init(phase: .preflight, progress: 0, message: "正在检查盘间迁移…"))
         // P2-3 漂移护栏必须在复制之前：中止越早，目标盘越干净（复制后才查会留下整份副本）
         if hadLink {
             // 合法现状只有两个——还指着源（没动过）或已指着目标（上次中断在改写后，
@@ -243,9 +248,12 @@ class AppMigrator: @unchecked Sendable {
             return done(false, reject)
         }
 
+        phaseProgress(.init(phase: .copying, progress: 0.1, message: "正在复制 \(app.name) 到目标盘..."))
         progress(0.1, "正在复制 \(app.name) 到目标盘...")
         let copyOk = await copyWithDitto(from: sourcePath, to: targetPath) { pct in
-            progress(0.1 + pct * 0.5, "复制 \(app.name)...")
+            let value = 0.1 + pct * 0.5
+            phaseProgress(.init(phase: .copying, progress: value, message: "复制 \(app.name)..."))
+            progress(value, "复制 \(app.name)...")
         }
         guard copyOk else {
             try? fileManager.removeItem(atPath: targetPath)   // 清半截副本，A 不动
@@ -253,6 +261,7 @@ class AppMigrator: @unchecked Sendable {
             return done(false, "复制到目标盘失败")
         }
 
+        phaseProgress(.init(phase: .verifying, progress: 0.65, message: "正在校验完整性..."))
         progress(0.65, "正在校验完整性...")
         let verified = await verifyFiles(source: sourcePath, target: targetPath)
         guard verified else {
@@ -266,6 +275,7 @@ class AppMigrator: @unchecked Sendable {
 
         // 链接改写（有 /Applications 链接才做；externalOnly 原住民跳过）
         if hadLink {
+            phaseProgress(.init(phase: .backupAndSwitch, progress: 0.85, message: "正在切换应用链接..."))
             progress(0.85, "改写应用链接...")
             do {
                 try Self.swapSymlink(at: linkPath, to: targetPath)
@@ -291,6 +301,7 @@ class AppMigrator: @unchecked Sendable {
                 volumeRole: nil)
         }
 
+        phaseProgress(.init(phase: .backupAndSwitch, progress: 0.95, message: "正在清理源盘副本..."))
         progress(0.95, "清理源盘副本...")
         do {
             try fileManager.removeItem(atPath: sourcePath)
@@ -313,11 +324,13 @@ class AppMigrator: @unchecked Sendable {
 
     /// 迁移/纯搬迁（createLink 区分，params 记录）
     func migrate(app: AppItem, to drivePath: String, createLink: Bool = true,
+                 expectedTargetVolumeUUID: String? = nil,
                  cancellationToken: CancellationToken? = nil,
                  phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let result = await migrateInternal(app: app, to: drivePath,
                                            createLink: createLink,
+                                           expectedTargetVolumeUUID: expectedTargetVolumeUUID,
                                            cancellationToken: cancellationToken,
                                            phaseProgress: phaseProgress,
                                            progress: progress)
@@ -331,8 +344,10 @@ class AppMigrator: @unchecked Sendable {
 
     /// 回迁
     func restore(app: AppItem, from drivePath: String,
+                 phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
-        let result = await restoreInternal(app: app, from: drivePath, progress: progress)
+        let result = await restoreInternal(
+            app: app, from: drivePath, phaseProgress: phaseProgress, progress: progress)
         OperationJournal.shared.record(
             op: .restore, appName: app.bundleName,
             params: ["volumeUUID": MigrationManifest.volumeUUID(atPath: drivePath) ?? ""],
@@ -342,9 +357,11 @@ class AppMigrator: @unchecked Sendable {
 
     /// 外置盘原住民搬回内置盘
     func moveBackToInternal(app: AppItem, drivePath: String,
+                            phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                             progress: @escaping @Sendable (Double, String) -> Void)
         async -> MigrationResult {
         let result = await moveBackToInternalInternal(app: app, drivePath: drivePath,
+                                                      phaseProgress: phaseProgress,
                                                       progress: progress)
         OperationJournal.shared.record(
             op: .moveBack, appName: app.bundleName,
@@ -407,6 +424,7 @@ class AppMigrator: @unchecked Sendable {
     }
 
     func migrateInternal(app: AppItem, to drivePath: String, createLink: Bool = true,
+                 expectedTargetVolumeUUID: String? = nil,
                  cancellationToken: CancellationToken? = nil,
                  phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
@@ -452,7 +470,9 @@ class AppMigrator: @unchecked Sendable {
         // createDirectory 把数据全写进内置盘 /Volumes 的事故，此处硬性拦截。
         // validateTarget 里有 statfs + tmutil + resourceValues，全部是阻塞调用 → OffPool
         let targetIssue = await OffPool.run { [self] in
-            validateTarget(drivePath: drivePath, appSize: app.size)
+            validateTarget(
+                drivePath: drivePath, appSize: app.size,
+                expectedVolumeUUID: expectedTargetVolumeUUID)
         }
         if let reason = targetIssue {
             AuditLog.append("拒绝迁移 \(appName)：\(reason)")
@@ -632,12 +652,19 @@ class AppMigrator: @unchecked Sendable {
     /// 对这类应用它比"迁移"更稳：更新器破坏的对象就是那个链接（App Store /
     /// 安装器会往 /Applications 写真目录把链接顶掉），没有链接就没有这个故障模式。
     func moveToExternal(app: AppItem, drivePath: String,
+                        expectedTargetVolumeUUID: String? = nil,
+                        phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                         progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
-        await migrate(app: app, to: drivePath, createLink: false, progress: progress)
+        await migrate(
+            app: app, to: drivePath, createLink: false,
+            expectedTargetVolumeUUID: expectedTargetVolumeUUID,
+            phaseProgress: phaseProgress, progress: progress)
     }
     
     func restoreInternal(app: AppItem, from drivePath: String,
+                 phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
+        phaseProgress(.init(phase: .preflight, progress: 0, message: "正在预检回迁…"))
         
         guard let target = app.symlinkTarget else {
             return MigrationResult(success: false, error: "未找到外置盘上的应用", spaceSaved: 0)
@@ -674,12 +701,16 @@ class AppMigrator: @unchecked Sendable {
                 spaceSaved: 0)
         }
 
+        phaseProgress(.init(phase: .copying, progress: 0.1, message: "准备回迁..."))
         progress(0.1, "删除符号链接...")
         try? fileManager.removeItem(atPath: sourcePath)
         
+        phaseProgress(.init(phase: .copying, progress: 0.2, message: "正在回迁 \(app.name)..."))
         progress(0.2, "正在回迁 \(app.name)...")
         let copyOk = await copyWithDitto(from: externalPath, to: sourcePath) { pct in
-            progress(0.2 + pct * 0.7, "回迁 \(app.name)...")
+            let value = 0.2 + pct * 0.7
+            phaseProgress(.init(phase: .copying, progress: value, message: "回迁 \(app.name)..."))
+            progress(value, "回迁 \(app.name)...")
         }
         guard copyOk else {
             // 复制失败也要保证应用仍有入口：先腾空链接位（半截副本已由
@@ -690,10 +721,12 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: false, error: "回迁复制失败", spaceSaved: 0)
         }
         
+        phaseProgress(.init(phase: .verifying, progress: 0.9, message: "正在校验回迁副本..."))
         progress(0.9, "校验...")
         let verified = await verifyFiles(source: externalPath, target: sourcePath)
         
         if verified {
+            phaseProgress(.init(phase: .backupAndSwitch, progress: 0.95, message: "清理外置副本..."))
             try? fileManager.removeItem(atPath: externalPath)
             try? fileManager.removeItem(atPath: backupDir)
             MigrationManifest.shared.remove(appName: appName)
@@ -712,8 +745,10 @@ class AppMigrator: @unchecked Sendable {
 
     /// 把「一直住在外置盘」的应用搬回内置盘（无链接语义：复制→校验→删外置副本）
     func moveBackToInternalInternal(app: AppItem, drivePath: String,
+                            phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                             progress: @escaping @Sendable (Double, String) -> Void)
         async -> MigrationResult {
+        phaseProgress(.init(phase: .preflight, progress: 0, message: "正在预检搬回操作…"))
         let sourcePath = app.path
         let destPath = "/Applications/\(app.bundleName)"
 
@@ -732,14 +767,18 @@ class AppMigrator: @unchecked Sendable {
 
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
 
+        phaseProgress(.init(phase: .copying, progress: 0.1, message: "正在复制 \(app.name)..."))
         progress(0.1, "正在复制 \(app.name)...")
         guard await copyWithDitto(from: sourcePath, to: destPath, progress: { pct in
-            progress(0.1 + pct * 0.7, "复制 \(app.name)...")
+            let value = 0.1 + pct * 0.7
+            phaseProgress(.init(phase: .copying, progress: value, message: "复制 \(app.name)..."))
+            progress(value, "复制 \(app.name)...")
         }) else {
             try? fileManager.removeItem(atPath: destPath)
             return MigrationResult(success: false, error: "复制失败", spaceSaved: 0)
         }
 
+        phaseProgress(.init(phase: .verifying, progress: 0.9, message: "正在校验搬回副本..."))
         progress(0.9, "校验...")
         guard await verifyFiles(source: sourcePath, target: destPath) else {
             try? fileManager.removeItem(atPath: destPath)
@@ -747,6 +786,7 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: false, error: "文件校验失败，请重试", spaceSaved: 0)
         }
 
+        phaseProgress(.init(phase: .backupAndSwitch, progress: 0.95, message: "清理外置副本与备份..."))
         try? fileManager.removeItem(atPath: sourcePath)
         // 与回迁一致：应用回到内置盘了，搬迁时的留底备份即可回收
         // （跨盘备份：备份可能在指定盘上，各根目录都清）
@@ -940,7 +980,11 @@ class AppMigrator: @unchecked Sendable {
         return Int64(st.f_bavail) * Int64(st.f_bsize)
     }
 
-    func validateTarget(drivePath: String, appSize: Int64) -> String? {
+    func validateTarget(
+        drivePath: String,
+        appSize: Int64,
+        expectedVolumeUUID: String? = nil
+    ) -> String? {
         var st = statfs()
         guard drivePath.withCString({ statfs($0, &st) }) == 0 else {
             return "目标路径无法访问（硬盘未插入？），已阻止迁移以免误写内置盘"
@@ -953,6 +997,19 @@ class AppMigrator: @unchecked Sendable {
         let rootDev = deviceName(of: root.f_mntfromname)
         if targetDev == rootDev {
             return "目标路径不是已挂载的外置硬盘（卷名可能已变更），已阻止迁移以免数据写入内置盘"
+        }
+
+        // A reviewed plan pins the physical destination, not only its mount path.
+        // Re-read the UUID at the write boundary so a replacement disk cannot inherit
+        // the approved path between review and execution.
+        if let expectedVolumeUUID {
+            guard let currentVolumeUUID = MigrationManifest.volumeUUID(atPath: drivePath) else {
+                return "无法读取目标盘卷 UUID，目标身份未确认，已阻止迁移"
+            }
+            guard VolumeIdentity.matches(
+                expected: expectedVolumeUUID, current: currentVolumeUUID) else {
+                return "目标盘卷 UUID 与审阅计划不符，目标身份已变化，已阻止迁移"
+            }
         }
 
         // 写盘边界的第二道闸：网络共享/云盘卷、只读卷、内置盘都不能当目标。

@@ -11,6 +11,9 @@ struct MigrationPlanRequestItem {
     /// Nil means the current primary external drive. A non-nil value preserves
     /// a user-selected destination and is never replaced by the primary drive.
     let requestedDestination: DriveInfo?
+    /// Nil keeps the normal update-mechanism policy; false is an explicit
+    /// user choice to perform a pure move without leaving a link.
+    let createsLink: Bool?
 }
 
 /// User-facing plan request. An explicit assignment is retained per app so a
@@ -22,13 +25,17 @@ struct MigrationPlanRequest: Identifiable {
 
     var apps: [AppItem] { items.map(\.app) }
 
-    init(apps: [AppItem]) {
-        self.items = apps.map { MigrationPlanRequestItem(app: $0, requestedDestination: nil) }
+    init(apps: [AppItem], createsLink: Bool? = nil) {
+        self.items = apps.map {
+            MigrationPlanRequestItem(
+                app: $0, requestedDestination: nil, createsLink: createsLink)
+        }
     }
 
     init(assignments: [MigrationPlanAssignment]) {
         self.items = assignments.map {
-            MigrationPlanRequestItem(app: $0.app, requestedDestination: $0.destination)
+            MigrationPlanRequestItem(
+                app: $0.app, requestedDestination: $0.destination, createsLink: nil)
         }
     }
 }
@@ -76,6 +83,7 @@ struct MigrationPlanItem: Identifiable, Equatable {
     let sourcePath: String
     let destinationName: String
     let destinationPath: String
+    let destinationVolumeUUID: String?
     let backupPlacement: MigrationBackupPlacement
     let createsLink: Bool
 }
@@ -169,6 +177,15 @@ enum MigrationPlanPresentation {
                 backupPlacement = .sameVolume
             }
 
+            // 批准后执行链会用卷 UUID 复查目标身份；评审时就读不到 UUID 的盘，
+            // 批准了也必然被拦，提前在这里说明，避免"可确认但不可执行"。
+            guard destination.volumeUUID != nil else {
+                return .blocked(reasons: [
+                    "无法读取目标盘「\(destination.name)」的卷身份（UUID），"
+                        + "无法保证迁移写到审阅时的同一块盘。请重新插拔硬盘并重新扫描后再试。"
+                ])
+            }
+
             addBudget(
                 name: destination.name, path: destination.mountPoint,
                 freeBytes: destination.freeSize,
@@ -178,8 +195,9 @@ enum MigrationPlanPresentation {
             items.append(MigrationPlanItem(
                 id: app.id, name: app.name, size: app.size, sourcePath: app.path,
                 destinationName: destination.name, destinationPath: destination.mountPoint,
+                destinationVolumeUUID: destination.volumeUUID,
                 backupPlacement: backupPlacement,
-                createsLink: !app.updateMechanism.prefersNoLink))
+                createsLink: requestItem.createsLink ?? !app.updateMechanism.prefersNoLink))
         }
 
         // Several applications may share one target or backup volume. The
@@ -218,6 +236,17 @@ enum MigrationPlanPresentation {
             })
         }
         return drives.first { $0.mountPoint == requested.mountPoint }
+    }
+
+    static func destinationIdentityFailure(for item: MigrationPlanItem) -> MigrationOutcome {
+        let reviewedIdentity = item.destinationVolumeUUID ?? "未能读取"
+        return MigrationOutcome(
+            kind: .failure,
+            title: "目标盘身份已变化，未开始迁移",
+            detail: "「\(item.name)」的目标路径 \(item.destinationPath) 与审阅时选择的卷身份不一致，"
+                + "或当前无法读取卷 UUID（审阅时：\(reviewedIdentity)）。本项未开始，未改动任何文件；"
+                + "请重新扫描并重新审阅目标盘。",
+            spaceSaved: 0)
     }
 
     private static func addBudget(
@@ -264,6 +293,13 @@ enum MigrationPlanPresentation {
                 spaceSaved: result.spaceSaved)
         }
         if result.success {
+            guard result.spaceSaved > 0 else {
+                return MigrationOutcome(
+                    kind: .success,
+                    title: "操作已完成",
+                    detail: "「\(appName)」操作已完成；当前没有可确认的释放空间数据。",
+                    spaceSaved: result.spaceSaved)
+            }
             let freed = ByteCountFormatter.string(
                 fromByteCount: result.spaceSaved, countStyle: .file)
             return MigrationOutcome(
@@ -358,10 +394,15 @@ enum MigrationPlanPresentation {
             return updated
         }
     }
+
+    static func shouldOfferOpenAppsAction(for results: [MigrationBatchItemResult]) -> Bool {
+        results.count == 1 && results[0].status == .succeeded
+    }
 }
 
 enum MigrationExecutionPhase: Equatable {
     case preflight
+    case transfer
     case copyAndSwitch
     case verify
     case backupAndSwitch
@@ -370,6 +411,7 @@ enum MigrationExecutionPhase: Equatable {
     init(servicePhase: MigrationPhase) {
         switch servicePhase {
         case .preflight: self = .preflight
+        case .transferring: self = .transfer
         case .copying: self = .copyAndSwitch
         case .verifying: self = .verify
         case .backupAndSwitch: self = .backupAndSwitch
@@ -398,6 +440,8 @@ struct MigrationOutcome: Equatable {
     let title: String
     let detail: String
     let spaceSaved: Int64
+
+    var reportedFreedBytes: Int64? { spaceSaved > 0 ? spaceSaved : nil }
 }
 
 struct MigrationBatchItemResult: Equatable, Identifiable {

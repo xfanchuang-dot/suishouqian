@@ -30,7 +30,7 @@ struct MigrationPanel: View {
                         PrimaryActionButton(
                             title: "生成安全计划",
                             systemImage: "doc.text.magnifyingglass",
-                            enabled: appState.migrationTask == nil) {
+                            enabled: !appState.isMigrationActive) {
                             migrateAll()
                         }
                         .frame(maxWidth: .infinity)
@@ -83,7 +83,7 @@ struct MigrationPanel: View {
                         }
                         .buttonStyle(.borderless)
                         .monospacedDigit()
-                        .disabled(appState.migrationTask != nil)
+                        .disabled(appState.isMigrationActive)
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -194,7 +194,7 @@ struct MigrationPanel: View {
     /// 状态已非 .normal，整批拦下、绝不触碰文件系统；
     /// AppMigrator 自身的执行时校验原样保留，兜住批准之后的盘变化。
     private func executeReviewedPlan(_ summary: MigrationPlanSummary) {
-        guard appState.migrationTask == nil, !summary.items.isEmpty else { return }
+        guard !appState.isMigrationActive, !summary.items.isEmpty else { return }
         appState.beginReviewedPlanBatch(items: summary.items)
 
         // 复查不碰文件系统：只对照内存里的当刻列表
@@ -219,14 +219,50 @@ struct MigrationPanel: View {
             freshApps.append((item, app))
         }
 
-        let total = freshApps.count
         Task { @MainActor in
-            var okCount = 0, failCount = 0
             var interruption: (name: String, outcome: MigrationOutcome)?
+            var identityCheckedApps: [(MigrationPlanItem, AppItem)] = []
+
+            // UUID 直接从审阅时的挂载路径重新读取，不用缓存的挂载点列表推断身份。
+            // 整批先过一遍，避免后续目标已换盘时前面的项目先开始执行。
+            for (item, app) in freshApps {
+                let mountedUUID = await OffPool.run {
+                    MigrationManifest.volumeUUID(atPath: item.destinationPath)
+                }
+                guard VolumeIdentity.matches(
+                    expected: item.destinationVolumeUUID, current: mountedUUID) else {
+                    let outcome = MigrationPlanPresentation.destinationIdentityFailure(for: item)
+                    recordBlockedReviewedItem(outcome, item: item)
+                    appState.markPendingBatchItemsNotStarted()
+                    appState.finishReviewedPlanBatch()
+                    return
+                }
+                identityCheckedApps.append((item, app))
+            }
+
+            var okCount = 0, failCount = 0
             defer { appState.finishReviewedPlanBatch() }
-            for (index, entry) in freshApps.enumerated() {
+            let total = identityCheckedApps.count
+            for (index, entry) in identityCheckedApps.enumerated() {
                 let item = entry.0
                 let app = entry.1
+
+                // Re-read immediately before dispatch. AppMigrator repeats the UUID check
+                // inside its live target validation to close the mount-path reuse race.
+                let mountedUUID = await OffPool.run {
+                    MigrationManifest.volumeUUID(atPath: item.destinationPath)
+                }
+                guard VolumeIdentity.matches(
+                    expected: item.destinationVolumeUUID, current: mountedUUID) else {
+                    let outcome = MigrationPlanPresentation.destinationIdentityFailure(for: item)
+                    // 关联到当前任务，避免收尾清空 migrationTask 时被 fallback 覆盖。
+                    appState.recordMigrationOutcome(
+                        outcome, taskID: appState.migrationTask?.id)
+                    appState.recordBatchOutcome(outcome, itemID: item.id)
+                    interruption = (item.name, outcome)
+                    break
+                }
+
                 let task = MigrationTask(app: app, operation: .migrate)
                 let taskID = task.id
                 appState.migrationTask = task
@@ -234,6 +270,7 @@ struct MigrationPanel: View {
                 let appState = self.appState  // 值类型捕获
                 let result = await appState.migrator.migrate(
                     app: app, to: item.destinationPath, createLink: item.createsLink,
+                    expectedTargetVolumeUUID: item.destinationVolumeUUID,
                     cancellationToken: task.cancellationToken,
                     phaseProgress: { update in
                         Task { @MainActor in
@@ -281,8 +318,15 @@ struct MigrationPanel: View {
 
             if let interruption {
                 appState.markPendingBatchItemsNotStarted()
-                let state = interruption.outcome.kind == .cancelled ? "已安全取消" : "需要检查恢复"
-                batchSummary = "「\(interruption.name)」\(state)，本批其余条目未开始"
+                let state: String
+                if interruption.outcome.kind == .cancelled {
+                    state = "已安全取消"
+                } else if interruption.outcome.title.contains("目标盘身份") {
+                    state = "目标盘身份变化，已阻止"
+                } else {
+                    state = "需要检查恢复"
+                }
+                batchSummary = "「\(interruption.name)」\(state)，本批剩余条目未开始"
             } else {
                 batchSummary = failCount == 0
                     ? "批量迁移完成：\(okCount) 个全部成功"
@@ -291,6 +335,12 @@ struct MigrationPanel: View {
             appState.migrationTask = nil
             await appState.scanApps()
         }
+    }
+
+    private func recordBlockedReviewedItem(_ outcome: MigrationOutcome, item: MigrationPlanItem) {
+        appState.recordMigrationOutcome(outcome, taskID: nil)
+        appState.recordBatchOutcome(outcome, itemID: item.id)
+        batchSummary = "目标盘身份已变化或不可用，计划未开始"
     }
     
     private func restoreAll() {
@@ -305,13 +355,18 @@ struct MigrationPanel: View {
 
                 let appState = self.appState  // 值类型捕获
                 let result = await appState.migrator.restore(
-                    app: app, from: drive.mountPoint
-                ) { @Sendable pct, desc in
+                    app: app, from: drive.mountPoint,
+                    phaseProgress: { update in
+                        Task { @MainActor in
+                            appState.reportMigrationProgress(update, taskID: taskID)
+                        }
+                    },
+                    progress: { @Sendable pct, desc in
                     Task { @MainActor in
                         // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
                         appState.reportMigrationProgress(pct, desc, taskID: taskID)
                     }
-                }
+                })
 
                 if var current = appState.migrationTask {
                     current.status = result.success
@@ -337,7 +392,7 @@ struct MigrationPanel: View {
     /// 换盘/卖盘/盘出问题前的场景化打包：链接应用、外置原住民、数据目录（含自选）
     /// 全部迁回内置盘，逐项执行互不打断；全部成功后可选清掉盘上的随手迁目录。
     private func retireWizard() {
-        guard let drive = appState.externalDrive, appState.migrationTask == nil else { return }
+        guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
         guard let builtinFree = appState.builtinDrive?.freeSize else { return }
         let migratedApps = appState.apps.filter { $0.status == .migrated }
         let nativeApps = appState.apps.filter { $0.status == .externalOnly }
@@ -396,6 +451,7 @@ struct MigrationPanel: View {
                                   size: totalBytes, isSymlink: false,
                                   symlinkTarget: nil, icon: nil)
             appState.migrationTask = MigrationTask(app: taskApp, operation: .restore)
+            let taskID = appState.migrationTask?.id
 
             // 显式 @MainActor 闭包：嵌套 async 函数不继承隔离，读 migrationTask 会报错
             let runRestore: @MainActor (
@@ -416,7 +472,17 @@ struct MigrationPanel: View {
                 await runRestore(app.name) { [weak appState] in
                     guard let appState else { return (false, "状态丢失") }
                     let r = await appState.migrator.restore(
-                        app: app, from: drive.mountPoint) { _, _ in }
+                        app: app, from: drive.mountPoint,
+                        phaseProgress: { update in
+                            Task { @MainActor in
+                                appState.reportMigrationProgress(update, taskID: taskID)
+                            }
+                        },
+                        progress: { pct, file in
+                            Task { @MainActor in
+                                appState.reportMigrationProgress(pct, file, taskID: taskID)
+                            }
+                        })
                     return (r.success, r.error)
                 }
             }
@@ -424,7 +490,17 @@ struct MigrationPanel: View {
                 await runRestore(app.name) { [weak appState] in
                     guard let appState else { return (false, "状态丢失") }
                     let r = await appState.migrator.moveBackToInternal(
-                        app: app, drivePath: drive.mountPoint) { _, _ in }
+                        app: app, drivePath: drive.mountPoint,
+                        phaseProgress: { update in
+                            Task { @MainActor in
+                                appState.reportMigrationProgress(update, taskID: taskID)
+                            }
+                        },
+                        progress: { pct, file in
+                            Task { @MainActor in
+                                appState.reportMigrationProgress(pct, file, taskID: taskID)
+                            }
+                        })
                     return (r.success, r.error)
                 }
             }
@@ -432,7 +508,11 @@ struct MigrationPanel: View {
                 await runRestore(item.title) { [weak appState] in
                     guard let appState else { return (false, "状态丢失") }
                     let r = await appState.dataMigrator.restoreData(
-                        item: item, drivePath: drive.mountPoint) { _, _ in }
+                        item: item, drivePath: drive.mountPoint) { pct, file in
+                            Task { @MainActor in
+                                appState.reportMigrationProgress(pct, file, taskID: taskID)
+                            }
+                        }
                     return (r.success, r.error)
                 }
             }

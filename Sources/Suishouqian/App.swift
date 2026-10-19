@@ -176,9 +176,9 @@ class AppState: ObservableObject {
     private var progressThrottle = ProgressThrottle()
     func reportMigrationProgress(_ pct: Double, _ file: String, taskID: UUID? = nil) {
         guard let task = migrationTask, taskID == nil || task.id == taskID else { return }
-        // Older service operations emit progress only after copying starts.
-        // Showing that truthful state avoids leaving their card on preflight.
-        let phase = task.phase.advancing(to: .copying)
+        // Legacy callbacks do not reveal whether they are copying, verifying,
+        // or switching. Keep their UI truthful with a generic transfer state.
+        let phase = task.phase.advancing(to: .transferring)
         updateMigrationProgress(pct, file, phase: phase, taskID: taskID)
     }
 
@@ -290,8 +290,11 @@ class AppState: ObservableObject {
     /// 否则令牌释放后回调静默失效（经典坑，编译器不报）
     private var launchObserver: NSObjectProtocol?
 
-    /// 是否有迁移/回迁任务正在进行（强退保护依据）
+    /// 是否有迁移/回迁任务正在进行（强退保护依据）。
+    /// 评审批次的预检阶段还没有 migrationTask，但这段窗口同样不能并发起
+    /// 第二个搬迁操作，因此把批次执行标记也计入。
     var isMigrationActive: Bool {
+        if isExecutingReviewedPlan { return true }
         guard let task = migrationTask else { return false }
         return !task.status.isTerminal
     }

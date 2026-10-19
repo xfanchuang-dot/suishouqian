@@ -4,9 +4,8 @@ import SwiftUI
 /// 折出的 `MigrationOutcome` 终态，呈现成「阶段感知」的安全流程。
 ///
 /// 纪律（实现计划 Step 3）：
-/// - `task` 非终态 → 固定四阶段时间线，优先呈现 AppMigrator 实际发出的阶段；
-///   老式进度回调至少会从预检推进到复制状态，避免时间线停在预检，
-///   同时显示当前文件与等宽百分比；
+/// - `task` 非终态 → 服务提供阶段时显示对应阶段；只有旧式进度回调时显示
+///   泛化的「正在传输」，不把未知阶段误报成复制、校验或切换；
 /// - 「取消迁移」只置位 token 并把附近文案切到「正在安全停止，等待清理完成…」，
 ///   **绝不清 appState.migrationTask**——收尾（清理半截副本）由管道在阶段边界自己完成；
 /// - 终态只由 `MigrationOutcome` 驱动：success 只可能来自服务端 `success == true`
@@ -77,15 +76,21 @@ struct MigrationExecutionView: View {
                     .foregroundColor(MockTheme.accent)
             }
 
-            HStack(spacing: 0) {
-                ForEach(stages.indices, id: \.self) { index in
-                    if index > 0 {
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.12))
-                            .frame(height: 1)
-                            .frame(maxWidth: .infinity)
+            if MigrationExecutionPhase(servicePhase: task.phase) == .transfer {
+                Label("正在传输", systemImage: "arrow.left.arrow.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(MockTheme.accent)
+            } else {
+                HStack(spacing: 0) {
+                    ForEach(stages.indices, id: \.self) { index in
+                        if index > 0 {
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.12))
+                                .frame(height: 1)
+                                .frame(maxWidth: .infinity)
+                        }
+                        MigrationStageNode(title: stages[index].displayName, state: states[index])
                     }
-                    MigrationStageNode(title: stages[index].displayName, state: states[index])
                 }
             }
 
@@ -198,7 +203,11 @@ struct MigrationExecutionView: View {
                     Divider().opacity(0.5)
                 }
             }
-            outcomeActions([("迁移历史", onShowHistory)])
+            let actions: [(title: String, action: () -> Void)] =
+                MigrationPlanPresentation.shouldOfferOpenAppsAction(for: results)
+                ? [("查看应用", onOpenApps), ("迁移历史", onShowHistory)]
+                : [("迁移历史", onShowHistory)]
+            outcomeActions(actions)
         }
         .padding(12)
         .background(
@@ -231,8 +240,9 @@ struct MigrationExecutionView: View {
     /// 成功终态：标题「迁移完成」+「已释放 <格式化字节>」（等宽数字），
     /// 动作 = 查看应用 + 迁移历史。只有服务端 success == true 才会走到这里。
     private func successBody(_ outcome: MigrationOutcome) -> some View {
-        let freed = ByteCountFormatter.string(
-            fromByteCount: outcome.spaceSaved, countStyle: .file)
+        let freed = outcome.reportedFreedBytes.map {
+            ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)
+        }
         return VStack(alignment: .leading, spacing: 10) {
             // 图标 + 文字双通道：成功语义不单靠颜色
             HStack(spacing: 12) {
@@ -240,10 +250,12 @@ struct MigrationExecutionView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(MockTheme.healthGreen)
                 Spacer()
-                Text("已释放 \(freed)")
-                    .font(.system(size: 15, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundColor(MockTheme.healthGreen)
+                if let freed {
+                    Text("已释放 \(freed)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundColor(MockTheme.healthGreen)
+                }
             }
             Text(outcome.detail)
                 .font(.system(size: 12))
@@ -251,7 +263,7 @@ struct MigrationExecutionView: View {
             outcomeActions([("查看应用", onOpenApps), ("迁移历史", onShowHistory)])
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(outcome.title)，已释放 \(freed)")
+        .accessibilityLabel(freed.map { "\(outcome.title)，已释放 \($0)" } ?? outcome.title)
     }
 
     /// 取消终态：安全文案只由服务明确返回简单安全取消时生成；否则走恢复提示。
