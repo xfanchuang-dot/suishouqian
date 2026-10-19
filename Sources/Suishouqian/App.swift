@@ -153,7 +153,21 @@ class AppState: ObservableObject {
     @Published var apps: [AppItem] = []
     @Published var externalDrive: DriveInfo?
     @Published var isScanning = false
-    @Published var migrationTask: MigrationTask?
+    @Published var migrationTask: MigrationTask? {
+        didSet { migrationTaskDidChange(from: oldValue, to: migrationTask) }
+    }
+    @Published private(set) var migrationOutcome: MigrationOutcome?
+    @Published private(set) var migrationOutcomeTaskID: UUID?
+    @Published private(set) var migrationBatchResults: [MigrationBatchItemResult] = []
+    private(set) var isExecutingReviewedPlan = false
+
+    /// 迁移计划评审请求（Task 4）：普通应用迁移入口的唯一路由。
+    /// 各入口只构造请求（迁移面板一键 / 应用列表多选 / 应用行「迁移」），
+    /// 用户在全局评审 Sheet 看到计划并点「确认并开始」后，请求才被消费。
+    @Published var migrationPlanRequest: MigrationPlanRequest?
+    /// 评审通过的迁移计划。MigrationPanel 是唯一消费者：
+    /// 取走即置 nil（consumeApprovedPlan），保证一份计划恰好执行一次。
+    @Published var approvedMigrationPlan: MigrationPlanSummary?
 
     // MARK: - 更新助手
     /// 未完成的更新会话（持久化在 UserDefaults `updateSessions.v1`）
@@ -170,16 +184,102 @@ class AppState: ObservableObject {
     /// （200 步），全量重算从每秒几十次降到最多 4 次。
     /// 调用约定：所有调用点都在 Task { @MainActor in } 里（已逐一核对）。
     private var progressThrottle = ProgressThrottle()
-    func reportMigrationProgress(_ pct: Double, _ file: String) {
-        guard let t = migrationTask,
-              let fresh = progressThrottle.filtered(
-                  pct: pct, file: file,
-                  currentProgress: t.progress, currentFile: t.currentFile,
-                  now: Date()) else { return }
-        var updated = t
-        updated.progress = fresh.progress
-        updated.currentFile = fresh.file
+    func reportMigrationProgress(_ pct: Double, _ file: String, taskID: UUID? = nil) {
+        guard let task = migrationTask, taskID == nil || task.id == taskID else { return }
+        // Legacy callbacks do not reveal whether they are copying, verifying,
+        // or switching. Keep their UI truthful with a generic transfer state.
+        let phase = task.phase.advancing(to: .transferring)
+        updateMigrationProgress(pct, file, phase: phase, taskID: taskID)
+    }
+
+    func reportMigrationProgress(
+        _ update: AppMigrator.MigrationProgressUpdate,
+        taskID: UUID? = nil
+    ) {
+        updateMigrationProgress(
+            update.progress, update.message, phase: update.phase, taskID: taskID)
+    }
+
+    private func updateMigrationProgress(
+        _ pct: Double,
+        _ file: String,
+        phase proposedPhase: MigrationPhase,
+        taskID: UUID?
+    ) {
+        guard let task = migrationTask, taskID == nil || task.id == taskID else { return }
+        let phase = task.phase.advancing(to: proposedPhase)
+        let phaseChanged = phase != task.phase
+        let fresh = progressThrottle.filtered(
+            pct: pct, file: file,
+            currentProgress: task.progress, currentFile: task.currentFile,
+            now: Date())
+        var updated = task
+        updated.phase = phase
+        if let fresh {
+            updated.progress = fresh.progress
+            updated.currentFile = fresh.file
+        } else if phaseChanged {
+            // A stage transition is more meaningful than the 250ms progress
+            // throttle, so update its truthful label immediately.
+            updated.currentFile = file
+        } else {
+            return
+        }
         migrationTask = updated
+    }
+
+    func recordMigrationOutcome(_ result: AppMigrator.MigrationResult, appName: String) {
+        recordMigrationOutcome(
+            MigrationPlanPresentation.outcome(result: result, appName: appName),
+            taskID: migrationTask?.id)
+    }
+
+    func recordMigrationOutcome(_ outcome: MigrationOutcome, taskID: UUID?) {
+        migrationOutcome = outcome
+        migrationOutcomeTaskID = taskID
+    }
+
+    func beginReviewedPlanBatch(items: [MigrationPlanItem]) {
+        migrationBatchResults = MigrationPlanPresentation.batchResults(for: items)
+        isExecutingReviewedPlan = true
+    }
+
+    func finishReviewedPlanBatch() {
+        isExecutingReviewedPlan = false
+    }
+
+    func recordBatchOutcome(_ outcome: MigrationOutcome, itemID: UUID) {
+        migrationBatchResults = MigrationPlanPresentation.recordBatchOutcome(
+            outcome, itemID: itemID, in: migrationBatchResults)
+    }
+
+    func markPendingBatchItemsNotStarted() {
+        migrationBatchResults = MigrationPlanPresentation.markPendingBatchItemsNotStarted(
+            in: migrationBatchResults)
+    }
+
+    private func migrationTaskDidChange(from oldTask: MigrationTask?, to newTask: MigrationTask?) {
+        if oldTask?.id != newTask?.id {
+            if let newTask {
+                migrationOutcome = nil
+                migrationOutcomeTaskID = nil
+                if !isExecutingReviewedPlan {
+                    migrationBatchResults = []
+                }
+                if newTask.status.isTerminal {
+                    migrationOutcome = MigrationPlanPresentation.fallbackOutcome(for: newTask)
+                    migrationOutcomeTaskID = newTask.id
+                }
+            } else if let oldTask,
+                      migrationOutcome == nil || migrationOutcomeTaskID != oldTask.id {
+                migrationOutcome = MigrationPlanPresentation.fallbackOutcome(for: oldTask)
+                migrationOutcomeTaskID = oldTask.id
+            }
+        } else if let newTask, newTask.status.isTerminal,
+                  migrationOutcome == nil || migrationOutcomeTaskID != newTask.id {
+            migrationOutcome = MigrationPlanPresentation.fallbackOutcome(for: newTask)
+            migrationOutcomeTaskID = newTask.id
+        }
     }
     @Published var builtinDrive: DriveInfo?
     /// 侧边栏页面（⌘0~⌘5 可切，ContentView 绑定）
@@ -200,8 +300,11 @@ class AppState: ObservableObject {
     /// 否则令牌释放后回调静默失效（经典坑，编译器不报）
     private var launchObserver: NSObjectProtocol?
 
-    /// 是否有迁移/回迁任务正在进行（强退保护依据）
+    /// 是否有迁移/回迁任务正在进行（强退保护依据）。
+    /// 评审批次的预检阶段还没有 migrationTask，但这段窗口同样不能并发起
+    /// 第二个搬迁操作，因此把批次执行标记也计入。
     var isMigrationActive: Bool {
+        if isExecutingReviewedPlan { return true }
         guard let task = migrationTask else { return false }
         return !task.status.isTerminal
     }

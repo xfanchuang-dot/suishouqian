@@ -40,14 +40,15 @@ struct AppListView: View {
             HStack(spacing: 10) {
                 Text("已选 \(chosen.count) 个（\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))）")
                     .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
                 Spacer()
                 Button("迁移选中") { runSelected(migrate: true) }
                     .controlSize(.small)
-                    .disabled(appState.externalDrive == nil || appState.migrationTask != nil
+                    .disabled(appState.externalDrive == nil || appState.isMigrationActive
                               || chosen.allSatisfy { $0.status != .normal })
                 Button("回迁选中") { runSelected(migrate: false) }
                     .controlSize(.small)
-                    .disabled(appState.externalDrive == nil || appState.migrationTask != nil
+                    .disabled(appState.externalDrive == nil || appState.isMigrationActive
                               || chosen.allSatisfy { $0.status != .migrated })
                 Button("取消选择") { selectedApps.removeAll() }
                     .controlSize(.small)
@@ -58,7 +59,7 @@ struct AppListView: View {
         }
     }
 
-    /// 选中批量执行：与 migrateAll 同一套串行安全链（逐个走 migrator 入口，护栏与 journal 都在）
+    /// 选中操作：迁移走全局计划评审，回迁保持原有直接执行链
     private func runSelected(migrate: Bool) {
         guard let drive = appState.externalDrive else { return }
         // 重扫会重建 AppItem（id 是新 UUID），执行时按"当刻 apps ∩ 选中"取交集
@@ -67,23 +68,37 @@ struct AppListView: View {
                 && (migrate ? $0.status == .normal : $0.status == .migrated)
         }
         guard !targets.isEmpty else { return }
+
+        if migrate {
+            // Task 4：普通应用迁移一律先进计划评审，这里只构造请求、不动任何文件；
+            // 「确认并开始」后由迁移页的 executeReviewedPlan 统一执行
+            appState.migrationPlanRequest = MigrationPlanRequest(apps: targets)
+            return
+        }
+
         Task { @MainActor in
             for app in targets {
-                let op: MigrationTask.MigrationOperation = migrate ? .migrate : .restore
-                appState.migrationTask = MigrationTask(app: app, operation: op)
+                let task = MigrationTask(app: app, operation: .restore)
+                let taskID = task.id
+                appState.migrationTask = task
                 let progress: @Sendable (Double, String) -> Void = { pct, file in
                     Task { @MainActor in
                         // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                        appState.reportMigrationProgress(pct, file)
+                        appState.reportMigrationProgress(pct, file, taskID: taskID)
                     }
                 }
-                if migrate {
-                    _ = await appState.migrator.migrate(
-                        app: app, to: drive.mountPoint,
-                        cancellationToken: appState.migrationTask?.cancellationToken,
-                        progress: progress)
-                } else {
-                    _ = await appState.migrator.restore(app: app, from: drive.mountPoint, progress: progress)
+                let result = await appState.migrator.restore(
+                    app: app, from: drive.mountPoint,
+                    phaseProgress: { update in
+                        Task { @MainActor in
+                            appState.reportMigrationProgress(update, taskID: taskID)
+                        }
+                    },
+                    progress: progress)
+                if var current = appState.migrationTask {
+                    current.status = result.success
+                        ? .completed : .failed(result.error ?? "未知错误")
+                    appState.migrationTask = current
                 }
             }
             appState.migrationTask = nil

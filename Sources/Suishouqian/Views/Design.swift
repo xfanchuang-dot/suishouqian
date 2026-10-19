@@ -137,3 +137,125 @@ struct DriveIconBox: View {
             )
     }
 }
+
+// MARK: - 迁移阶段节点（计划评审/执行视图共用的「固定阶段」可视化原语）
+
+/// 阶段节点的视觉状态。图标 + 文字双通道：颜色只做辅助，语义靠符号与文案。
+enum MigrationStageVisualState: Equatable {
+    /// 尚未开始
+    case pending
+    /// 正在进行
+    case active
+    /// 已完成
+    case done
+    /// 终止且非成功（已取消 / 已失败）
+    case stopped
+}
+
+/// 单个迁移阶段的节点：圆环符号 + 阶段名。
+/// 评审 sheet 里四个固定阶段全部以 `.pending` 呈现；
+/// 执行视图（Task 3）按 `MigrationExecutionPhase` 推进同一组件。
+struct MigrationStageNode: View {
+    let title: String
+    let state: MigrationStageVisualState
+
+    private var systemImage: String {
+        switch state {
+        case .pending: return "circle"
+        case .active: return "arrowtriangle.right.circle.fill"
+        case .done: return "checkmark.circle.fill"
+        case .stopped: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .pending: return .secondary
+        case .active: return MockTheme.accent
+        case .done: return MockTheme.healthGreen
+        case .stopped: return MockTheme.statOrange
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(color)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(state == .pending ? .secondary : color)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title)，\(accessibilityState)")
+    }
+
+    private var accessibilityState: String {
+        switch state {
+        case .pending: return "未开始"
+        case .active: return "进行中"
+        case .done: return "已完成"
+        case .stopped: return "已停止"
+        }
+    }
+}
+
+// MARK: - 迁移入口统一控件（Task 5：冷静控制台层级）
+
+/// 唯一主操作按钮：实色 `MockTheme.accent` 胶囊。
+/// 冷静控制台规范（Task 5 Step 3）：主操作只用单一低饱和强调色，
+/// 不再使用蓝→紫渐变；按压缩放复用 pressScale（内部自带 reduceMotion 闸）。
+struct PrimaryActionButton: View {
+    let title: String
+    var systemImage: String? = nil
+    var enabled: Bool = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 12)
+            .background(
+                Capsule().fill(enabled ? MockTheme.accent : Color.primary.opacity(0.2)))
+            .shadow(color: enabled ? MockTheme.accent.opacity(0.25) : .clear,
+                    radius: 10, y: 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .pressScale()
+    }
+}
+
+/// 次级命令样式：文字 + 发丝描边胶囊，视觉权重一律低于 `PrimaryActionButton`。
+/// 「迁移历史 / 全部回迁 / 一键腾空间 / 盘要退休」等降级命令的统一外观；
+/// `tint` 默认中性灰，仅在命令本身携带既有警告语义时传入（如盘要退休的橙）。
+private struct SecondaryCommandModifier: ViewModifier {
+    var tint: Color = .secondary
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(
+                Capsule().strokeBorder(Color.primary.opacity(0.14), lineWidth: 1))
+    }
+}
+
+extension View {
+    /// 次级命令：文字/描边控件，弱于唯一主操作
+    func secondaryCommand(tint: Color = .secondary) -> some View {
+        modifier(SecondaryCommandModifier(tint: tint))
+    }
+}

@@ -1,6 +1,23 @@
 import XCTest
 @testable import 随手迁
 
+private final class MigrationPhaseRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [MigrationPhase] = []
+
+    func append(_ phase: MigrationPhase) {
+        lock.lock()
+        values.append(phase)
+        lock.unlock()
+    }
+
+    var phases: [MigrationPhase] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 /// 盘间迁移（v3.0）：core 流程用 temp 目录全流程跑通（ditto/校验/删源都是真实 FS 操作）；
 /// 卷级护栏（validateTarget）走的是真实挂载点语义，不在此覆盖——归真机两盘 E2E。
 final class RelocateTests: XCTestCase {
@@ -88,12 +105,21 @@ final class RelocateTests: XCTestCase {
     func testRelocateCoreMovesCopyVerifiesAndRemovesSource() async throws {
         let source = try makeFakeApp(at: volumeA.appendingPathComponent("Applications"))
         let app = makeApp(source: source)
+        let phaseRecorder = MigrationPhaseRecorder()
 
         let result = await migrator.relocateCore(
             app: app, sourcePath: source.path,
-            fromVolume: volumeA.path, toVolume: volumeB.path) { _, _ in }
+            fromVolume: volumeA.path, toVolume: volumeB.path,
+            phaseProgress: { phaseRecorder.append($0.phase) }) { _, _ in }
 
         XCTAssertTrue(result.success, result.error ?? "")
+        // ditto 会按文件多次上报复制进度，阶段序列允许重复；只校验单调推进的
+        // 阶段顺序，避免把进度频率误当成阶段数量。
+        var phases: [MigrationPhase] = []
+        for phase in phaseRecorder.phases where phases.last != phase {
+            phases.append(phase)
+        }
+        XCTAssertEqual(phases, [.preflight, .copying, .verifying, .backupAndSwitch])
         // 目标盘有完整副本（保持 Applications/ 布局）
         let target = volumeB.appendingPathComponent("Applications/Foo.app")
         XCTAssertTrue(FileManager.default.fileExists(

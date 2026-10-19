@@ -52,7 +52,10 @@ final class CancellationTests: XCTestCase {
 
 /// 放行 validateTarget（temp 目录不是挂载点；挂载点护栏语义由 relocate 系测试覆盖）
 private final class NoGuardMigrator: AppMigrator {
-    override func validateTarget(drivePath: String, appSize: Int64) -> String? { nil }
+    override func validateTarget(
+        drivePath: String, appSize: Int64,
+        expectedVolumeUUID: String? = nil
+    ) -> String? { nil }
 }
 
 /// 端到端取消安全：阶段边界取消必须"源应用完好 + 只清目标副本"。

@@ -33,7 +33,10 @@ final class SkipBackupMigrationTests: XCTestCase {
     /// 复用 NoGuardMigrator 手法：temp 目录不是挂载点，放行 validateTarget
     /// （挂载点护栏语义由 relocate 系测试覆盖）
     private final class NoGuardMigrator: AppMigrator {
-        override func validateTarget(drivePath: String, appSize: Int64) -> String? { nil }
+        override func validateTarget(
+            drivePath: String, appSize: Int64,
+            expectedVolumeUUID: String? = nil
+        ) -> String? { nil }
     }
 
     @discardableResult
