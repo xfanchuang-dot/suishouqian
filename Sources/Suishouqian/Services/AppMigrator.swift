@@ -286,14 +286,19 @@ class AppMigrator: @unchecked Sendable {
     /// 迁移/纯搬迁（createLink 区分，params 记录）
     func migrate(app: AppItem, to drivePath: String, createLink: Bool = true,
                  cancellationToken: CancellationToken? = nil,
+                 skipBackup: Bool = false,
+                 targetSubdir: String? = nil,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let result = await migrateInternal(app: app, to: drivePath,
                                            createLink: createLink,
                                            cancellationToken: cancellationToken,
+                                           skipBackup: skipBackup,
+                                           targetSubdir: targetSubdir,
                                            progress: progress)
         OperationJournal.shared.record(
             op: .migrate, appName: app.bundleName,
             params: ["createLink": createLink ? "1" : "0",
+                     "backup": skipBackup ? "0" : "1",
                      "volumeUUID": MigrationManifest.volumeUUID(atPath: drivePath) ?? ""],
             result: result.success ? "ok" : "failed: \(result.error ?? "未知原因")")
         return result
@@ -378,11 +383,14 @@ class AppMigrator: @unchecked Sendable {
 
     func migrateInternal(app: AppItem, to drivePath: String, createLink: Bool = true,
                  cancellationToken: CancellationToken? = nil,
+                 skipBackup: Bool = false,
+                 targetSubdir: String? = nil,
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
 
         let appName = app.bundleName
         let sourcePath = app.path
-        let targetDir = "\(drivePath)/Applications"
+        // targetSubdir 用于"搬回去"精确还原原位置（如 Suishouqian_Apps/）；默认 Applications/
+        let targetDir = targetSubdir.map { "\(drivePath)/\($0)" } ?? "\(drivePath)/Applications"
         let targetPath = "\(targetDir)/\(appName)"
         // 跨盘备份：备份盘与应用盘可分离（破单点故障）；未指定备份盘时跟应用同盘
         let backupPath = "\(BackupLocations.backupRoot(for: drivePath))/\(appName)"
@@ -471,27 +479,33 @@ class AppMigrator: @unchecked Sendable {
         await fixAttributes(at: targetPath)
         if let cancelled = checkCancelled("修复属性") { return cancelled }
 
-        progress(0.85, "备份原件...")
-        try? fileManager.createDirectory(atPath: BackupLocations.backupRoot(for: drivePath),
-              withIntermediateDirectories: true)
+        if !skipBackup {
+            progress(0.85, "备份原件...")
+            try? fileManager.createDirectory(atPath: BackupLocations.backupRoot(for: drivePath),
+                  withIntermediateDirectories: true)
+        }
         
         // 检查是否需要管理员权限（/Applications 下的 root 所有文件）
         let needsAuth = await needsAdminPrivilege(for: sourcePath)
         
         if needsAuth {
-            // 备份到外置盘（普通 ditto，不需要 admin；osascript admin 写不了外置盘）
-            progress(0.85, "备份原件...")
-            let backupOk = await copyWithDitto(from: sourcePath, to: backupPath) { _ in }
-            guard backupOk else {
-                try? fileManager.removeItem(atPath: targetPath)
-                Self.clearRelocationMarker(fileManager, targetPath: targetPath)
-                return MigrationResult(success: false,
-                      error: "备份失败", spaceSaved: 0)
+            if !skipBackup {
+                // 备份到外置盘（普通 ditto，不需要 admin；osascript admin 写不了外置盘）
+                progress(0.85, "备份原件...")
+                let backupOk = await copyWithDitto(from: sourcePath, to: backupPath) { _ in }
+                guard backupOk else {
+                    try? fileManager.removeItem(atPath: targetPath)
+                    Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                    return MigrationResult(success: false,
+                          error: "备份失败", spaceSaved: 0)
+                }
+                // 备份 mtime 必须代表"备份时刻"，否则刚建好就被当超龄清掉
+                stampBackupCreation(at: backupPath)
+                // 最后可取消点：之后是提权删源+建链，源目录一动就不可回头
+                if let cancelled = checkCancelled("备份") { return cancelled }
             }
-            // 备份 mtime 必须代表"备份时刻"，否则刚建好就被当超龄清掉
-            stampBackupCreation(at: backupPath)
-            // 最后可取消点：之后是提权删源+建链，源目录一动就不可回头
-            if let cancelled = checkCancelled("备份") { return cancelled }
+            // skipBackup=true 时无备份：提权失败则无法回滚，但目标副本已校验通过，
+            // 应用本体安全落在外置盘，仅需手动处理 /Applications 残留。
             
             // 删原件（按需再建符号链接，需要 admin；只操作 /Applications 不写外置盘）
             progress(0.9, "需要管理员权限...")
@@ -510,6 +524,18 @@ class AppMigrator: @unchecked Sendable {
                     return MigrationResult(success: false,
                           error: authResult.error ?? "权限操作失败", spaceSaved: 0)
                 }
+                // skipBackup 模式无备份可回滚：但目标副本已校验通过，应用本体安全。
+                // 若源已被删（部分成功），如实告知应用在外置盘，需手动处理。
+                if skipBackup {
+                    let sourceGone = !fileManager.fileExists(atPath: sourcePath)
+                    AuditLog.append("迁移失败 \(appName)：纯搬迁模式提权失败"
+                        + (sourceGone ? "，源已删，应用本体在外置盘 \(targetPath)" : "，源仍在原位"))
+                    return MigrationResult(success: false,
+                          error: sourceGone
+                              ? "权限操作失败，但应用已安全搬到外置盘（\(targetPath)）。/Applications 里可能有残留，请手动检查。"
+                              : (authResult.error ?? "权限操作失败"),
+                          spaceSaved: 0)
+                }
                 let restored = await copyWithDitto(from: backupPath, to: sourcePath) { _ in }
                 if restored {
                     try? fileManager.removeItem(atPath: targetPath)
@@ -524,6 +550,32 @@ class AppMigrator: @unchecked Sendable {
                       error: restored ? (authResult.error ?? "权限操作失败")
                                       : "权限操作失败且回滚未完成，原件备份保留在外置盘 .suishouqian-backup，可从体检页恢复",
                       spaceSaved: 0)
+            }
+        } else if skipBackup {
+            // 纯搬迁模式：跳过备份。目标副本已在前面校验通过，删源后按需建链。
+            // ⚠️ 此处【禁止】套用"删目标副本"式清理：无备份时目标副本就是唯一真身
+            // （处境等同上一分支 move 之后）。建链失败只能把目标副本复制回源位恢复；
+            // 复制不回去就保留目标副本并如实报位置，绝不能删。
+            try? fileManager.removeItem(atPath: sourcePath)
+            if createLink {
+                do {
+                    try fileManager.createSymbolicLink(atPath: sourcePath,
+                                                       withDestinationPath: targetPath)
+                } catch {
+                    let restored = await copyWithDitto(from: targetPath, to: sourcePath) { _ in }
+                    if restored {
+                        try? fileManager.removeItem(atPath: targetPath)
+                        Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                    } else {
+                        AuditLog.append("迁移失败 \(appName)：建链失败且回滚未完成，"
+                            + "目标副本保留在 \(targetPath)（/Applications 原件已删），请从该位置手动恢复")
+                    }
+                    return MigrationResult(success: false,
+                          error: restored
+                              ? "创建符号链接失败: \(error.localizedDescription)"
+                              : "创建符号链接失败，且 /Applications 恢复未完成——完整应用保留在 \(targetPath)，请手动移回",
+                          spaceSaved: 0)
+                }
             }
         } else {
             let moved = await moveItem(from: sourcePath, to: backupPath)

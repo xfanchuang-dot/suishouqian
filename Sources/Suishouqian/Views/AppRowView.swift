@@ -43,6 +43,22 @@ struct AppRowView: View {
             }
 
             if app.status == .normal && appState.externalDrive != nil {
+                // 更新助手进行中（App 已搬回内置盘等待更新/搬回）：给出恢复入口，
+                // 否则"稍后"关掉向导后本次运行内就再也找不到它了
+                if let pendingSession = appState.updateSessions.first(where: {
+                    ($0.bundleID != nil && $0.bundleID == app.bundleID) || $0.appPath == app.path
+                }) {
+                    Button("继续更新") {
+                        appState.activeUpdateSession = pendingSession
+                        appState.activeUpdateMechanism = app.updateMechanism
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .font(.system(size: 11))
+                    .disabled(appState.isMigrationActive)
+                    .help("更新助手进行中：「\(app.name)」已在内置盘等待更新，更新完成后在这里点搬回去。")
+                }
+
                 Button("迁移") {
                     migrateApp()
                 }
@@ -97,6 +113,18 @@ struct AppRowView: View {
                 .font(.system(size: 11))
                 .disabled(appState.isMigrationActive)
 
+                // 更新助手入口：App Store 应用实测不受更新影响，不显示
+                if app.updateMechanism != .appStore {
+                    Button("更新") {
+                        beginUpdate()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .font(.system(size: 11))
+                    .disabled(appState.isMigrationActive)
+                    .help("更新助手：把 App 搬回内置盘，你更新完再一键搬回去。\n适合在外置盘上无法自动更新的应用。")
+                }
+
                 relocateMenu
 
                 Button("卸载") {
@@ -115,6 +143,18 @@ struct AppRowView: View {
                     .controlSize(.small)
                     .font(.system(size: 11))
                     .disabled(appState.isMigrationActive)
+
+                    // 更新助手入口：App Store 应用实测不受更新影响，不显示
+                    if app.updateMechanism != .appStore {
+                        Button("更新") {
+                            beginUpdate()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .font(.system(size: 11))
+                        .disabled(appState.isMigrationActive)
+                        .help("更新助手：把 App 搬回内置盘，你更新完再一键搬回去。\n适合在外置盘上无法自动更新的应用。")
+                    }
 
                     // v3.1 盘间迁移：已在外置盘的应用，可直接搬到另一块在线外置盘，
                     // 不经过内置盘中转。Menu 形态——目标盘数量不确定，按钮放不下。
@@ -331,6 +371,68 @@ struct AppRowView: View {
         }
     }
 
+
+    /// 更新助手第一步：把 App 搬回 /Applications，创建 session，进入"待更新"状态。
+    /// migrated 用 restore（删链接、搬回内置盘），externalOnly 用 moveBackToInternal。
+    private func beginUpdate() {
+        // 该应用已有未完成的更新会话：不再重复开流程，直接调出向导
+        if let existing = appState.updateSessions.first(where: {
+            ($0.bundleID != nil && $0.bundleID == app.bundleID) || $0.appPath == app.path
+        }) {
+            appState.activeUpdateSession = existing
+            appState.activeUpdateMechanism = app.updateMechanism
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "用更新助手更新「\(app.name)」？"
+        alert.informativeText = "随手迁会先把 App 搬回「应用程序」（内置盘）。\n\n然后你去更新它（自带更新器 / 官网下载新版），更新完点「搬回去」，随手迁再把它搬回外置盘原来的位置。"
+        alert.addButton(withTitle: "开始")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        Task { @MainActor [weak appState] in
+            guard let appState else { return }
+            guard let drive = appState.externalDrive else { return }
+            let wasMigrated = (app.status == .migrated)
+            let originalExternalPath = wasMigrated
+                ? (app.symlinkTarget ?? app.path)
+                : app.path
+            let appFileName = (app.path as NSString).lastPathComponent
+
+            appState.migrationTask = MigrationTask(app: app, operation: .restore)
+            let state = appState
+            let onProgress: @Sendable (Double, String) -> Void = { @Sendable pct, desc in
+                Task { @MainActor in
+                    state.reportMigrationProgress(pct, desc)
+                }
+            }
+
+            let result: AppMigrator.MigrationResult
+            if wasMigrated {
+                result = await state.migrator.restore(
+                    app: app, from: drive.mountPoint, progress: onProgress)
+            } else {
+                result = await state.migrator.moveBackToInternal(
+                    app: app, drivePath: drive.mountPoint, progress: onProgress)
+            }
+
+            if result.success {
+                state.migrationTask = nil
+                let session = UpdateSession(
+                    bundleID: app.bundleID,
+                    appName: app.name,
+                    appPath: "/Applications/\(appFileName)",
+                    originalExternalPath: originalExternalPath,
+                    wasMigrated: wasMigrated)
+                await state.beginUpdateSession(session, mechanism: app.updateMechanism)
+                await state.scanApps()
+            } else if var t = state.migrationTask {
+                t.status = .failed(result.error ?? "未知错误")
+                state.migrationTask = t
+            }
+        }
+    }
     /// 卸载一条龙（v2.13.0）：运行检测 → 应用/备份入废纸篓 → 残留排查（用户确认后清）
     private func uninstallApp() {
         // 运行中的应用不能卸（会留下半删状态与失控的数据写入）

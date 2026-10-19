@@ -155,6 +155,16 @@ class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var migrationTask: MigrationTask?
 
+    // MARK: - 更新助手
+    /// 未完成的更新会话（持久化在 UserDefaults `updateSessions.v1`）
+    @Published var updateSessions: [UpdateSession] = []
+    /// 当前正在向导中展示的会话（驱动 UpdateWizardView sheet）
+    @Published var activeUpdateSession: UpdateSession?
+    /// 启动检查只跑一次（scanApps 会被多次调用）
+    private var didCheckPendingSessions = false
+    /// 当前会话对应的更新方式（驱动向导第二步的指引文案）
+    @Published var activeUpdateMechanism: UpdateMechanism = .unknown
+
     /// 进度节流上报：ditto 复制回调每秒触发几十次，直接写 @Published 会让
     /// 200+ 列表行跟着重算 body。0.5% + 250ms 双节流后，进度条依然平滑
     /// （200 步），全量重算从每秒几十次降到最多 4 次。
@@ -277,6 +287,8 @@ class AppState: ObservableObject {
 
     init() {
         AppDelegate.appState = self
+        // 更新助手：加载未完成的会话（同步读 UserDefaults，很快）
+        loadUpdateSessions()
         // 设置页各开关的默认值（注册一次，@AppStorage 与 bool 读取共用）
         UserDefaults.standard.register(defaults: [
             "spaceGuardEnabled": true,
@@ -425,6 +437,12 @@ class AppState: ObservableObject {
         if let mountPoint = externalDrive?.mountPoint {
             await migrator.cleanOldBackups(at: mountPoint)
         }
+
+        // 更新助手：首次扫描完成后，检查未完成的会话并提示继续
+        if !didCheckPendingSessions {
+            didCheckPendingSessions = true
+            checkPendingUpdateSessions()
+        }
     }
     
     func refreshDrives() {
@@ -443,5 +461,58 @@ class AppState: ObservableObject {
             movableCount: movableApps.count,
             totalSavable: totalSavable
         )
+    }
+
+    // MARK: - 更新助手：会话管理
+
+    /// 从 UserDefaults 加载未完成的会话（init 时调用）
+    func loadUpdateSessions() {
+        updateSessions = UpdateSessionStore.load()
+    }
+
+    /// 开始一个新的更新会话：持久化 + 弹出向导
+    func beginUpdateSession(_ session: UpdateSession, mechanism: UpdateMechanism) async {
+        updateSessions.append(session)
+        UpdateSessionStore.save(updateSessions)
+        activeUpdateSession = session
+        activeUpdateMechanism = mechanism
+        AuditLog.append("更新助手开始：\(session.appName)")
+    }
+
+    /// 结束会话：completed=true 表示"搬回去"成功，删除 session；
+    /// completed=false 表示用户取消/失败，保留 session 可下次继续。
+    func finishUpdateSession(_ session: UpdateSession, completed: Bool) async {
+        if completed {
+            updateSessions.removeAll { $0.id == session.id }
+            UpdateSessionStore.save(updateSessions)
+            AuditLog.append("更新助手完成：\(session.appName) 已搬回外置盘")
+        }
+        if activeUpdateSession?.id == session.id {
+            activeUpdateSession = nil
+        }
+    }
+
+    /// 用户放弃此次更新助手：删除会话（App 留在内置盘，回外置盘改用普通迁移）。
+    /// 与"完成"分开记审计——放弃时 App 并没有搬回外置盘，不能记成完成。
+    func abandonUpdateSession(_ session: UpdateSession) {
+        updateSessions.removeAll { $0.id == session.id }
+        UpdateSessionStore.save(updateSessions)
+        if activeUpdateSession?.id == session.id {
+            activeUpdateSession = nil
+        }
+        AuditLog.append("更新助手放弃：\(session.appName)（留在内置盘，会话已删）")
+    }
+
+    /// 启动时检查：有未完成的会话则自动弹出向导（用户可"稍后"关闭；
+    /// 同一运行内可从应用列表该行的「继续更新」按钮回到向导）
+    func checkPendingUpdateSessions() {
+        guard !updateSessions.isEmpty else { return }
+        // 只自动弹出第一个；其余的从列表行「继续更新」进入
+        // mechanism 需要从当前扫描结果里找，找不到就用 .unknown
+        let session = updateSessions[0]
+        let mechanism = apps.first(where: { $0.bundleID == session.bundleID })?.updateMechanism
+            ?? .unknown
+        activeUpdateSession = session
+        activeUpdateMechanism = mechanism
     }
 }

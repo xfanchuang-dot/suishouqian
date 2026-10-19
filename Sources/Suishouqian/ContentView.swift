@@ -35,6 +35,11 @@ struct ContentView: View {
                 }
             }
         }
+        // 更新助手向导：activeUpdateSession 非空时弹出
+        .sheet(item: $appState.activeUpdateSession) { session in
+            UpdateWizardView(session: session, mechanism: appState.activeUpdateMechanism)
+                .environmentObject(appState)
+        }
     }
 
     // MARK: - 侧边栏
