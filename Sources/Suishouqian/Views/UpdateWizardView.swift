@@ -100,9 +100,9 @@ struct UpdateWizardView: View {
     private var updateGuidance: String {
         switch mechanism {
         case .squirrel, .sparkle:
-            return "「\(session.appName)」自带更新器。点「打开 App 检查更新」，在 App 内完成更新后，回到这里点「已更新，搬回去」。"
+            return "「\(session.appName)」自带更新器。点「打开 App 检查更新」，在 App 内完成更新后完全退出 App（⌘Q），回到这里点「已更新，搬回去」。"
         case .unknown:
-            return "去官网下载「\(session.appName)」的新版 DMG，覆盖安装到「应用程序」里的版本（已在内置盘）。完成后回到这里点「已更新，搬回去」。\n\n也可以先打开 App 看看有没有「检查更新」菜单。"
+            return "去官网下载「\(session.appName)」的新版 DMG，覆盖安装到「应用程序」里的版本（已在内置盘）。完成后完全退出 App（⌘Q），回到这里点「已更新，搬回去」。\n\n也可以先打开 App 看看有没有「检查更新」菜单。"
         case .appStore:
             // 更新助手入口已过滤 appStore，这里防御性兜底
             return "App Store 应用请直接在 App Store 里更新。"
@@ -158,6 +158,33 @@ struct UpdateWizardView: View {
 
     /// 第三步：搬回外置盘（纯搬迁：跳过备份，直接移动）
     private func moveBackToExternal() {
+        // 运行预检：迁移引擎本身会拦，但那是在 sheet 关闭之后，用户只看到任务失败。
+        // 在这里拦住并给出退出引导（实测教训：向导引导用户打开 App 更新，
+        // 用户更新完不退 App 直接点搬回去，三次全部被拒）
+        if let running = AppMigrator.runningAppName(matching: session.appPath) {
+            let alert = NSAlert()
+            alert.messageText = "「\(running)」正在运行"
+            alert.informativeText = "搬回去前需要完全退出 App。可以让我帮你退出（未保存的内容会先弹 App 自己的保存框），也可以你自己按 ⌘Q 退出后再点「已更新，搬回去」。"
+            alert.addButton(withTitle: "帮我退出")
+            alert.addButton(withTitle: "我自己退出")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            if let instance = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleURL?.path == session.appPath
+            }) {
+                instance.terminate()
+                for _ in 0..<50 where !instance.isTerminated {
+                    usleep(200_000)   // 最多等 10 秒
+                }
+            }
+            if AppMigrator.runningAppName(matching: session.appPath) != nil {
+                let still = NSAlert()
+                still.messageText = "「\(running)」还没有退出"
+                still.informativeText = "可能是它在等你确认保存。退出后再点「已更新，搬回去」。"
+                still.runModal()
+                return
+            }
+        }
+
         guard let drive = appState.externalDrive else {
             let alert = NSAlert()
             alert.messageText = "未检测到外置盘"
