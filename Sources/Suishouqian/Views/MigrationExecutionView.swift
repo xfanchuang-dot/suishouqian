@@ -4,8 +4,8 @@ import SwiftUI
 /// 折出的 `MigrationOutcome` 终态，呈现成「阶段感知」的安全流程。
 ///
 /// 纪律（实现计划 Step 3）：
-/// - `task` 非终态 → 固定四阶段时间线（预检/备份/复制切换/验证），
-///   高亮节点由 `task.status` 经 `MigrationExecutionPhase(status:)` 映射得出，
+/// - `task` 非终态 → 固定四阶段时间线，优先呈现 AppMigrator 实际发出的阶段；
+///   老式进度回调至少会从预检推进到复制状态，避免时间线停在预检，
 ///   同时显示当前文件与等宽百分比；
 /// - 「取消迁移」只置位 token 并把附近文案切到「正在安全停止，等待清理完成…」，
 ///   **绝不清 appState.migrationTask**——收尾（清理半截副本）由管道在阶段边界自己完成；
@@ -15,6 +15,8 @@ import SwiftUI
 struct MigrationExecutionView: View {
     let task: MigrationTask?
     let outcome: MigrationOutcome?
+    let outcomeTaskID: UUID?
+    let batchResults: [MigrationBatchItemResult]
     let onOpenApps: () -> Void
     let onShowHistory: () -> Void
 
@@ -26,16 +28,24 @@ struct MigrationExecutionView: View {
     @State private var outcomeDismissed = false
 
     /// 固定四阶段（与评审 sheet 同一顺序、同一节点组件）。
-    /// `backup` 只在清单里：status 映射不会产出它，复制阶段开始时视作已含在流程里。
     private let stages: [MigrationExecutionPhase] =
-        [.preflight, .backup, .copyAndSwitch, .verify]
+        [.preflight, .copyAndSwitch, .verify, .backupAndSwitch]
 
     var body: some View {
+        let displayOutcome = MigrationPlanPresentation.displayOutcome(
+            task: task, outcome: outcome, outcomeTaskID: outcomeTaskID)
         Group {
             if let task, !task.status.isTerminal {
-                runningBody(task)
-            } else if let outcome, !outcomeDismissed {
-                outcomeBody(outcome)
+                VStack(alignment: .leading, spacing: 12) {
+                    runningBody(task)
+                    if !batchResults.isEmpty {
+                        batchResultsBody(batchResults)
+                    }
+                }
+            } else if !batchResults.isEmpty {
+                batchResultsBody(batchResults)
+            } else if let displayOutcome, !outcomeDismissed {
+                outcomeBody(displayOutcome)
             }
         }
         // 新一轮执行开始（面板换上新 MigrationTask）：清掉上一轮的取消文案状态
@@ -47,7 +57,7 @@ struct MigrationExecutionView: View {
     // MARK: - 运行中：阶段时间线 + 进度 + 协作式取消
 
     private func runningBody(_ task: MigrationTask) -> some View {
-        let states = stageStates(current: MigrationExecutionPhase(status: task.status))
+        let states = stageStates(current: MigrationExecutionPhase(servicePhase: task.phase))
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 IconContainer(icon: task.app.icon)
@@ -106,15 +116,14 @@ struct MigrationExecutionView: View {
         .accessibilityLabel("\(title(task))，进度 \(Int(task.progress * 100))%")
     }
 
-    /// 取消控制：文字样式；按下只置位 token（协作式取消，管道在下个阶段边界
-    /// 停下并清理半截副本），不清 appState.migrationTask。
+    /// 取消控制：按下只置位 token 并等待服务返回最终文件状态，不清 appState.migrationTask。
     @ViewBuilder
     private func stopControl(_ task: MigrationTask) -> some View {
         if stopRequested || task.cancellationToken.isCancelled {
-            Label("正在安全停止，等待清理完成…", systemImage: "hourglass")
+            Label("正在请求停止，等待文件状态确认…", systemImage: "hourglass")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
-                .help("半截副本会在停止时清理，原应用不受影响")
+                .help("等待迁移服务返回源位置与目标副本状态")
         } else {
             Button("取消迁移") {
                 stopRequested = true
@@ -124,11 +133,11 @@ struct MigrationExecutionView: View {
             .buttonStyle(.borderless)
             .font(.system(size: 11))
             .foregroundColor(.red)
-            .help("取消本次迁移：停在当前阶段，清理已复制的半截文件，原应用不受影响")
+            .help("请求迁移服务在安全检查点停止；最终结果会说明源文件与目标副本状态")
         }
     }
 
-    /// 由 `task.status` 推出各节点状态：当前节点高亮，之前的标完成，
+    /// 由迁移服务实际阶段推出节点状态：当前节点高亮，之前的标完成，
     /// 之后的未开始。`.blocked`（已取消/已失败）到不了这里——非终态分支保证。
     private func stageStates(current: MigrationExecutionPhase) -> [MigrationStageVisualState] {
         guard let index = stages.firstIndex(of: current) else {
@@ -156,7 +165,66 @@ struct MigrationExecutionView: View {
         switch outcome.kind {
         case .success: successBody(outcome)
         case .cancelled: cancelledBody(outcome)
-        case .failure: failureBody(outcome)
+        case .failure, .recoveryRequired: failureBody(outcome)
+        }
+    }
+
+    // MARK: - Batch results
+
+    private func batchResultsBody(_ results: [MigrationBatchItemResult]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("本批逐项结果")
+                .font(.system(size: 13, weight: .semibold))
+            ForEach(results) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 7) {
+                        let status = batchStatus(item)
+                        Label(status.title, systemImage: status.symbol)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(status.color)
+                        Text(item.name)
+                            .font(.system(size: 12, weight: .semibold))
+                        Spacer(minLength: 4)
+                    }
+                    if let outcome = item.outcome {
+                        Text(outcome.detail)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if item.id != results.last?.id {
+                    Divider().opacity(0.5)
+                }
+            }
+            outcomeActions([("迁移历史", onShowHistory)])
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
+                .fill(Color.primary.opacity(0.025))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("本批逐项结果")
+    }
+
+    private func batchStatus(_ item: MigrationBatchItemResult)
+        -> (title: String, symbol: String, color: Color) {
+        switch item.status {
+        case .pending:
+            return ("等待处理", "clock", .secondary)
+        case .succeeded:
+            return ("已完成", "checkmark.circle.fill", MockTheme.healthGreen)
+        case .failed:
+            if item.outcome?.kind == .recoveryRequired {
+                return ("需要检查", "exclamationmark.triangle.fill", MockTheme.statOrange)
+            }
+            return ("失败", "xmark.octagon.fill", .red)
+        case .cancelled:
+            return ("安全取消", "exclamationmark.triangle.fill", MockTheme.statOrange)
+        case .notStarted:
+            return ("未开始", "minus.circle", .secondary)
         }
     }
 
@@ -186,8 +254,7 @@ struct MigrationExecutionView: View {
         .accessibilityLabel("\(outcome.title)，已释放 \(freed)")
     }
 
-    /// 取消终态：强制安全文案（源应用未动 / 半截副本已清理，在 outcome.detail 里），
-    /// 标题绝不使用成功口径；动作只有「迁移历史」。
+    /// 取消终态：安全文案只由服务明确返回简单安全取消时生成；否则走恢复提示。
     private func cancelledBody(_ outcome: MigrationOutcome) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(outcome.title, systemImage: "exclamationmark.triangle.fill")

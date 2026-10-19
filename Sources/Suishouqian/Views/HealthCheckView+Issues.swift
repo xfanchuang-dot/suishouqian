@@ -269,7 +269,7 @@ extension HealthCheckView {
 
     /// 重新迁移被撤销的应用（镜像 AppRowView 的单应用迁移流程）
     private func remigrate(_ item: RegressionItem) {
-        guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
+        guard appState.externalDrive != nil, !appState.isMigrationActive else { return }
         Task { @MainActor in
             var app = appState.apps.first { $0.path == item.appPath }
             if app == nil {
@@ -286,29 +286,8 @@ extension HealthCheckView {
 
             // 与迁移页同一套判断：App Store 应用重新迁移后会再次被更新顶掉，先讲清楚
             guard MigrationAdvisor.confirmRelocation(of: app, linkBack: true) else { return }
-
-            appState.migrationTask = MigrationTask(app: app, operation: .migrate)
-            let state = appState
-            let result = await state.migrator.migrate(
-                app: app, to: drive.mountPoint,
-                cancellationToken: state.migrationTask?.cancellationToken
-            ) { @Sendable pct, desc in
-                Task { @MainActor in
-                    // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                    state.reportMigrationProgress(pct, desc)
-                }
-            }
-
-            if result.success {
-                state.migrationTask = nil
-                state.notificationManager.notifyMigrationComplete(
-                    appName: app.name, spaceSaved: result.spaceSaved)
-                await state.scanApps()
-            } else {
-                state.notificationManager.notifyMigrationFailed(
-                    appName: app.name, error: result.error ?? "未知错误")
-            }
-            runCheck()
+            // 手动重迁也必须走与应用列表相同的计划评审。
+            appState.migrationPlanRequest = MigrationPlanRequest(apps: [app])
         }
     }
 

@@ -4,10 +4,8 @@ struct MigrationPanel: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var batchSummary: String?
-    /// 最近一条真实 `MigrationResult` 折出的终态呈现（Task 3）：
-    /// 每次真实结果返回后、清除 appState.migrationTask 之前赋值；
-    /// 新一轮执行开始时清空。
-    @State private var lastOutcome: MigrationOutcome?
+    /// 一键腾空间选择结果先暂存，等建议 Sheet 关闭后再打开统一的迁移计划审阅。
+    @State private var pendingSpaceFreeRequest: MigrationPlanRequest?
     @State private var showPlanSheet = false
     @State private var showHistory = false
     private let dataMigrator = DataMigrator()
@@ -41,10 +39,13 @@ struct MigrationPanel: View {
 
                     // 当前任务 / 终态结果：统一委托给执行视图
                     // （Task 3：阶段时间线 + 协作式取消 + 成功/取消/失败安全文案面）
-                    if appState.migrationTask != nil || lastOutcome != nil {
+                    if appState.migrationTask != nil || appState.migrationOutcome != nil
+                        || !appState.migrationBatchResults.isEmpty {
                         MigrationExecutionView(
                             task: appState.migrationTask,
-                            outcome: lastOutcome,
+                            outcome: appState.migrationOutcome,
+                            outcomeTaskID: appState.migrationOutcomeTaskID,
+                            batchResults: appState.migrationBatchResults,
                             onOpenApps: { appState.activePanel = .apps },
                             onShowHistory: { showHistory = true })
                             // Task 5：迁移状态卡统一 10pt 圆角（Theme.Corner.card）
@@ -87,9 +88,9 @@ struct MigrationPanel: View {
                     }
                 }
             }
-            .sheet(isPresented: $showPlanSheet) {
-                SpaceFreePlanSheet { planned in
-                    executePlan(planned)
+            .sheet(isPresented: $showPlanSheet, onDismiss: presentPendingSpaceFreeReview) {
+                SpaceFreePlanSheet { assignments in
+                    pendingSpaceFreeRequest = MigrationPlanRequest(assignments: assignments)
                 }
             }
             .sheet(isPresented: $showHistory) {
@@ -123,59 +124,10 @@ struct MigrationPanel: View {
         return items
     }
 
-    /// 方案执行链：与 migrateAll 同一套串行安全链（逐应用重跑护栏 + journal 埋点），
-    /// createLink 按"更新方式是否更适合不留链接"自动定（App Store 应用走纯搬迁）。
-    private func executePlan(_ planned: [(AppItem, String)]) {
-        guard appState.migrationTask == nil, !planned.isEmpty else { return }
-        let total = planned.count
-        Task { @MainActor in
-            var okCount = 0
-            var failCount = 0
-            lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
-            for (index, pair) in planned.enumerated() {
-                let app = pair.0
-                let drivePath = pair.1
-                appState.migrationTask = MigrationTask(app: app, operation: .migrate)
-                let createLink = !app.updateMechanism.prefersNoLink
-                let result = await appState.migrator.migrate(
-                    app: app, to: drivePath, createLink: createLink,
-                    cancellationToken: appState.migrationTask?.cancellationToken
-                ) { progress, file in
-                    Task { @MainActor in
-                        // 方案整体进度 = 已完成个数 + 当前应用进度，再除以总数
-                        // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                        appState.reportMigrationProgress((Double(index) + progress) / Double(total), file)
-                    }
-                }
-                // Task 3：真实 MigrationResult 先折成终态呈现（必须在清任务之前）
-                lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
-                if result.success {
-                    okCount += 1
-                    if var t = appState.migrationTask {
-                        t.status = .completed
-                        appState.migrationTask = t
-                    }
-                } else if result.cancelled {
-                    // 取消不算失败：半截副本已清理，源目录未动，不计入 failCount
-                    if var t = appState.migrationTask {
-                        t.status = .cancelled
-                        appState.migrationTask = t
-                    }
-                    batchSummary = "已取消「\(app.name)」的迁移"
-                    break  // 批量中取消：停掉整批，后面的不再继续
-                } else {
-                    failCount += 1
-                    if var t = appState.migrationTask {
-                        t.status = .failed(result.error ?? "未知错误")
-                        appState.migrationTask = t
-                    }
-                }
-            }
-            batchSummary = failCount == 0
-                ? "方案执行完成：\(okCount)/\(total) 全部成功"
-                : "方案执行结束：\(okCount) 成功 / \(failCount) 失败"
-            appState.migrationTask = nil
-        }
+    private func presentPendingSpaceFreeReview() {
+        guard let request = pendingSpaceFreeRequest else { return }
+        pendingSpaceFreeRequest = nil
+        appState.migrationPlanRequest = request
     }
 
     /// 空状态：大图标 + 主副文案 + 硬盘状态提示
@@ -243,49 +195,70 @@ struct MigrationPanel: View {
     /// AppMigrator 自身的执行时校验原样保留，兜住批准之后的盘变化。
     private func executeReviewedPlan(_ summary: MigrationPlanSummary) {
         guard appState.migrationTask == nil, !summary.items.isEmpty else { return }
+        appState.beginReviewedPlanBatch(items: summary.items)
 
         // 复查不碰文件系统：只对照内存里的当刻列表
-        var freshApps: [AppItem] = []
+        var freshApps: [(MigrationPlanItem, AppItem)] = []
         for item in summary.items {
             guard let app = appState.apps.first(where: { $0.id == item.id }),
                   app.status == .normal else {
-                lastOutcome = MigrationOutcome(
+                let outcome = MigrationOutcome(
                     kind: .failure,
                     title: "计划已过期，未开始迁移",
                     detail: "「\(item.name)」在计划批准后已不可迁移"
                         + "（可能已被迁移、正在运行或列表已重新扫描），"
                         + "本批迁移未开始，未改动任何文件。请重新发起迁移。",
                     spaceSaved: 0)
+                appState.recordMigrationOutcome(outcome, taskID: nil)
+                appState.recordBatchOutcome(outcome, itemID: item.id)
+                appState.markPendingBatchItemsNotStarted()
+                appState.finishReviewedPlanBatch()
+                batchSummary = "计划已过期，未开始迁移；本批其余条目未开始"
                 return
             }
-            freshApps.append(app)
+            freshApps.append((item, app))
         }
 
         let total = freshApps.count
         Task { @MainActor in
             var okCount = 0, failCount = 0
-            var cancelledName: String?
-            lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
-            for (index, app) in freshApps.enumerated() {
-                appState.migrationTask = MigrationTask(app: app, operation: .migrate)
+            var interruption: (name: String, outcome: MigrationOutcome)?
+            defer { appState.finishReviewedPlanBatch() }
+            for (index, entry) in freshApps.enumerated() {
+                let item = entry.0
+                let app = entry.1
+                let task = MigrationTask(app: app, operation: .migrate)
+                let taskID = task.id
+                appState.migrationTask = task
 
                 let appState = self.appState  // 值类型捕获
-                // 建链口径与评审明细同源：!prefersNoLink（App Store 类纯搬迁）
-                let createLink = !app.updateMechanism.prefersNoLink
                 let result = await appState.migrator.migrate(
-                    app: app, to: summary.destinationPath, createLink: createLink,
-                    cancellationToken: appState.migrationTask?.cancellationToken
-                ) { progress, file in
-                    Task { @MainActor in
-                        // 整批进度 = 已完成个数 + 当前应用进度，再除以总数；
-                        // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                        appState.reportMigrationProgress(
-                            (Double(index) + progress) / Double(total), file)
+                    app: app, to: item.destinationPath, createLink: item.createsLink,
+                    cancellationToken: task.cancellationToken,
+                    phaseProgress: { update in
+                        Task { @MainActor in
+                            appState.reportMigrationProgress(.init(
+                                phase: update.phase,
+                                progress: (Double(index) + update.progress) / Double(total),
+                                message: update.message), taskID: taskID)
+                        }
+                    },
+                    progress: { _, _ in }
+                )
+
+                let outcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
+                appState.recordMigrationOutcome(outcome, taskID: task.id)
+                appState.recordBatchOutcome(outcome, itemID: item.id)
+                if result.cancelled {
+                    if var current = appState.migrationTask {
+                        current.status = outcome.kind == .cancelled
+                            ? .cancelled : .failed(result.error ?? "需要检查迁移状态")
+                        appState.migrationTask = current
                     }
+                    interruption = (app.name, outcome)
+                    break
                 }
 
-                // 真实 MigrationResult 先折成终态呈现（必须在清任务之前）
-                lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
                 if result.success {
                     okCount += 1
                     if var t = appState.migrationTask {
@@ -294,15 +267,6 @@ struct MigrationPanel: View {
                     }
                     appState.notificationManager.notifyMigrationComplete(
                         appName: app.name, spaceSaved: result.spaceSaved)
-                } else if result.cancelled {
-                    // 取消不算失败：半截副本已清理，源目录未动；
-                    // 批量中取消即停，后面的条目不再继续
-                    if var t = appState.migrationTask {
-                        t.status = .cancelled
-                        appState.migrationTask = t
-                    }
-                    cancelledName = app.name
-                    break
                 } else {
                     // 普通失败：记录后继续剩余条目（与既有批量行为一致）
                     failCount += 1
@@ -315,9 +279,10 @@ struct MigrationPanel: View {
                 }
             }
 
-            // 取消的汇总绝不使用成功口径
-            if let cancelledName {
-                batchSummary = "已取消「\(cancelledName)」的迁移，本批其余条目未开始"
+            if let interruption {
+                appState.markPendingBatchItemsNotStarted()
+                let state = interruption.outcome.kind == .cancelled ? "已安全取消" : "需要检查恢复"
+                batchSummary = "「\(interruption.name)」\(state)，本批其余条目未开始"
             } else {
                 batchSummary = failCount == 0
                     ? "批量迁移完成：\(okCount) 个全部成功"
@@ -333,9 +298,10 @@ struct MigrationPanel: View {
         let migratedApps = appState.apps.filter { $0.status == .migrated }
 
         Task { @MainActor in
-            lastOutcome = nil  // 新一轮执行开始：清掉上一条终态结果
             for app in migratedApps {
-                appState.migrationTask = MigrationTask(app: app, operation: .restore)
+                let task = MigrationTask(app: app, operation: .restore)
+                let taskID = task.id
+                appState.migrationTask = task
 
                 let appState = self.appState  // 值类型捕获
                 let result = await appState.migrator.restore(
@@ -343,12 +309,15 @@ struct MigrationPanel: View {
                 ) { @Sendable pct, desc in
                     Task { @MainActor in
                         // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                        appState.reportMigrationProgress(pct, desc)
+                        appState.reportMigrationProgress(pct, desc, taskID: taskID)
                     }
                 }
 
-                // Task 3：真实 MigrationResult 先折成终态呈现（必须在清任务之前）
-                lastOutcome = MigrationPlanPresentation.outcome(result: result, appName: app.name)
+                if var current = appState.migrationTask {
+                    current.status = result.success
+                        ? .completed : .failed(result.error ?? "未知错误")
+                    appState.migrationTask = current
+                }
                 if result.success {
                     appState.notificationManager.notifyMigrationComplete(
                         appName: app.name, spaceSaved: result.spaceSaved)
@@ -427,7 +396,6 @@ struct MigrationPanel: View {
                                   size: totalBytes, isSymlink: false,
                                   symlinkTarget: nil, icon: nil)
             appState.migrationTask = MigrationTask(app: taskApp, operation: .restore)
-            lastOutcome = nil  // 该向导不走 MigrationResult 口径，清掉旧结果卡防残留
 
             // 显式 @MainActor 闭包：嵌套 async 函数不继承隔离，读 migrationTask 会报错
             let runRestore: @MainActor (

@@ -208,18 +208,23 @@ struct SpaceFreePlanSheet: View {
     private func executeSelected() {
         guard let plan else { return }
         let moves = plan.moves.filter { selected.contains($0.app.bundleName) }
-        let volumeUUIDs = Dictionary(uniqueKeysWithValues:
-            appState.volumeStore.volumes.map { ($0.id, $0.info.mountPoint) })
-        let planned = moves.compactMap { move -> (AppItem, String)? in
-            guard let mount = volumeUUIDs[move.volumeUUID],
+        // Keep offline volume metadata too: the review must be able to retain the
+        // selected UUID and explicitly block it, rather than silently dropping
+        // that app from the request when a disk is unplugged between planning
+        // and confirmation.
+        let volumesByUUID = Dictionary(uniqueKeysWithValues:
+            appState.volumeStore.volumes.map { ($0.id, $0.info) })
+        let assignments = moves.compactMap { move -> MigrationPlanAssignment? in
+            guard let destination = volumesByUUID[move.volumeUUID],
                   let app = appState.apps.first(where: { $0.bundleName == move.app.bundleName })
             else { return nil }
-            return (app, mount)
+            return MigrationPlanAssignment(app: app, destination: destination)
         }
+        guard !assignments.isEmpty else { return }
         dismiss()
-        onExecute(planned)
+        onExecute(assignments)
     }
 
-    /// 执行回调（由宿主 MigrationPanel 提供，走它的串行安全链）
-    let onExecute: ([(AppItem, String)]) -> Void
+    /// 计划回调（由宿主 MigrationPanel 提供，之后必须经过全局计划评审）
+    let onExecute: ([MigrationPlanAssignment]) -> Void
 }

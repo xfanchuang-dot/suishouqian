@@ -14,7 +14,7 @@ class AppMigrator: @unchecked Sendable {
         let success: Bool
         let error: String?
         let spaceSaved: Int64
-        /// 用户主动取消（非失败：半截副本已清理，源目录未动）
+        /// 迁移返回了取消状态；须结合 error 判断是否为已确认安全清理的简单取消。
         let cancelled: Bool
 
         init(success: Bool, error: String? = nil, spaceSaved: Int64 = 0,
@@ -24,6 +24,34 @@ class AppMigrator: @unchecked Sendable {
             self.spaceSaved = spaceSaved
             self.cancelled = cancelled
         }
+    }
+
+    /// Presentation-only capacity facts derived from the same backup-root
+    /// convention as validateTarget. This helper performs no filesystem writes;
+    /// validateTarget continues to re-check live capacity immediately before work.
+    struct CapacityRequirement: Equatable {
+        let backupIsOnDestination: Bool
+        let destinationBytes: Int64
+        let backupBytes: Int64?
+    }
+
+    struct MigrationProgressUpdate: Sendable {
+        let phase: MigrationPhase
+        let progress: Double
+        let message: String
+    }
+
+    static func capacityRequirement(
+        appSize: Int64,
+        destinationPath: String,
+        backupRoot: String
+    ) -> CapacityRequirement {
+        let backupIsOnDestination = backupRoot == "\(destinationPath)/.suishouqian-backup"
+        let oneCopyWithMargin = appSize + appSize / 20
+        return CapacityRequirement(
+            backupIsOnDestination: backupIsOnDestination,
+            destinationBytes: backupIsOnDestination ? requiredTargetBytes(appSize: appSize) : oneCopyWithMargin,
+            backupBytes: backupIsOnDestination ? nil : oneCopyWithMargin)
     }
 
     /// 迁移：把应用搬到外置盘。
@@ -286,10 +314,12 @@ class AppMigrator: @unchecked Sendable {
     /// 迁移/纯搬迁（createLink 区分，params 记录）
     func migrate(app: AppItem, to drivePath: String, createLink: Bool = true,
                  cancellationToken: CancellationToken? = nil,
+                 phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let result = await migrateInternal(app: app, to: drivePath,
                                            createLink: createLink,
                                            cancellationToken: cancellationToken,
+                                           phaseProgress: phaseProgress,
                                            progress: progress)
         OperationJournal.shared.record(
             op: .migrate, appName: app.bundleName,
@@ -378,12 +408,14 @@ class AppMigrator: @unchecked Sendable {
 
     func migrateInternal(app: AppItem, to drivePath: String, createLink: Bool = true,
                  cancellationToken: CancellationToken? = nil,
+                 phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                  progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
 
         let appName = app.bundleName
         let sourcePath = app.path
         let targetDir = "\(drivePath)/Applications"
         let targetPath = "\(targetDir)/\(appName)"
+        phaseProgress(.init(phase: .preflight, progress: 0, message: "正在预检…"))
         // 跨盘备份：备份盘与应用盘可分离（破单点故障）；未指定备份盘时跟应用同盘
         let backupPath = "\(BackupLocations.backupRoot(for: drivePath))/\(appName)"
 
@@ -444,9 +476,13 @@ class AppMigrator: @unchecked Sendable {
             return MigrationResult(success: false, error: reject, spaceSaved: 0)
         }
 
+        phaseProgress(.init(phase: .copying, progress: 0.1, message: "正在复制 \(app.name)..."))
         progress(0.1, "正在复制 \(app.name)...")
         let copyOk = await copyWithDitto(from: sourcePath, to: targetPath) { pct in
-            progress(0.1 + pct * 0.6, "复制 \(app.name)...")
+            let value = 0.1 + pct * 0.6
+            let message = "复制 \(app.name)..."
+            phaseProgress(.init(phase: .copying, progress: value, message: message))
+            progress(value, message)
         }
         guard copyOk else {
             Self.clearRelocationMarker(fileManager, targetPath: targetPath)  // 半截副本已由 copyWithDitto 清掉
@@ -455,6 +491,7 @@ class AppMigrator: @unchecked Sendable {
         }
         if let cancelled = checkCancelled("复制") { return cancelled }
 
+        phaseProgress(.init(phase: .verifying, progress: 0.7, message: "正在校验完整性..."))
         progress(0.7, "正在校验完整性...")
         let verified = await verifyFiles(source: sourcePath, target: targetPath)
         guard verified else {
@@ -471,6 +508,7 @@ class AppMigrator: @unchecked Sendable {
         await fixAttributes(at: targetPath)
         if let cancelled = checkCancelled("修复属性") { return cancelled }
 
+        phaseProgress(.init(phase: .backupAndSwitch, progress: 0.85, message: "备份原件..."))
         progress(0.85, "备份原件...")
         try? fileManager.createDirectory(atPath: BackupLocations.backupRoot(for: drivePath),
               withIntermediateDirectories: true)
@@ -480,6 +518,7 @@ class AppMigrator: @unchecked Sendable {
         
         if needsAuth {
             // 备份到外置盘（普通 ditto，不需要 admin；osascript admin 写不了外置盘）
+            phaseProgress(.init(phase: .backupAndSwitch, progress: 0.85, message: "备份原件..."))
             progress(0.85, "备份原件...")
             let backupOk = await copyWithDitto(from: sourcePath, to: backupPath) { _ in }
             guard backupOk else {
@@ -494,6 +533,7 @@ class AppMigrator: @unchecked Sendable {
             if let cancelled = checkCancelled("备份") { return cancelled }
             
             // 删原件（按需再建符号链接，需要 admin；只操作 /Applications 不写外置盘）
+            phaseProgress(.init(phase: .backupAndSwitch, progress: 0.9, message: "需要管理员权限..."))
             progress(0.9, "需要管理员权限...")
             let authResult = await authenticatedRemove(
                 source: sourcePath, linkTarget: targetPath, createLink: createLink)

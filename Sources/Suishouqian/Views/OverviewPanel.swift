@@ -676,11 +676,13 @@ struct OverviewPanel: View {
             case .relocate: taskOp = .relocate
             default: taskOp = .migrate
             }
-            appState.migrationTask = MigrationTask(app: app, operation: taskOp)
+            let task = MigrationTask(app: app, operation: taskOp)
+            let taskID = task.id
+            appState.migrationTask = task
             let progress: @Sendable (Double, String) -> Void = { pct, file in
                 Task { @MainActor in
                     // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                    appState.reportMigrationProgress(pct, file)
+                    appState.reportMigrationProgress(pct, file, taskID: taskID)
                 }
             }
 

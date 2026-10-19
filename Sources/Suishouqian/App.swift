@@ -153,7 +153,13 @@ class AppState: ObservableObject {
     @Published var apps: [AppItem] = []
     @Published var externalDrive: DriveInfo?
     @Published var isScanning = false
-    @Published var migrationTask: MigrationTask?
+    @Published var migrationTask: MigrationTask? {
+        didSet { migrationTaskDidChange(from: oldValue, to: migrationTask) }
+    }
+    @Published private(set) var migrationOutcome: MigrationOutcome?
+    @Published private(set) var migrationOutcomeTaskID: UUID?
+    @Published private(set) var migrationBatchResults: [MigrationBatchItemResult] = []
+    private(set) var isExecutingReviewedPlan = false
 
     /// 迁移计划评审请求（Task 4）：普通应用迁移入口的唯一路由。
     /// 各入口只构造请求（迁移面板一键 / 应用列表多选 / 应用行「迁移」），
@@ -168,16 +174,102 @@ class AppState: ObservableObject {
     /// （200 步），全量重算从每秒几十次降到最多 4 次。
     /// 调用约定：所有调用点都在 Task { @MainActor in } 里（已逐一核对）。
     private var progressThrottle = ProgressThrottle()
-    func reportMigrationProgress(_ pct: Double, _ file: String) {
-        guard let t = migrationTask,
-              let fresh = progressThrottle.filtered(
-                  pct: pct, file: file,
-                  currentProgress: t.progress, currentFile: t.currentFile,
-                  now: Date()) else { return }
-        var updated = t
-        updated.progress = fresh.progress
-        updated.currentFile = fresh.file
+    func reportMigrationProgress(_ pct: Double, _ file: String, taskID: UUID? = nil) {
+        guard let task = migrationTask, taskID == nil || task.id == taskID else { return }
+        // Older service operations emit progress only after copying starts.
+        // Showing that truthful state avoids leaving their card on preflight.
+        let phase = task.phase.advancing(to: .copying)
+        updateMigrationProgress(pct, file, phase: phase, taskID: taskID)
+    }
+
+    func reportMigrationProgress(
+        _ update: AppMigrator.MigrationProgressUpdate,
+        taskID: UUID? = nil
+    ) {
+        updateMigrationProgress(
+            update.progress, update.message, phase: update.phase, taskID: taskID)
+    }
+
+    private func updateMigrationProgress(
+        _ pct: Double,
+        _ file: String,
+        phase proposedPhase: MigrationPhase,
+        taskID: UUID?
+    ) {
+        guard let task = migrationTask, taskID == nil || task.id == taskID else { return }
+        let phase = task.phase.advancing(to: proposedPhase)
+        let phaseChanged = phase != task.phase
+        let fresh = progressThrottle.filtered(
+            pct: pct, file: file,
+            currentProgress: task.progress, currentFile: task.currentFile,
+            now: Date())
+        var updated = task
+        updated.phase = phase
+        if let fresh {
+            updated.progress = fresh.progress
+            updated.currentFile = fresh.file
+        } else if phaseChanged {
+            // A stage transition is more meaningful than the 250ms progress
+            // throttle, so update its truthful label immediately.
+            updated.currentFile = file
+        } else {
+            return
+        }
         migrationTask = updated
+    }
+
+    func recordMigrationOutcome(_ result: AppMigrator.MigrationResult, appName: String) {
+        recordMigrationOutcome(
+            MigrationPlanPresentation.outcome(result: result, appName: appName),
+            taskID: migrationTask?.id)
+    }
+
+    func recordMigrationOutcome(_ outcome: MigrationOutcome, taskID: UUID?) {
+        migrationOutcome = outcome
+        migrationOutcomeTaskID = taskID
+    }
+
+    func beginReviewedPlanBatch(items: [MigrationPlanItem]) {
+        migrationBatchResults = MigrationPlanPresentation.batchResults(for: items)
+        isExecutingReviewedPlan = true
+    }
+
+    func finishReviewedPlanBatch() {
+        isExecutingReviewedPlan = false
+    }
+
+    func recordBatchOutcome(_ outcome: MigrationOutcome, itemID: UUID) {
+        migrationBatchResults = MigrationPlanPresentation.recordBatchOutcome(
+            outcome, itemID: itemID, in: migrationBatchResults)
+    }
+
+    func markPendingBatchItemsNotStarted() {
+        migrationBatchResults = MigrationPlanPresentation.markPendingBatchItemsNotStarted(
+            in: migrationBatchResults)
+    }
+
+    private func migrationTaskDidChange(from oldTask: MigrationTask?, to newTask: MigrationTask?) {
+        if oldTask?.id != newTask?.id {
+            if let newTask {
+                migrationOutcome = nil
+                migrationOutcomeTaskID = nil
+                if !isExecutingReviewedPlan {
+                    migrationBatchResults = []
+                }
+                if newTask.status.isTerminal {
+                    migrationOutcome = MigrationPlanPresentation.fallbackOutcome(for: newTask)
+                    migrationOutcomeTaskID = newTask.id
+                }
+            } else if let oldTask,
+                      migrationOutcome == nil || migrationOutcomeTaskID != oldTask.id {
+                migrationOutcome = MigrationPlanPresentation.fallbackOutcome(for: oldTask)
+                migrationOutcomeTaskID = oldTask.id
+            }
+        } else if let newTask, newTask.status.isTerminal,
+                  migrationOutcome == nil || migrationOutcomeTaskID != newTask.id {
+            migrationOutcome = MigrationPlanPresentation.fallbackOutcome(for: newTask)
+            migrationOutcomeTaskID = newTask.id
+        }
     }
     @Published var builtinDrive: DriveInfo?
     /// 侧边栏页面（⌘0~⌘5 可切，ContentView 绑定）

@@ -187,12 +187,14 @@ struct AppRowView: View {
         guard let drive = appState.externalDrive else { return }
         Task { @MainActor [weak appState] in
             guard let appState else { return }
-            appState.migrationTask = MigrationTask(app: app, operation: .migrate)
+            let task = MigrationTask(app: app, operation: .migrate)
+            let taskID = task.id
+            appState.migrationTask = task
             
             let state = self.appState  // 值类型捕获，避免 Sendable 警告
             let onProgress: @Sendable (Double, String) -> Void = { @Sendable pct, desc in
                 Task { @MainActor in
-                    state.reportMigrationProgress(pct, desc)
+                    state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
             }
 
@@ -208,6 +210,10 @@ struct AppRowView: View {
             }
             
             if result.success {
+                if var task = state.migrationTask {
+                    task.status = .completed
+                    state.migrationTask = task
+                }
                 state.migrationTask = nil
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)
@@ -225,18 +231,24 @@ struct AppRowView: View {
         guard let drive = appState.externalDrive else { return }
         Task { @MainActor [weak appState] in
             guard let appState else { return }
-            appState.migrationTask = MigrationTask(app: app, operation: .restore)
+            let task = MigrationTask(app: app, operation: .restore)
+            let taskID = task.id
+            appState.migrationTask = task
             
             let state = self.appState  // 值类型捕获，避免 Sendable 警告
             let result = await state.migrator.restore(
                 app: app, from: drive.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    state.reportMigrationProgress(pct, desc)
+                    state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
             }
             
             if result.success {
+                if var task = state.migrationTask {
+                    task.status = .completed
+                    state.migrationTask = task
+                }
                 state.migrationTask = nil
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)
@@ -281,18 +293,24 @@ struct AppRowView: View {
             for: app, volumes: appState.volumeStore.volumes) else { return }
         Task { @MainActor [weak appState] in
             guard let appState else { return }
-            appState.migrationTask = MigrationTask(app: app, operation: .relocate)
+            let task = MigrationTask(app: app, operation: .relocate)
+            let taskID = task.id
+            appState.migrationTask = task
 
             let state = self.appState
             let result = await state.migrator.relocate(
                 app: app, fromVolume: fromMount, toVolume: volume.info.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    state.reportMigrationProgress(pct, desc)
+                    state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
             }
 
             if result.success {
+                if var task = state.migrationTask {
+                    task.status = .completed
+                    state.migrationTask = task
+                }
                 state.migrationTask = nil
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)
@@ -310,18 +328,24 @@ struct AppRowView: View {
         guard let drive = appState.externalDrive else { return }
         Task { @MainActor [weak appState] in
             guard let appState else { return }
-            appState.migrationTask = MigrationTask(app: app, operation: .restore)
+            let task = MigrationTask(app: app, operation: .restore)
+            let taskID = task.id
+            appState.migrationTask = task
 
             let state = self.appState
             let result = await state.migrator.moveBackToInternal(
                 app: app, drivePath: drive.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
-                    state.reportMigrationProgress(pct, desc)
+                    state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
             }
 
             if result.success {
+                if var task = state.migrationTask {
+                    task.status = .completed
+                    state.migrationTask = task
+                }
                 state.migrationTask = nil
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)

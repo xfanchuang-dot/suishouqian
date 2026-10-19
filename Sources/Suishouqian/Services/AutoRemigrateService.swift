@@ -62,18 +62,30 @@ enum AutoRemigrateService {
                 continue
             }
 
-            appState.migrationTask = MigrationTask(app: app, operation: .migrate)
+            let task = MigrationTask(app: app, operation: .migrate)
+            let taskID = task.id
+            appState.migrationTask = task
             let state = appState
             let result = await state.migrator.migrate(
                 app: app, to: drivePath,
-                cancellationToken: state.migrationTask?.cancellationToken
-            ) { @Sendable pct, desc in
-                Task { @MainActor in
-                    var t = state.migrationTask ?? MigrationTask(app: app, operation: .migrate)
-                    t.progress = pct
-                    t.currentFile = desc
-                    state.migrationTask = t
+                cancellationToken: task.cancellationToken,
+                phaseProgress: { update in
+                    Task { @MainActor in
+                        state.reportMigrationProgress(update, taskID: taskID)
+                    }
+                },
+                progress: { _, _ in }
+            )
+            state.recordMigrationOutcome(result, appName: app.name)
+            if var task = state.migrationTask {
+                if result.success {
+                    task.status = .completed
+                } else if result.cancelled && result.error == "已取消" {
+                    task.status = .cancelled
+                } else {
+                    task.status = .failed(result.error ?? "未知错误")
                 }
+                state.migrationTask = task
             }
             state.migrationTask = nil
 

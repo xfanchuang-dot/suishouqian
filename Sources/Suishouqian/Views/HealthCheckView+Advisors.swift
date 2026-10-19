@@ -212,18 +212,24 @@ extension HealthCheckView {
     func moveBackExternal(_ app: AppItem) {
         guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
         Task { @MainActor in
-            appState.migrationTask = MigrationTask(app: app, operation: .restore)
+            let task = MigrationTask(app: app, operation: .restore)
+            let taskID = task.id
+            appState.migrationTask = task
             let state = appState
             let result = await state.migrator.moveBackToInternal(
                 app: app, drivePath: drive.mountPoint
             ) { @Sendable pct, desc in
                 Task { @MainActor in
                     // 节流上报：直接写 migrationTask 会让 200+ 列表行每秒重算 body
-                    state.reportMigrationProgress(pct, desc)
+                    state.reportMigrationProgress(pct, desc, taskID: taskID)
                 }
             }
 
             if result.success {
+                if var task = state.migrationTask {
+                    task.status = .completed
+                    state.migrationTask = task
+                }
                 state.migrationTask = nil
                 state.notificationManager.notifyMigrationComplete(
                     appName: app.name, spaceSaved: result.spaceSaved)

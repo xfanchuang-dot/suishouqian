@@ -23,9 +23,9 @@ extension MigrationExecutionPhase {
     var displayName: String {
         switch self {
         case .preflight: return "预检"
-        case .backup: return "备份"
-        case .copyAndSwitch: return "复制切换"
-        case .verify: return "验证"
+        case .copyAndSwitch: return "复制"
+        case .verify: return "文件校验"
+        case .backupAndSwitch: return "留底与切换"
         case .blocked: return "已停止"
         }
     }
@@ -46,8 +46,15 @@ struct MigrationPlanReviewSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let onlineDrives = appState.volumeStore.onlineVolumes.map(\.info)
+        let backupDrive = BackupLocations.alternateVolumeUUID.flatMap { uuid in
+            appState.volumeStore.onlineVolumes.first {
+                $0.id.caseInsensitiveCompare(uuid) == .orderedSame
+            }?.info
+        }
         let state = MigrationPlanPresentation.makePlan(
-            apps: request.apps, drive: appState.externalDrive)
+            request: request, defaultDrive: appState.externalDrive,
+            availableDrives: onlineDrives, backupDrive: backupDrive)
 
         VStack(spacing: 0) {
             header(count: request.apps.count)
@@ -112,30 +119,52 @@ struct MigrationPlanReviewSheet: View {
     private func destinationCard(_ plan: MigrationPlanSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: "目标盘", systemImage: "externaldrive")
-            HStack(spacing: 6) {
-                Text(plan.destinationName)
-                    .font(.system(size: 13, weight: .semibold))
-                StatusPill("空间充足", systemImage: "checkmark.circle.fill",
-                           color: MockTheme.healthGreen)
-                Spacer()
+            ForEach(plan.capacityBudgets.filter(\.isDestination)) { budget in
+                HStack(spacing: 6) {
+                    Text(budget.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    StatusPill("空间充足", systemImage: "checkmark.circle.fill",
+                               color: MockTheme.healthGreen)
+                    Spacer()
+                }
+                Text(budget.path)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
             }
-            Text(plan.destinationPath)
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-            labeledRow("剩余空间", bytes(plan.freeBytes))
         }
         .cardStyle()
     }
 
     private func spaceBudgetCard(_ plan: MigrationPlanSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "空间预算", systemImage: "scalemass")
-            labeledRow("需要空间（两份：副本 + 同盘留底，另加 5% 余量）", bytes(plan.requiredBytes))
+            SectionHeader(title: "空间与备份预算", systemImage: "scalemass")
+            ForEach(plan.capacityBudgets) { budget in
+                if budget.isDestination && budget.isBackup {
+                    Text("\(budget.name)：目标盘与备份盘（同一卷）")
+                        .font(.system(size: 12, weight: .medium))
+                } else if budget.isDestination {
+                    Text("\(budget.name)：目标盘")
+                        .font(.system(size: 12, weight: .medium))
+                } else {
+                    Text("\(budget.name)：异卷备份盘")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                Text(budget.path)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                labeledRow("当前可用", bytes(budget.freeBytes))
+                labeledRow("此计划需要", bytes(budget.requiredBytes))
+                if budget != plan.capacityBudgets.last {
+                    Divider().opacity(0.5)
+                }
+            }
             labeledRow("预计释放内置盘", bytes(plan.totalFreedBytes))
-            Text("迁移完成后内置盘释放的空间以上表「预计释放」为准。")
+            Text("同卷备份已计入该卷的计划需求；异卷备份单独计入对应备份盘容量。")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -164,6 +193,15 @@ struct MigrationPlanReviewSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
+                Text("目标：\(item.destinationName) · \(item.destinationPath)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(backupDescription(item.backupPlacement))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 8)
             Text(bytes(item.size))
@@ -177,11 +215,10 @@ struct MigrationPlanReviewSheet: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// 四个固定阶段：预检 → 备份 → 复制切换 → 验证。评审时全部未开始；
-    /// 备份 = 外置盘上保留一份完整留底（合计两份），出问题仍可找回。
+    /// 展示迁移服务当前真实阶段顺序；评审时全部未开始。
     private func stagesCard() -> some View {
         let stages: [MigrationExecutionPhase] =
-            [.preflight, .backup, .copyAndSwitch, .verify]
+            [.preflight, .copyAndSwitch, .verify, .backupAndSwitch]
         return VStack(alignment: .leading, spacing: 14) {
             SectionHeader(title: "执行阶段（固定四步）", systemImage: "list.number")
             HStack(spacing: 0) {
@@ -195,7 +232,7 @@ struct MigrationPlanReviewSheet: View {
                     MigrationStageNode(title: stages[index].displayName, state: .pending)
                 }
             }
-            Text("备份阶段会在外置盘保留一份完整留底（合计两份），单次误操作仍可找回。")
+            Text("阶段顺序与迁移服务一致：预检、复制、文件校验、留底与切换。服务返回成功后才显示完成。")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -276,5 +313,14 @@ struct MigrationPlanReviewSheet: View {
 
     private func bytes(_ value: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: value, countStyle: .file)
+    }
+
+    private func backupDescription(_ placement: MigrationBackupPlacement) -> String {
+        switch placement {
+        case .sameVolume:
+            return "备份：与目标同卷留底，已计入目标盘空间预算"
+        case .alternateVolume(let name, let path):
+            return "备份：\(name)（\(path)），容量已单独计入"
+        }
     }
 }
