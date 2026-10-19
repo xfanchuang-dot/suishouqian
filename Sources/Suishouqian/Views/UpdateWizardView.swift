@@ -1,6 +1,38 @@
 import SwiftUI
 import AppKit
 
+/// 更新助手共用的退出引导（第一步「更新」与第三步「搬回去」都要过这道闸）：
+/// 应用在运行时弹窗提供「帮我退出」（terminate + 轮询最多 10 秒）或「我自己退出」。
+/// 返回 true = 可以继续搬运。
+@MainActor
+enum UpdateQuitPrompt {
+    static func ensureNotRunning(appPath: String) -> Bool {
+        guard let running = AppMigrator.runningAppName(matching: appPath) else { return true }
+        let alert = NSAlert()
+        alert.messageText = "「\(running)」正在运行"
+        alert.informativeText = "需要完全退出 App 才能继续。可以让我帮你退出（未保存的内容会先弹 App 自己的保存框），也可以你自己按 ⌘Q 退出后重试。"
+        alert.addButton(withTitle: "帮我退出")
+        alert.addButton(withTitle: "我自己退出")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        if let instance = NSWorkspace.shared.runningApplications.first(where: {
+            $0.localizedName == running
+        }) {
+            instance.terminate()
+            for _ in 0..<50 where !instance.isTerminated {
+                usleep(200_000)   // 最多等 10 秒
+            }
+        }
+        if AppMigrator.runningAppName(matching: appPath) != nil {
+            let still = NSAlert()
+            still.messageText = "「\(running)」还没有退出"
+            still.informativeText = "可能是它在等你确认保存。退出后重试。"
+            still.runModal()
+            return false
+        }
+        return true
+    }
+}
+
 /// 更新助手向导：三步流程的展示与操作入口。
 ///
 /// 步骤：
@@ -158,32 +190,8 @@ struct UpdateWizardView: View {
 
     /// 第三步：搬回外置盘（纯搬迁：跳过备份，直接移动）
     private func moveBackToExternal() {
-        // 运行预检：迁移引擎本身会拦，但那是在 sheet 关闭之后，用户只看到任务失败。
-        // 在这里拦住并给出退出引导（实测教训：向导引导用户打开 App 更新，
-        // 用户更新完不退 App 直接点搬回去，三次全部被拒）
-        if let running = AppMigrator.runningAppName(matching: session.appPath) {
-            let alert = NSAlert()
-            alert.messageText = "「\(running)」正在运行"
-            alert.informativeText = "搬回去前需要完全退出 App。可以让我帮你退出（未保存的内容会先弹 App 自己的保存框），也可以你自己按 ⌘Q 退出后再点「已更新，搬回去」。"
-            alert.addButton(withTitle: "帮我退出")
-            alert.addButton(withTitle: "我自己退出")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-            if let instance = NSWorkspace.shared.runningApplications.first(where: {
-                $0.bundleURL?.path == session.appPath
-            }) {
-                instance.terminate()
-                for _ in 0..<50 where !instance.isTerminated {
-                    usleep(200_000)   // 最多等 10 秒
-                }
-            }
-            if AppMigrator.runningAppName(matching: session.appPath) != nil {
-                let still = NSAlert()
-                still.messageText = "「\(running)」还没有退出"
-                still.informativeText = "可能是它在等你确认保存。退出后再点「已更新，搬回去」。"
-                still.runModal()
-                return
-            }
-        }
+        // 运行预检：迁移引擎本身会拦，但那是在 sheet 关闭之后，用户只看到任务失败
+        guard UpdateQuitPrompt.ensureNotRunning(appPath: session.appPath) else { return }
 
         guard let drive = appState.externalDrive else {
             let alert = NSAlert()

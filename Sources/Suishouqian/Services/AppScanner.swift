@@ -158,15 +158,22 @@ class AppScanner: @unchecked Sendable {
 
     /// 目录体积（字节）。
     ///
-    /// **必须带 `-L` 跟随符号链接**：已迁移应用的路径是软链接，不带 -L 时
-    /// BSD du 只统计链接本身（本机实测 `/Applications/Safari.app` 报 0），
-    /// 后果有两个：列表里已迁移应用显示"0 字节"；回迁的空间预检
+    /// **只解析路径本身的软链接，不跟随包内符号链接**：
+    /// 已迁移应用的路径是软链接，不解析时 BSD du 只统计链接本身
+    /// （本机实测 `/Applications/Safari.app` 报 0），后果有两个：列表里
+    /// 已迁移应用显示"0 字节"；回迁的空间预检
     /// `validateInternalFreeSpace(needBytes: app.size)` 拿到 0 而永远放行，
-    /// 内置盘满时会在复制中途失败。`-L` 对普通目录无影响。
+    /// 内置盘满时会在复制中途失败。先解析顶层路径即可覆盖该场景。
+    ///
+    /// 不能改用 `du -L`：它会递归跟随包内软链接。WPS 的 helper 子 app 把
+    /// `Contents/PlugIns` 链接回上层目录（1449 个链接），du 反复展开，
+    /// 实测 5.6 GB 报成 195 GB，体积虚高还会让迁移容量预检误判。
     static func directorySizeBytes(atPath path: String) -> Int64 {
+        // resolvingSymlinksInPath 只展开路径各段，不会进入目录遍历
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        process.arguments = ["-sk", "-L", path]
+        process.arguments = ["-sk", resolved]
 
         let pipe = Pipe()
         process.standardOutput = pipe

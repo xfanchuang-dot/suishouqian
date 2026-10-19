@@ -384,6 +384,12 @@ struct AppRowView: View {
             return
         }
 
+        // 运行预检（真实本体路径）：第一腿搬回内置盘前应用必须已退出，
+        // 否则迁移引擎会静默拒绝——用户只见"点了没反应"（实测反馈）
+        guard UpdateQuitPrompt.ensureNotRunning(appPath: app.symlinkTarget ?? app.path) else {
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "用更新助手更新「\(app.name)」？"
         alert.informativeText = "随手迁会先把 App 搬回「应用程序」（内置盘）。\n\n然后你去更新它（自带更新器 / 官网下载新版），更新完点「搬回去」，随手迁再把它搬回外置盘原来的位置。"
@@ -430,6 +436,11 @@ struct AppRowView: View {
             } else if var t = state.migrationTask {
                 t.status = .failed(result.error ?? "未知错误")
                 state.migrationTask = t
+                // 失败必须弹出来：这是向导流程的第一步，静默失败=用户"点了没反应"
+                let fail = NSAlert()
+                fail.messageText = "更新助手未能把「\(app.name)」搬回内置盘"
+                fail.informativeText = result.error ?? "未知错误"
+                fail.runModal()
             }
         }
     }

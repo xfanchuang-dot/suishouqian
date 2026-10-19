@@ -626,10 +626,15 @@ final class DataMigrator: @unchecked Sendable {
         return false
     }
 
+    /// 目录体积（字节）。只解析路径各段的软链接，不用 `-L`：
+    /// 已迁移数据目录的路径是软链接（需跟随），但数据目录内部的软链接
+    /// （如指回上层目录的 PlugIns、缓存分叉）会被 `-L` 重复展开，
+    /// 体积虚高（WPS 包内 1449 个回指链接曾把 5.6 GB 报成 195 GB）。
     private func duSize(_ path: String) -> Int64 {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
-        process.arguments = ["-sk", "-L", path]
+        process.arguments = ["-sk", resolved]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice

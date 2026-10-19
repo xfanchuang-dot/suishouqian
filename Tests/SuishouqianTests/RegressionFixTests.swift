@@ -64,6 +64,28 @@ final class RegressionFixTests: XCTestCase {
         XCTAssertEqual(linkSize, realSize, "链接与真身的体积应一致")
     }
 
+    // MARK: - ①b 包内回指软链接不得把体积算重（WPS 实测虚高到 195 GB）
+
+    func testDirectorySizeDoesNotFollowInnerSymlinkLoops() throws {
+        let plugins = try makeDir("size/bundle/App.app/Contents/PlugIns")
+        let app = URL(fileURLWithPath: plugins)
+            .deletingLastPathComponent().deletingLastPathComponent().path
+        let blobSize = 8 * 1_048_576
+        try Data(count: blobSize).write(to: URL(fileURLWithPath: "\(plugins)/big.bin"))
+
+        // WPS 形态：helper 子 app 的 PlugIns 链接回上层 PlugIns。
+        // 用 du -L 时这里会被展开两遍，体积翻倍
+        let helper = try makeDir("size/bundle/App.app/Contents/SharedSupport/helper.app/Contents")
+        try FileManager.default.createSymbolicLink(
+            atPath: "\(helper)/PlugIns",
+            withDestinationPath: "../../../../Contents/PlugIns")
+
+        let size = AppScanner.directorySizeBytes(atPath: app)
+        XCTAssertGreaterThanOrEqual(size, Int64(blobSize))
+        XCTAssertLessThan(size, Int64(blobSize) * 3 / 2,
+                          "包内回指链接不得被重复展开（du -L 会把 8 MB 算成 16 MB）")
+    }
+
     // MARK: - ② 复制失败不得留下半截副本
 
     func testCopyWithDittoCleansPartialDestinationOnFailure() async throws {
