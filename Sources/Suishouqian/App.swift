@@ -309,6 +309,38 @@ class AppState: ObservableObject {
         return !task.status.isTerminal
     }
 
+    // MARK: - 拔盘保护
+
+    /// 弹出审批回调跑在主 RunLoop 上，AppState 状态可直接读
+    private lazy var ejectGuard = DiskEjectGuard(
+        isVolumeBusy: { [weak self] mount in self?.isVolumeBusyForTasks(mount) ?? false },
+        onVeto: { [weak self] mount, apps in self?.handleEjectVeto(mount: mount, apps: apps) })
+
+    func startEjectGuard() {
+        ejectGuard.start()
+    }
+
+    /// 迁移任务是否正在搬走该卷上的应用真身（源侧判定）。
+    /// 边界：「迁移」复制**到**外置盘的过程不拦——此时无应用受损，半截副本由
+    /// copyWithDitto 的失败清理兜底；为此改 10+ 处任务调用点不值得。
+    private func isVolumeBusyForTasks(_ mount: String) -> Bool {
+        guard let task = migrationTask, !task.status.isTerminal else { return false }
+        let realBody = task.app.symlinkTarget ?? task.app.path
+        let resolved = (realBody as NSString).resolvingSymlinksInPath
+        return DiskEjectGuard.path(resolved, isInsideVolume: mount)
+    }
+
+    private func handleEjectVeto(mount: String, apps: [String]) {
+        let name = (mount as NSString).lastPathComponent
+        if apps.isEmpty {
+            AuditLog.append("拔盘保护：拦下「\(name)」的弹出（迁移任务正在搬走该卷上的应用）")
+            notificationManager.notifyEjectBlockedWhileBusy(driveName: name)
+        } else {
+            AuditLog.append("拔盘保护：拦下「\(name)」的弹出（\(apps.joined(separator: "、")) 正从该卷运行）")
+            notificationManager.notifyEjectBlocked(driveName: name, appNames: apps)
+        }
+    }
+
     // MARK: - 空间守卫
 
     private var lowDiskNotified = false
@@ -396,11 +428,13 @@ class AppState: ObservableObject {
         UserDefaults.standard.register(defaults: [
             "spaceGuardEnabled": true,
             "newAppReminderEnabled": true,
+            "ejectGuardEnabled": true,
             "notificationsEnabled": true,
             "backupRetentionDays": 7,
             "bigFileExtendedScanEnabled": false,
         ])
         startSpaceGuard()
+        startEjectGuard()
 
         // v2.2: 启动即尝试断链自愈 + 给历史迁移补台账
         // （补账后，卷改名场景在下次插盘时就能自动接上，无需用户打开体检）

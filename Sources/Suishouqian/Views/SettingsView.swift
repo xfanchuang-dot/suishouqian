@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     @AppStorage("spaceGuardEnabled") private var spaceGuard = true
     @AppStorage("newAppReminderEnabled") private var newAppReminder = true
+    @AppStorage("ejectGuardEnabled") private var ejectGuard = true
     @AppStorage("notificationsEnabled") private var notifications = true
     @AppStorage("backupRetentionDays") private var backupDays = 7
     @AppStorage("bigFileExtendedScanEnabled") private var bigFileExtended = false
@@ -206,6 +207,12 @@ struct SettingsView: View {
         switchRow("新装大应用提醒",
                   "发现新安装的 ≥500MB 应用时，提醒是否搬到外置硬盘",
                   isOn: $newAppReminder)
+        rowDivider
+        switchRow("拔盘保护",
+                  "弹出外置盘前自动检查：有应用正从该盘运行、或迁移正在搬该盘时拦下弹出并提醒，其余弹出不打扰",
+                  isOn: $ejectGuard) { on in
+            AuditLog.append("拔盘保护开关：\(on ? "开" : "关")")
+        }
         rowDivider
         switchRow("系统通知",
                   "迁移完成/失败、插拔盘、空间告警等通知的总开关",

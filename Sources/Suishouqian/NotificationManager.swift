@@ -141,13 +141,33 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
         content.body = body
         if let sound { content.sound = sound }
         content.categoryIdentifier = "SUISHOUQIAN_MIGRATION"
-        
+
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,
             trigger: nil  // 立即发送
         )
-        
+
         center.add(request)
+    }
+
+    /// 拔盘保护：弹出被拦下（有应用正从该盘运行）
+    func notifyEjectBlocked(driveName: String, appNames: [String]) {
+        let list = appNames.prefix(5).joined(separator: "、")
+        let more = appNames.count > 5 ? " 等 \(appNames.count) 个" : ""
+        send(
+            title: "拔盘保护：已拦下「\(driveName)」的弹出",
+            body: "\(list)\(more) 正从该盘运行，现在拔盘会当场崩溃。退出这些应用后再弹出",
+            sound: .default
+        )
+    }
+
+    /// 拔盘保护：弹出被拦下（迁移任务正在搬走该卷上的应用）
+    func notifyEjectBlockedWhileBusy(driveName: String) {
+        send(
+            title: "拔盘保护：已拦下「\(driveName)」的弹出",
+            body: "迁移任务正在搬走该盘上的应用，中途拔盘会留下半截副本。等任务结束后再弹出",
+            sound: .default
+        )
     }
 }
