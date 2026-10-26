@@ -612,7 +612,7 @@ class AppMigrator: @unchecked Sendable {
                       spaceSaved: 0)
             }
         } else if skipBackup {
-            // 纯搬迁模式：跳过备份。目标副本已在前面校验通过，删源后按需建链。
+            // 跳过备份模式（skipBackup）：目标副本已在前面校验通过，删源后按需建链。
             // ⚠️ 此处【禁止】套用"删目标副本"式清理：无备份时目标副本就是唯一真身
             // （处境等同上一分支 move 之后）。建链失败只能把目标副本复制回源位恢复；
             // 复制不回去就保留目标副本并如实报位置，绝不能删。
@@ -866,11 +866,29 @@ class AppMigrator: @unchecked Sendable {
         // 应用会变成"没有入口、台账也没了、只剩外置盘一份真身"的不可逆状态。
         if fileManager.fileExists(atPath: realBundle) {
             if !(await checker.recycleToTrash(realBundle)) {
-                AuditLog.append("卸载 \(app.bundleName) 失败：应用本体未能移入废纸篓（入口与台账保持原样）")
-                return MigrationResult(success: false,
-                      error: "应用本体移入废纸篓失败（可能需要管理员权限）。"
-                           + "可在 Finder 里手动拖入废纸篓后再重试；此时入口与台账都保持原样",
-                      spaceSaved: 0)
+                // root 属主应用 NSWorkspace.recycle 必失败（WeRead.app root wheel 实测，
+                // Finder 语义就是要密码）：改走管理员授权把本体搬进废纸篓，仍失败才放弃。
+                // 外置卷的废纸篓是 .Trashes/<uid> 结构，不做提权，保持安全失败
+                if Self.trashEligibleForElevation(realBundle), Self.isRootOwned(realBundle) {
+                    let elevated = await authenticatedTrash(path: realBundle)
+                    let gone = elevated.success && !fileManager.fileExists(atPath: realBundle)
+                    if gone {
+                        AuditLog.append("卸载 \(app.bundleName)：root 属主应用经管理员授权移入废纸篓")
+                    } else {
+                        let reason = elevated.error ?? "移动后仍未离开原位"
+                        AuditLog.append("卸载 \(app.bundleName) 失败：提权移入废纸篓仍失败（\(reason)），入口与台账保持原样")
+                        return MigrationResult(success: false,
+                              error: "应用本体移入废纸篓失败（已尝试管理员授权：\(reason)）。"
+                                   + "可在 Finder 里手动拖入废纸篓后再重试；此时入口与台账都保持原样",
+                              spaceSaved: 0)
+                    }
+                } else {
+                    AuditLog.append("卸载 \(app.bundleName) 失败：应用本体未能移入废纸篓（入口与台账保持原样）")
+                    return MigrationResult(success: false,
+                          error: "应用本体移入废纸篓失败（可能需要管理员权限）。"
+                               + "可在 Finder 里手动拖入废纸篓后再重试；此时入口与台账都保持原样",
+                          spaceSaved: 0)
+                }
             }
         }
 
@@ -1509,6 +1527,85 @@ class AppMigrator: @unchecked Sendable {
                 let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
                 
+                if process.terminationStatus == 0 {
+                    return (true, nil)
+                } else {
+                    let errMsg = String(data: errData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
+                    // 用户取消了密码弹窗
+                    if errMsg.contains("User canceled") {
+                        return (false, "已取消授权")
+                    }
+                    return (false, errMsg)
+                }
+            } catch {
+                return (false, error.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: - 卸载：root 属主应用的废纸篓兜底
+
+    /// 路径是否允许走提权废纸篓（纯逻辑，供测试）。
+    /// 只认系统盘（/Applications 等非 /Volumes 路径）：外置卷的废纸篓是 .Trashes/<uid>
+    /// 结构（可能不存在、要补 chown），提权碰它风险大于收益，外置卷保持原安全失败。
+    static func trashEligibleForElevation(_ path: String) -> Bool {
+        !path.hasPrefix("/Volumes/")
+    }
+
+    /// 应用本体是否非当前用户属主（纯判定）：root 属主的 bundle NSWorkspace.recycle
+    /// 必失败（Finder 语义就是弹密码），这是卸载提权兜底的触发条件。
+    static func isRootOwned(_ path: String) -> Bool {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+        guard let owner = attrs?[.ownerAccountName] as? String else { return false }
+        return owner != NSUserName()
+    }
+
+    /// 生成把应用本体搬进废纸篓的提权 shell 命令（internal 供测试验证转义与重名避让）。
+    /// Finder 语义：同卷 mv（系统盘内是 rename，瞬间完成）+ 目标重名时追加 " 2"/" 3"
+    /// ——与 TrashRecovery 卸载撤销的变体名规则天然兼容。
+    /// 废纸篓目录由 Swift 侧传用户家目录（NSHomeDirectory()），不依赖脚本内的 $HOME
+    /// ——提权后 shell 以 root 跑，$HOME 是 /var/root，靠它会把东西搬错地方。
+    static func privilegedTrashCommand(sourcePath: String, userTrashDir: String) -> String {
+        // 只需 shell 一层转义：命令整体再由 authenticatedTrash 按 AppleScript 规则包引号
+        func escShell(_ s: String) -> String {
+            s.replacingOccurrences(of: "'", with: "'\\''")
+        }
+        let src = escShell(sourcePath)
+        let dir = escShell(userTrashDir)
+        // 重名避让必须发生在目标侧：~/.Trash 已有同名条目时，直接 mv 会把应用嵌进
+        // 那个同名目录里而不是改名（mv 语义），卸载撤销就找不到候选了
+        return "T='\(dir)'; S='\(src)'; N=\"$(basename \"$S\")\"; D=\"$T/$N\"; i=2"
+            + "; while [ -e \"$D\" ]; do D=\"$T/$N $i\"; i=$((i+1)); done; mv \"$S\" \"$D\""
+    }
+
+    /// osascript 提权把应用本体移入废纸篓（root 属主应用的卸载兜底，WeRead 实测案例）。
+    /// osascript 阻塞等密码：必须 OffPool，协作线程池被占死就是两次冻结事故的根因。
+    /// 管道纪律与 authenticatedRemove 相同：stdout 丢弃、stderr 先读后等。
+    private func authenticatedTrash(path: String) async -> (success: Bool, error: String?) {
+        let trashDir = NSHomeDirectory() + "/.Trash"
+        let command = Self.privilegedTrashCommand(sourcePath: path, userTrashDir: trashDir)
+        return await OffPool.run {
+            func escAppleScript(_ s: String) -> String {
+                s.replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
+            }
+            let script = "tell application \"随手迁\" to activate\ndelay 0.3\n"
+                + "do shell script \"\(escAppleScript(command))\" with administrator privileges"
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", script]
+
+            let errPipe = Pipe()
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = errPipe
+
+            do {
+                try process.run()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+
                 if process.terminationStatus == 0 {
                     return (true, nil)
                 } else {

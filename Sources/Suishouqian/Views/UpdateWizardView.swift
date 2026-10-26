@@ -188,7 +188,7 @@ struct UpdateWizardView: View {
         }
     }
 
-    /// 第三步：搬回外置盘（纯搬迁：跳过备份，直接移动）
+    /// 第三步：搬回外置盘（跳过备份模式：直接移动；是否留链接按原状决定）
     private func moveBackToExternal() {
         // 运行预检：迁移引擎本身会拦，但那是在 sheet 关闭之后，用户只看到任务失败
         guard UpdateQuitPrompt.ensureNotRunning(appPath: session.appPath) else { return }
@@ -240,7 +240,7 @@ struct UpdateWizardView: View {
                     state.reportMigrationProgress(pct, desc)
                 }
             }
-            // 搬回去：纯搬迁模式（跳过备份）＋ 按原来是否有链接决定 createLink
+            // 搬回去：跳过备份模式（skipBackup）＋ 按原来是否有链接决定 createLink
             // 子目录按原位置相对卷根提取，精确还原（Applications/、Suishouqian_Apps/、卷根直放）
             let subdir = UpdateSession.targetSubdir(of: session.originalExternalPath,
                                                     volumeMount: drive.mountPoint)
