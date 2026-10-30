@@ -65,11 +65,14 @@
 
 > ⚠️ 未签名版本：首次打开时按住 Control 键点击 → 选择"打开"，之后即可正常使用。
 
-### 方式二：Homebrew（待 cask 上架）
+### 方式二：Homebrew
 
 ```bash
+brew tap xfanchuang-dot/tap
 brew install --cask suishouqian
 ```
+
+> 官方 `homebrew/cask` 收录将在应用完成签名公证后提交。
 
 ### 方式三：从源码编译（当前可用）
 
@@ -124,11 +127,14 @@ Download the latest `.dmg` (currently **v3.1.0**) from
 
 > ⚠️ Unsigned build: on first launch, Control-click → "Open", then it works normally.
 
-Or via Homebrew (once the cask lands):
+Or via Homebrew:
 
 ```bash
+brew tap xfanchuang-dot/tap
 brew install --cask suishouqian
 ```
+
+> The official `homebrew/cask` entry will be submitted once the app is signed and notarized.
 
 Or build from source — works today. **Building** requires Xcode 26+ (macOS 26 SDK:
 the code uses Liquid Glass `Glass`/`glassEffect`, which older SDKs do not declare);
