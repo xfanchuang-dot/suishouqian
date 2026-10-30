@@ -3,12 +3,14 @@
 > 把 Mac 内置盘上的大应用，安全地搬到外置硬盘，释放空间。
 > Move large Mac apps to external drives safely, free up internal storage.
 
+[![Latest Release](https://img.shields.io/github/v/release/xfanchuang-dot/suishouqian)](https://github.com/xfanchuang-dot/suishouqian/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/xfanchuang-dot/suishouqian/total)](https://github.com/xfanchuang-dot/suishouqian/releases)
 [![Tests](https://github.com/xfanchuang-dot/suishouqian/actions/workflows/tests.yml/badge.svg)](https://github.com/xfanchuang-dot/suishouqian/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9%E9%9A%8F%E6%89%8B%E8%BF%81-946ce6)](https://afdian.com/a/suishouqian)
 
-> ☕ 如果随手迁帮你省下了买大容量 Mac 的钱：
-> [**在爱发电支持我（¥29 一次性买断 Pro，非订阅）**](https://afdian.com/a/suishouqian)
+![随手迁 · 主界面](docs/screenshots/shot-01.png)
+
+**迁移前自动备份 · 失败自动回滚 · 200+ 自动化测试守护数据安全 · MIT 开源免费**
 
 ---
 
@@ -20,9 +22,7 @@
 **核心承诺：数据安全优先。** 迁移前自动备份，任何一步失败都回滚，绝不丢数据。
 200+ 自动化测试覆盖每一条安全红线。
 
-## 截图
-
-![随手迁 · 界面预览 1](docs/screenshots/shot-01.png)
+## 更多截图
 
 ![随手迁 · 界面预览 2](docs/screenshots/shot-02.png)
 
