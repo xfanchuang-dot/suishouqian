@@ -24,7 +24,8 @@ final class LicenseManager: ObservableObject {
     static let shared = LicenseManager()
 
     /// 签发端与校验端共同接受的层级。目前只有买断 Pro。
-    static let proTier = "pro"
+    /// nonisolated：LicenseInfo 不在主 actor 上，比对层级时不能读隔离属性。
+    nonisolated static let proTier = "pro"
 
     /// 内嵌公钥（base64）。与仓库根 `license_public_key.txt` 同源，改一处必须改另一处。
     /// 私钥绝不进仓库：默认落在 `~/Library/Caches/suishouqian-license/private_key.txt`。
@@ -49,20 +50,20 @@ final class LicenseManager: ObservableObject {
     @discardableResult
     func activate(license: String) -> (ok: Bool, message: String) {
         guard let result = Self.verify(license) else {
-            return (false, "许可证无效：格式错误或签名不匹配")
+            return (false, l10n("许可证无效：格式错误或签名不匹配"))
         }
         guard !result.isExpired else {
-            return (false, "许可证已过期（\(Self.dateString(result.expiry))）")
+            return (false, l10n("许可证已过期（%@）", Self.dateString(result.expiry)))
         }
         guard result.grantsPro else {
-            return (false, "许可证层级不是 Pro（\(result.tier)），不能解锁")
+            return (false, l10n("许可证层级不是 Pro（%@），不能解锁", result.tier))
         }
         // 存**规范化后**的字符串：粘贴时带进来的换行/缩进不该让恢复时验签失败
         UserDefaults.standard.set(Self.normalized(license), forKey: Self.storageKey)
         isPro = result.grantsPro
         licensedEmail = result.email
         AuditLog.append("Pro 许可证已激活：\(result.email)")
-        return (true, "Pro 已激活，感谢支持！")
+        return (true, l10n("Pro 已激活，感谢支持！"))
     }
 
     /// 退出 Pro（清除本地许可证）

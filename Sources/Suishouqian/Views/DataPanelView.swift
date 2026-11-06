@@ -25,7 +25,7 @@ struct DataPanelView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // —— 效果图：数据存储概览（三色分段条 + 圆点图例，全部真实口径）——
-                    MockPageTitle(text: "数据存储概览")
+                    MockPageTitle(text: l10n("数据存储概览"))
                     storageOverview
 
                     // —— 效果图：备份记录（真实问题项；清理入口在体检页，单一破坏性入口原则）——
@@ -68,10 +68,10 @@ struct DataPanelView: View {
         let externalUsed = appState.externalDrive.map { $0.totalSize - $0.freeSize } ?? 0
         let otherBytes = max(externalUsed - backupBytes - dataBytes, 0)
         let segments = [
-            MockSegment(label: "迁移备份", bytes: backupBytes,
+            MockSegment(label: l10n("迁移备份"), bytes: backupBytes,
                         color: Color(red: 0.23, green: 0.51, blue: 0.96)),
-            MockSegment(label: "应用数据", bytes: dataBytes, color: MockTheme.accent),
-            MockSegment(label: "其他数据", bytes: otherBytes,
+            MockSegment(label: l10n("应用数据"), bytes: dataBytes, color: MockTheme.accent),
+            MockSegment(label: l10n("其他数据"), bytes: otherBytes,
                         color: Color(red: 0.20, green: 0.78, blue: 0.55)),
         ]
         return VStack(alignment: .leading, spacing: 14) {
@@ -95,11 +95,11 @@ struct DataPanelView: View {
     private var backupSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("备份记录")
+                Text(l10n("备份记录"))
                     .font(.system(size: 20, weight: .bold))
                 Spacer()
                 if !backupIssues.isEmpty {
-                    Button("清理残留") { appState.activePanel = .health }
+                    Button(l10n("清理残留")) { appState.activePanel = .health }
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(Color(red: 0.90, green: 0.35, blue: 0.45))
                         .padding(.horizontal, 16)
@@ -110,7 +110,7 @@ struct DataPanelView: View {
                                 lineWidth: 1)
                         )
                         .buttonStyle(.plain)
-                        .help("去体检页清理（破坏性操作全软件只保留一个入口）")
+                        .help(l10n("去体检页清理（破坏性操作全软件只保留一个入口）"))
                 }
             }
 
@@ -119,8 +119,8 @@ struct DataPanelView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(MockTheme.healthGreen)
                     Text(backupBytes > 0
-                         ? "备份健康：没有孤儿或超期备份需要清理"
-                         : "还没有迁移备份，第一次迁移后会自动留底")
+                         ? l10n("备份健康：没有孤儿或超期备份需要清理")
+                         : l10n("还没有迁移备份，第一次迁移后会自动留底"))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
@@ -136,8 +136,8 @@ struct DataPanelView: View {
                             Text(issue.appName)
                                 .font(.system(size: 15, weight: .semibold))
                             Text(issue.isOrphan
-                                 ? "孤儿备份（应用已不在）· \(issue.ageDays) 天前"
-                                 : "超过保留期 · \(issue.ageDays) 天前")
+                                 ? l10n("孤儿备份（应用已不在）· %lld 天前", issue.ageDays)
+                                 : l10n("超过保留期 · %lld 天前", issue.ageDays))
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
                         }
@@ -159,35 +159,35 @@ struct DataPanelView: View {
     private var bottomItems: [String] {
         let releasable = backupIssues.reduce(Int64(0)) { $0 + $1.sizeBytes }
         var items = [
-            "共 \(backupIssues.count) 条待清理备份",
-            "备份占用 \(ByteCountFormatter.string(fromByteCount: backupBytes, countStyle: .file))",
+            l10n("共 %lld 条待清理备份", backupIssues.count),
+            l10n("备份占用 %@", ByteCountFormatter.string(fromByteCount: backupBytes, countStyle: .file)),
         ]
         if releasable > 0 {
-            items.append("可释放 \(ByteCountFormatter.string(fromByteCount: releasable, countStyle: .file))")
+            items.append(l10n("可释放 %@", ByteCountFormatter.string(fromByteCount: releasable, countStyle: .file)))
         }
         return items
     }
 
     private var header: some View {
         HStack {
-            SectionHeader(title: "应用数据", systemImage: "shippingbox")
+            SectionHeader(title: l10n("应用数据"), systemImage: "shippingbox")
             Spacer()
             if isScanning || activeTaskTitle != nil {
                 ProgressView().controlSize(.small)
-                Text(activeTaskTitle ?? "扫描中...")
+                Text(activeTaskTitle ?? l10n("扫描中..."))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             } else {
-                Button("迁移其他文件夹…") { pickAndMigrateCustomFolder() }
+                Button(l10n("迁移其他文件夹…")) { pickAndMigrateCustomFolder() }
                     .controlSize(.small)
-                Button("重新扫描") { rescan() }
+                Button(l10n("重新扫描")) { rescan() }
                     .controlSize(.small)
             }
         }
     }
 
     private var hint: some View {
-        Text("列出已知安全的数据目录，优先用应用自带的位置设置（零风险），苹果没给入口的才用链接迁移；也可以用「迁移其他文件夹」自选库外的大文件夹（≥100MB），系统目录、资源库、桌面/文稿/下载会被拦下。浏览器、聊天工具等日常热用的数据不建议搬。")
+        Text(l10n("列出已知安全的数据目录，优先用应用自带的位置设置（零风险），苹果没给入口的才用链接迁移；也可以用「迁移其他文件夹」自选库外的大文件夹（≥100MB），系统目录、资源库、桌面/文稿/下载会被拦下。浏览器、聊天工具等日常热用的数据不建议搬。"))
             .font(.system(size: 11))
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -211,15 +211,15 @@ struct DataPanelView: View {
 
                 if item.managedByUs {
                     if item.linkBroken {
-                        StatusPill("硬盘未连接", systemImage: "externaldrive.badge.exclamationmark",
+                        StatusPill(l10n("硬盘未连接"), systemImage: "externaldrive.badge.exclamationmark",
                                    color: .orange)
                     } else {
-                        StatusPill("已链接迁移", systemImage: "link", color: .green)
+                        StatusPill(l10n("已链接迁移"), systemImage: "link", color: .green)
                     }
                 } else if item.isSymlink {
-                    StatusPill("已是链接", systemImage: "link", color: .secondary)
+                    StatusPill(l10n("已是链接"), systemImage: "link", color: .secondary)
                 } else if item.ownerRunning {
-                    StatusPill("应用运行中", systemImage: "bolt.fill", color: .orange)
+                    StatusPill(l10n("应用运行中"), systemImage: "bolt.fill", color: .orange)
                 }
 
                 actionButtons(item)
@@ -238,7 +238,7 @@ struct DataPanelView: View {
             }
             if case .symlink = item.relocation,
                !item.isSymlink, !item.managedByUs, !item.isWorthMigrating {
-                Text("体积小于 100MB，不值得迁移")
+                Text(l10n("体积小于 100MB，不值得迁移"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -254,22 +254,22 @@ struct DataPanelView: View {
 
         switch item.relocation {
         case .native(_, let launchAppName):
-            Button("搬迁指引") { showNativeGuide(item, launchAppName: launchAppName) }
+            Button(l10n("搬迁指引")) { showNativeGuide(item, launchAppName: launchAppName) }
                 .controlSize(.small)
                 .disabled(busy)
             if item.managedByUs {
-                Button("回迁") { restoreData(item) }
+                Button(l10n("回迁")) { restoreData(item) }
                     .controlSize(.small)
                     .disabled(busy)
             }
         case .symlink:
             // 只回迁我们自己接管的链接；用户自建链接（非台账管理）一律不碰
             if item.managedByUs {
-                Button("回迁") { restoreData(item) }
+                Button(l10n("回迁")) { restoreData(item) }
                     .controlSize(.small)
                     .disabled(busy)
             } else if !item.isSymlink {
-                Button("迁移到外置盘") { migrateData(item) }
+                Button(l10n("迁移到外置盘")) { migrateData(item) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .disabled(busy || !item.isWorthMigrating || item.ownerRunning
@@ -283,9 +283,9 @@ struct DataPanelView: View {
     private var divergenceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "数据分叉", systemImage: "arrow.triangle.branch")
+                SectionHeader(title: l10n("数据分叉"), systemImage: "arrow.triangle.branch")
                 Spacer()
-                Text("拔盘期间应用重建了目录，插回后两边都有数据")
+                Text(l10n("拔盘期间应用重建了目录，插回后两边都有数据"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -298,14 +298,14 @@ struct DataPanelView: View {
                     Text(divergence.title)
                         .font(.system(size: 12, weight: .medium))
                     Spacer()
-                    Button("以外置盘为准（本地改名隔离）") { isolate(divergence) }
+                    Button(l10n("以外置盘为准（本地改名隔离）")) { isolate(divergence) }
                         .controlSize(.small)
                         .buttonStyle(.borderedProminent)
                 }
                 .padding(.vertical, 2)
             }
 
-            Text("处置会把本地重建的目录改名为「××（离线重建 日期）」留在原地，链接恢复指向外置盘；两边的合并请自行确认后手动处理，工具不做自动合并。")
+            Text(l10n("处置会把本地重建的目录改名为「××（离线重建 日期）」留在原地，链接恢复指向外置盘；两边的合并请自行确认后手动处理，工具不做自动合并。"))
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -318,13 +318,13 @@ struct DataPanelView: View {
             Image(systemName: "shippingbox")
                 .font(.system(size: 28))
                 .foregroundStyle(MockTheme.accent)
-            Text("没有发现可处理的数据目录")
+            Text(l10n("没有发现可处理的数据目录"))
                 .font(.system(size: 13, weight: .semibold))
-            Text("装了剪映、LM Studio、Docker 等应用后，这里会自动出现搬迁入口")
+            Text(l10n("装了剪映、LM Studio、Docker 等应用后，这里会自动出现搬迁入口"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
             // 6.6（Muse 审查）：扫描失败与"真没有"共用空状态，必须给重试动作
-            Button("重新扫描") { rescan() }
+            Button(l10n("重新扫描")) { rescan() }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
                 .disabled(isScanning)
@@ -378,24 +378,19 @@ struct DataPanelView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "选择要搬到外置盘的文件夹（≥100MB；系统目录、资源库、桌面/文稿/下载会被拦下）"
-        panel.prompt = "选择"
+        panel.message = l10n("选择要搬到外置盘的文件夹（≥100MB；系统目录、资源库、桌面/文稿/下载会被拦下）")
+        panel.prompt = l10n("选择")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let path = url.path
 
         let alert = NSAlert()
-        alert.messageText = "把这个文件夹搬到外置盘？"
-        alert.informativeText = """
-        \(path)
-
-        将复制到外置盘、校验后在原位置建链接指回外置盘，原件留底可回滚。
-        迁移前请确认没有程序正在往这个文件夹写数据。
-        """
-        alert.addButton(withTitle: "开始迁移")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("把这个文件夹搬到外置盘？")
+        alert.informativeText = l10n("\n        %@\n\n        将复制到外置盘、校验后在原位置建链接指回外置盘，原件留底可回滚。\n        迁移前请确认没有程序正在往这个文件夹写数据。\n        ", path)
+        alert.addButton(withTitle: l10n("开始迁移"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        beginDataTask("迁移 自选 · \(url.lastPathComponent)...", operation: .migrate)
+        beginDataTask(l10n("迁移 自选 · %@...", url.lastPathComponent), operation: .migrate)
         Task { @MainActor in
             let result = await dataMigrator.migrateCustomFolder(
                 at: path, drivePath: drive.mountPoint) { _, _ in }
@@ -408,10 +403,10 @@ struct DataPanelView: View {
                                  launchAppName: String?) {
         guard case .native(let guide, _) = item.relocation else { return }
         let alert = NSAlert()
-        alert.messageText = "「\(item.title)」搬迁指引"
-        alert.informativeText = guide + "\n\n让应用自己搬最稳：不建链接、升级不怕、拔盘不分叉。搬完回到这里重新扫描，确认旧位置已清空。"
-        alert.addButton(withTitle: launchAppName != nil ? "打开应用" : "知道了")
-        if launchAppName != nil { alert.addButton(withTitle: "关闭") }
+        alert.messageText = l10n("「%@」搬迁指引", item.title)
+        alert.informativeText = guide + l10n("\n\n让应用自己搬最稳：不建链接、升级不怕、拔盘不分叉。搬完回到这里重新扫描，确认旧位置已清空。")
+        alert.addButton(withTitle: launchAppName != nil ? l10n("打开应用") : l10n("知道了"))
+        if launchAppName != nil { alert.addButton(withTitle: l10n("关闭")) }
         let result = alert.runModal()
 
         if result == .alertFirstButtonReturn, let launchAppName {
@@ -437,16 +432,13 @@ struct DataPanelView: View {
     private func migrateData(_ item: DataMigrator.DataLocationItem) {
         guard let drive = appState.externalDrive, !appState.isMigrationActive else { return }
         let alert = NSAlert()
-        alert.messageText = "迁移「\(item.title)」到外置硬盘"
-        alert.informativeText = """
-        将复制 \(ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file)) 到外置盘，校验通过后在原位置建链接，原件留底可回滚。
-        请确认相关应用当前没有正在写入数据。
-        """
-        alert.addButton(withTitle: "开始迁移")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("迁移「%@」到外置硬盘", item.title)
+        alert.informativeText = l10n("\n        将复制 %@ 到外置盘，校验通过后在原位置建链接，原件留底可回滚。\n        请确认相关应用当前没有正在写入数据。\n        ", ByteCountFormatter.string(fromByteCount: item.sizeBytes, countStyle: .file))
+        alert.addButton(withTitle: l10n("开始迁移"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        beginDataTask("迁移 \(item.title)...", operation: .migrate)
+        beginDataTask(l10n("迁移 %@...", item.title), operation: .migrate)
         Task { @MainActor in
             let result = await dataMigrator.migrateData(
                 item: item, drivePath: drive.mountPoint) { _, _ in }
@@ -460,17 +452,14 @@ struct DataPanelView: View {
         // 与迁移方向补上对称的知情确认：回迁会先摘掉原位置的链接，
         // 期间属主应用若在运行，它新建/写入的数据会被复制流程的 removeItem 直接删掉
         let alert = NSAlert()
-        alert.messageText = "把「\(item.title)」回迁到内置盘？"
-        alert.informativeText = """
-        将删除原位置的链接，把外置盘上的数据复制回内置盘，校验通过后清理外置副本。
-        回迁期间请勿使用相关应用（属主应用正在运行时，工具会直接拒绝回迁）。
-        """
-        alert.addButton(withTitle: "开始回迁")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("把「%@」回迁到内置盘？", item.title)
+        alert.informativeText = l10n("\n        将删除原位置的链接，把外置盘上的数据复制回内置盘，校验通过后清理外置副本。\n        回迁期间请勿使用相关应用（属主应用正在运行时，工具会直接拒绝回迁）。\n        ")
+        alert.addButton(withTitle: l10n("开始回迁"))
+        alert.addButton(withTitle: l10n("取消"))
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        beginDataTask("回迁 \(item.title)...", operation: .restore)
+        beginDataTask(l10n("回迁 %@...", item.title), operation: .restore)
         Task { @MainActor in
             let result = await dataMigrator.restoreData(
                 item: item, drivePath: drive.mountPoint) { _, _ in }
@@ -502,18 +491,15 @@ struct DataPanelView: View {
 
     private func isolate(_ divergence: DataMigrator.DataDivergence) {
         let alert = NSAlert()
-        alert.messageText = "数据分叉处置"
-        alert.informativeText = """
-        将把本地重建的「\(divergence.title)」改名隔离（保留在原地），链接恢复指向外置盘正本。
-        如果你离线期间产生的数据更重要，请先手动备份，或选择暂不处置。
-        """
-        alert.addButton(withTitle: "以外置盘为准")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("数据分叉处置")
+        alert.informativeText = l10n("\n        将把本地重建的「%@」改名隔离（保留在原地），链接恢复指向外置盘正本。\n        如果你离线期间产生的数据更重要，请先手动备份，或选择暂不处置。\n        ", divergence.title)
+        alert.addButton(withTitle: l10n("以外置盘为准"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         if dataMigrator.isolateDivergence(divergence) {
             divergences.removeAll { $0.id == divergence.id }
         } else {
-            lastError = "分叉隔离失败（目录可能被占用）"
+            lastError = l10n("分叉隔离失败（目录可能被占用）")
         }
     }
 }

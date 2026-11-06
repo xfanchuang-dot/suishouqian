@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "随手迁",
+    defaultLocalization: "zh-Hans",
     platforms: [
         .macOS(.v14)
     ],
@@ -17,7 +18,8 @@ let package = Package(
             ],
             path: "Sources/Suishouqian",
             resources: [
-                .process("Assets.xcassets")
+                .process("Assets.xcassets"),
+                .process("Localizable.xcstrings"),
             ]
         ),
         .testTarget(

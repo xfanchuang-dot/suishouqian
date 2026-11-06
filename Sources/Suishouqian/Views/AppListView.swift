@@ -38,19 +38,19 @@ struct AppListView: View {
         if !chosen.isEmpty {
             let bytes = chosen.reduce(0) { $0 + $1.size }
             HStack(spacing: 10) {
-                Text("已选 \(chosen.count) 个（\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))）")
+                Text(l10n("已选 %lld 个（%@）", chosen.count, ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)))
                     .font(.system(size: 11, weight: .medium))
                     .monospacedDigit()
                 Spacer()
-                Button("迁移选中") { runSelected(migrate: true) }
+                Button(l10n("迁移选中")) { runSelected(migrate: true) }
                     .controlSize(.small)
                     .disabled(appState.externalDrive == nil || appState.isMigrationActive
                               || chosen.allSatisfy { $0.status != .normal })
-                Button("回迁选中") { runSelected(migrate: false) }
+                Button(l10n("回迁选中")) { runSelected(migrate: false) }
                     .controlSize(.small)
                     .disabled(appState.externalDrive == nil || appState.isMigrationActive
                               || chosen.allSatisfy { $0.status != .migrated })
-                Button("取消选择") { selectedApps.removeAll() }
+                Button(l10n("取消选择")) { selectedApps.removeAll() }
                     .controlSize(.small)
             }
             .padding(.horizontal, 16)
@@ -97,7 +97,7 @@ struct AppListView: View {
                     progress: progress)
                 if var current = appState.migrationTask {
                     current.status = result.success
-                        ? .completed : .failed(result.error ?? "未知错误")
+                        ? .completed : .failed(result.error ?? l10n("未知错误"))
                     appState.migrationTask = current
                 }
             }
@@ -162,7 +162,7 @@ struct AppListView: View {
                     .padding(.horizontal, 16)
                 }
                 if sorted.count > 30 {
-                    Text("仅显示最大的 30 个，共 \(sorted.count) 个")
+                    Text(l10n("仅显示最大的 30 个，共 %lld 个", sorted.count))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                         .padding(.top, 8)
@@ -221,7 +221,7 @@ struct AppListView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
-                    TextField("搜索应用…", text: $searchText)
+                    TextField(l10n("搜索应用…"), text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                         .focused($searchFocused)
@@ -278,8 +278,8 @@ struct AppListView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 72)
-                .help("切换列表/大小图表")
-                .accessibilityLabel("切换列表或大小图表")
+                .help(l10n("切换列表/大小图表"))
+                .accessibilityLabel(l10n("切换列表或大小图表"))
 
                 // 排序（对照效果图：“排序 ⌄”药丸按钮）
                 Menu {
@@ -288,7 +288,7 @@ struct AppListView: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text("排序")
+                        Text(l10n("排序"))
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .medium))
                     }
@@ -314,7 +314,7 @@ struct AppListView: View {
                     Spacer()
                     ProgressView()
                         .scaleEffect(0.8)
-                    Text("正在扫描应用...")
+                    Text(l10n("正在扫描应用..."))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.top, 4)
@@ -328,9 +328,9 @@ struct AppListView: View {
                         accentSymbols: ["doc.fill", "music.note", "message.fill",
                                         "cloud.fill", "video.fill", "gearshape.fill"],
                         gradient: [.blue, .purple],
-                        title: "还没有可迁移的应用",
-                        subtitle: "连接外置磁盘后，这里会列出可以迁移的应用",
-                        actionTitle: "重新扫描",
+                        title: l10n("还没有可迁移的应用"),
+                        subtitle: l10n("连接外置磁盘后，这里会列出可以迁移的应用"),
+                        actionTitle: l10n("重新扫描"),
                         action: { Task { await appState.scanApps() } },
                         reduceMotion: reduceMotion,
                         imageName: "empty-apps"
@@ -340,8 +340,8 @@ struct AppListView: View {
                         symbol: "magnifyingglass",
                         accentSymbols: [],
                         gradient: [.blue, .cyan],
-                        title: "无匹配结果",
-                        subtitle: "换个关键词试试",
+                        title: l10n("无匹配结果"),
+                        subtitle: l10n("换个关键词试试"),
                         reduceMotion: reduceMotion,
                         imageName: "empty-search"
                     )

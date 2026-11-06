@@ -193,10 +193,10 @@ struct MigrationStageNode: View {
 
     private var accessibilityState: String {
         switch state {
-        case .pending: return "未开始"
-        case .active: return "进行中"
-        case .done: return "已完成"
-        case .stopped: return "已停止"
+        case .pending: return l10n("未开始")
+        case .active: return l10n("进行中")
+        case .done: return l10n("已完成")
+        case .stopped: return l10n("已停止")
         }
     }
 }

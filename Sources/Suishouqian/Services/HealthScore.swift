@@ -62,19 +62,19 @@ enum HealthScore {
         }
 
         apply(input.brokenLinks * brokenLinkPerItem, brokenLinkCap,
-              "\(input.brokenLinks) 条修不好的断链")
+              l10n("%@ 条修不好的断链", input.brokenLinks))
         apply(input.offlineVolumesWithApps * offlineVolumePenalty, offlineVolumePenalty * 2,
-              "\(input.offlineVolumesWithApps) 块存有应用的盘处于离线状态")
+              l10n("%@ 块存有应用的盘处于离线状态", input.offlineVolumesWithApps))
         apply(input.regressions * regressionPerItem, regressionCap,
-              "\(input.regressions) 条迁移被更新顶掉（回归）")
+              l10n("%@ 条迁移被更新顶掉（回归）", input.regressions))
         apply(input.dataForks * dataForkPerItem, dataForkCap,
-              "\(input.dataForks) 处数据两地分居（需对账）")
+              l10n("%@ 处数据两地分居（需对账）", input.dataForks))
         apply(input.backupIssues * backupPerItem, backupCap,
-              "\(input.backupIssues) 条备份孤儿/超龄")
+              l10n("%@ 条备份孤儿/超龄", input.backupIssues))
         apply(input.residues * residuePerItem, residueCap,
-              "\(input.residues) 项卸载残留")
+              l10n("%@ 项卸载残留", input.residues))
         if input.hasUSB2VolumeWithApps {
-            apply(usb2Penalty, usb2Penalty, "有应用住在 USB2 链路的盘上（体感上限低）")
+            apply(usb2Penalty, usb2Penalty, l10n("有应用住在 USB2 链路的盘上（体感上限低）"))
         }
 
         let value = max(0, 100 - total)
@@ -87,14 +87,14 @@ enum HealthScore {
                                        deductions: [Deduction]) -> (String, String?) {
         let grade: String
         switch score {
-        case 90...: grade = "很健康"
-        case 70..<90: grade = "良好"
-        case 50..<70: grade = "需要关注"
-        default: grade = "建议处理"
+        case 90...: grade = l10n("很健康")
+        case 70..<90: grade = l10n("良好")
+        case 50..<70: grade = l10n("需要关注")
+        default: grade = l10n("建议处理")
         }
         // 最优先待办 = 扣分最多的那一项（把分数变成行动）
         let top = deductions.max { $0.points < $1.points }
-        return (grade, top.map { "先处理：\($0.reason)，可回 \($0.points) 分" })
+        return (grade, top.map { l10n("先处理：%@，可回 %@ 分", $0.reason, $0.points) })
     }
 }
 

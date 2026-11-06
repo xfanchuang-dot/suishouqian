@@ -191,14 +191,14 @@ enum UndoPlanner {
     static func plan(entry: JournalEntry, context: UndoContext) -> UndoPlan {
         guard entry.isOK else {
             return UndoPlan(feasible: false,
-                            message: "这条操作当时就失败了，没有东西可撤销", inverseOp: nil)
+                            message: l10n("这条操作当时就失败了，没有东西可撤销"), inverseOp: nil)
         }
         guard !entry.isUndone else {
-            return UndoPlan(feasible: false, message: "已经撤销过一次了", inverseOp: nil)
+            return UndoPlan(feasible: false, message: l10n("已经撤销过一次了"), inverseOp: nil)
         }
         guard !context.appRunning else {
             return UndoPlan(feasible: false,
-                            message: "「\(entry.appName)」正在运行，先退出再撤销", inverseOp: nil)
+                            message: l10n("「%@」正在运行，先退出再撤销", entry.appName), inverseOp: nil)
         }
 
         switch entry.op {
@@ -206,63 +206,63 @@ enum UndoPlanner {
             // 撤销迁移 = 回迁：外置副本要在，内置盘要有单份空间
             guard context.externalCopyExists else {
                 return UndoPlan(feasible: false,
-                                message: "外置盘上的副本已不在，无法回迁撤销", inverseOp: nil)
+                                message: l10n("外置盘上的副本已不在，无法回迁撤销"), inverseOp: nil)
             }
             // 与回迁预检一致：一份副本 + 5%。只比应用体积会在差这 5% 时放行，执行时再被拒绝。
             guard context.internalFreeBytes
                     >= AppMigrator.requiredSingleCopyBytes(appSize: context.appSize) else {
                 return UndoPlan(feasible: false,
-                                message: "内置盘剩余空间不够放下这个应用，先清理再撤销", inverseOp: nil)
+                                message: l10n("内置盘剩余空间不够放下这个应用，先清理再撤销"), inverseOp: nil)
             }
-            return UndoPlan(feasible: true, message: "回迁到内置盘（走完整安全链）",
+            return UndoPlan(feasible: true, message: l10n("回迁到内置盘（走完整安全链）"),
                             inverseOp: .restore)
 
         case .restore, .moveBack:
             // 撤销回迁 = 再迁出：内置副本要在，外置盘要装得下两份（副本+留底）
             guard context.internalCopyExists else {
                 return UndoPlan(feasible: false,
-                                message: "内置盘上的应用副本已不在，无法再迁出撤销", inverseOp: nil)
+                                message: l10n("内置盘上的应用副本已不在，无法再迁出撤销"), inverseOp: nil)
             }
             let need = AppMigrator.requiredTargetBytes(appSize: context.appSize)
             guard context.externalFreeBytes >= need else {
                 return UndoPlan(feasible: false,
-                                message: "外置盘剩余空间不够（需容纳副本与留底备份两份）", inverseOp: nil)
+                                message: l10n("外置盘剩余空间不够（需容纳副本与留底备份两份）"), inverseOp: nil)
             }
-            return UndoPlan(feasible: true, message: "重新迁移到外置盘（走完整安全链）",
+            return UndoPlan(feasible: true, message: l10n("重新迁移到外置盘（走完整安全链）"),
                             inverseOp: .migrate)
 
         case .relocate:
             // 撤销盘间迁移 = 反向搬回去：目标盘（当前所在）副本要在，源盘在线且装得下
             guard context.externalCopyExists else {
                 return UndoPlan(feasible: false,
-                                message: "应用当前所在盘的副本已不在，无法反向撤销", inverseOp: nil)
+                                message: l10n("应用当前所在盘的副本已不在，无法反向撤销"), inverseOp: nil)
             }
             guard context.originVolumeOnline else {
                 return UndoPlan(feasible: false,
-                                message: "原来的那块盘现在不在线，插上后再撤销", inverseOp: nil)
+                                message: l10n("原来的那块盘现在不在线，插上后再撤销"), inverseOp: nil)
             }
             // 反向盘间迁移只复制一份，不写留底备份。按两份空间拒绝会把本来搬得回去的撤销卡住。
             let need = AppMigrator.requiredSingleCopyBytes(appSize: context.appSize)
             guard context.externalFreeBytes >= need else {
                 return UndoPlan(feasible: false,
-                                message: "原来的盘剩余空间不够放下这份副本", inverseOp: nil)
+                                message: l10n("原来的盘剩余空间不够放下这份副本"), inverseOp: nil)
             }
-            return UndoPlan(feasible: true, message: "搬回原来的盘（链接指回源盘）",
+            return UndoPlan(feasible: true, message: l10n("搬回原来的盘（链接指回源盘）"),
                             inverseOp: .relocate)
 
         case .uninstall:
             // 卸载没有常规逆操作：废纸篓还在就能恢复，不在就如实告知
             guard context.trashContainsApp else {
                 return UndoPlan(feasible: false,
-                                message: "废纸篓里找不到该应用本体（可能已清空，或它所在的那块盘不在线——插上后再试）",
+                                message: l10n("废纸篓里找不到该应用本体（可能已清空，或它所在的那块盘不在线——插上后再试）"),
                                 inverseOp: nil)
             }
             return UndoPlan(feasible: true,
-                            message: "从废纸篓恢复应用本体到「应用程序」（不重建链接，恢复后是普通内置应用）",
+                            message: l10n("从废纸篓恢复应用本体到「应用程序」（不重建链接，恢复后是普通内置应用）"),
                             inverseOp: nil)
 
         case .undo:
-            return UndoPlan(feasible: false, message: "撤销本身不需要再撤销", inverseOp: nil)
+            return UndoPlan(feasible: false, message: l10n("撤销本身不需要再撤销"), inverseOp: nil)
         }
     }
 }

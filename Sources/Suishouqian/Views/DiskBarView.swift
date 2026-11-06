@@ -17,7 +17,7 @@ struct DiskBarView: View {
                 // v3.1 多盘横条：VolumeStore 有卷记录时，每个在线卷一张卡；
                 // 离线卷沿用统一离线横幅（MigrationPanel/总览页已有），此处不重复占位。
                 if let builtin = appState.builtinDrive {
-                    driveCard(drive: builtin, label: "内置硬盘",
+                    driveCard(drive: builtin, label: l10n("内置硬盘"),
                               icon: "internaldrive.fill", color: .blue)
                         .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
                         .entrance(delay: 0)
@@ -30,7 +30,7 @@ struct DiskBarView: View {
                               label: vol.displayName,
                               icon: "externaldrive.fill",
                               color: vol.role == .primary ? .green : .teal,
-                              badge: vol.role == .primary ? "主盘" : "目标盘")
+                              badge: vol.role == .primary ? l10n("主盘") : l10n("目标盘"))
                         .task(id: vol.info.mountPoint) { probeLink(mount: vol.info.mountPoint) }
                         // stagger 入场：每张卡晚 60ms，横条从左到右"铺开"
                         .entrance(delay: Double(idx + 1) * 0.06)
@@ -38,7 +38,7 @@ struct DiskBarView: View {
                 }
             } else {
                 if let builtin = appState.builtinDrive {
-                    driveCard(drive: builtin, label: "内置硬盘",
+                    driveCard(drive: builtin, label: l10n("内置硬盘"),
                               icon: "internaldrive.fill", color: .blue)
                         .task(id: builtin.mountPoint) { probeLink(mount: builtin.mountPoint) }
                         .entrance(delay: 0)
@@ -46,7 +46,7 @@ struct DiskBarView: View {
                 }
 
                 if let external = appState.externalDrive {
-                    driveCard(drive: external, label: "外置硬盘",
+                    driveCard(drive: external, label: l10n("外置硬盘"),
                               icon: "externaldrive.fill", color: .green)
                         .task(id: external.mountPoint) { probeLink(mount: external.mountPoint) }
                         .entrance(delay: 0.06)
@@ -123,7 +123,7 @@ struct DiskBarView: View {
                                 .help(healthHelpText(h))
                         }
                     }
-                    Text("可用 \(drive.freeFormatted) / 共 \(drive.totalFormatted)")
+                    Text(l10n("可用 %@ / 共 %@", drive.freeFormatted, drive.totalFormatted))
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
@@ -134,7 +134,7 @@ struct DiskBarView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
                         .foregroundColor(.orange)
-                        .help("内置盘剩余空间低于 40GB 警戒线")
+                        .help(l10n("内置盘剩余空间低于 40GB 警戒线"))
                 }
                 Text("\(Int(drive.usageRatio * 100))%")
                     .font(.system(size: 19, weight: .heavy, design: .rounded))
@@ -224,10 +224,10 @@ struct DiskBarView: View {
                 ProgressView()
                     .controlSize(.mini)
             } else {
-                Button("测速") { runSpeedTest(mount: mount) }
+                Button(l10n("测速")) { runSpeedTest(mount: mount) }
                     .buttonStyle(.borderless)
                     .font(.system(size: 10))
-                    .help("写 256MB 临时文件并读回实测，测完即删；点一次磨一次盘，按需点")
+                    .help(l10n("写 256MB 临时文件并读回实测，测完即删；点一次磨一次盘，按需点"))
             }
         }
     }
@@ -241,8 +241,8 @@ struct DiskBarView: View {
             let result = await OffPool.run { DiskSpeedTest.run(mountPoint: mount) }
             speedRunning[mount] = false
             speedText[mount] = result.map {
-                "写入 \(Int($0.writeMBps)) · 读取 \(Int($0.readMBps)) MB/s"
-            } ?? "测速失败（盘可能只读或已满）"
+                l10n("写入 %lld · 读取 %lld MB/s", Int($0.writeMBps), Int($0.readMBps))
+            } ?? l10n("测速失败（盘可能只读或已满）")
             // 实测数据喂 VolumeStore：速度是链路档位的唯一诚实证据——
             // 写入 <50MB/s 判 USB2 档（健康分/推荐引擎才会如实降权）；USB 且达标升 usb3
             await MainActor.run {
@@ -265,7 +265,7 @@ struct DiskBarView: View {
                         if let alert = VolumeSpeedBaseline.assess(
                             history: VolumeSpeedBaseline.history(volumeUUID: uuid)) {
                             speedText[mount] = String(
-                                format: "读取 %.0f MB/s · 仅剩基线 %.0f%%，盘况异常请尽快备份",
+                                format: l10n("读取 %.0f MB/s · 仅剩基线 %.0f%%，盘况异常请尽快备份"),
                                 alert.latestMBps, Double(alert.percentOfBaseline))
                         }
                     }
@@ -280,7 +280,7 @@ struct DiskBarView: View {
         HStack(spacing: 8) {
             DriveIconBox(systemImage: "externaldrive.badge.xmark", color: .orange)
             VStack(alignment: .leading, spacing: 1) {
-                Text("外置硬盘")
+                Text(l10n("外置硬盘"))
                     .font(.system(size: 12, weight: .semibold))
                 Text(VolumeOfflineBanner.message(for: nil))
                     .font(.system(size: 10))
@@ -314,13 +314,13 @@ struct DiskBarView: View {
     private func healthHelpText(_ info: DiskHealthInfo) -> String {
         switch info.health {
         case .verified:
-            return "磁盘健康：SMART 自检通过"
+            return l10n("磁盘健康：SMART 自检通过")
         case .failing:
-            return "磁盘健康：SMART 报警！盘可能即将损坏，建议尽快把应用搬到其它盘或内置盘"
+            return l10n("磁盘健康：SMART 报警！盘可能即将损坏，建议尽快把应用搬到其它盘或内置盘")
         case .unsupported:
-            return "磁盘健康：读不到 SMART（硬盘盒不支持），以体检为准"
+            return l10n("磁盘健康：读不到 SMART（硬盘盒不支持），以体检为准")
         case .unknown:
-            return "磁盘健康：未知"
+            return l10n("磁盘健康：未知")
         }
     }
 

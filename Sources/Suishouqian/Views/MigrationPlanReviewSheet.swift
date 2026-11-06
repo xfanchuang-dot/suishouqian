@@ -22,12 +22,12 @@ extension MigrationExecutionPhase {
     /// 固定阶段的展示名（评审 sheet 与执行视图共用，文案单一出处）。
     var displayName: String {
         switch self {
-        case .preflight: return "预检"
-        case .transfer: return "传输中"
-        case .copyAndSwitch: return "复制"
-        case .verify: return "文件校验"
-        case .backupAndSwitch: return "留底与切换"
-        case .blocked: return "已停止"
+        case .preflight: return l10n("预检")
+        case .transfer: return l10n("传输中")
+        case .copyAndSwitch: return l10n("复制")
+        case .verify: return l10n("文件校验")
+        case .backupAndSwitch: return l10n("留底与切换")
+        case .blocked: return l10n("已停止")
         }
     }
 }
@@ -75,9 +75,9 @@ struct MigrationPlanReviewSheet: View {
         HStack(spacing: 10) {
             DriveIconBox(systemImage: "externaldrive.fill", color: MockTheme.accent)
             VStack(alignment: .leading, spacing: 2) {
-                Text("迁移计划评审")
+                Text(l10n("迁移计划评审"))
                     .font(.system(size: 16, weight: .bold))
-                Text("共 \(count) 个应用，确认无误后才会开始")
+                Text(l10n("共 %lld 个应用，确认无误后才会开始", count))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .monospacedDigit()
@@ -120,12 +120,12 @@ struct MigrationPlanReviewSheet: View {
 
     private func destinationCard(_ plan: MigrationPlanSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "目标盘", systemImage: "externaldrive")
+            SectionHeader(title: l10n("目标盘"), systemImage: "externaldrive")
             ForEach(plan.capacityBudgets.filter(\.isDestination)) { budget in
                 HStack(spacing: 6) {
                     Text(budget.name)
                         .font(.system(size: 13, weight: .semibold))
-                    StatusPill("空间充足", systemImage: "checkmark.circle.fill",
+                    StatusPill(l10n("空间充足"), systemImage: "checkmark.circle.fill",
                                color: MockTheme.healthGreen)
                     Spacer()
                 }
@@ -142,16 +142,16 @@ struct MigrationPlanReviewSheet: View {
 
     private func spaceBudgetCard(_ plan: MigrationPlanSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "空间与备份预算", systemImage: "scalemass")
+            SectionHeader(title: l10n("空间与备份预算"), systemImage: "scalemass")
             ForEach(plan.capacityBudgets) { budget in
                 if budget.isDestination && budget.isBackup {
-                    Text("\(budget.name)：目标盘与备份盘（同一卷）")
+                    Text(l10n("%@：目标盘与备份盘（同一卷）", budget.name))
                         .font(.system(size: 12, weight: .medium))
                 } else if budget.isDestination {
-                    Text("\(budget.name)：目标盘")
+                    Text(l10n("%@：目标盘", budget.name))
                         .font(.system(size: 12, weight: .medium))
                 } else {
-                    Text("\(budget.name)：异卷备份盘")
+                    Text(l10n("%@：异卷备份盘", budget.name))
                         .font(.system(size: 12, weight: .medium))
                 }
                 Text(budget.path)
@@ -159,14 +159,14 @@ struct MigrationPlanReviewSheet: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                labeledRow("当前可用", bytes(budget.freeBytes))
-                labeledRow("此计划需要", bytes(budget.requiredBytes))
+                labeledRow(l10n("当前可用"), bytes(budget.freeBytes))
+                labeledRow(l10n("此计划需要"), bytes(budget.requiredBytes))
                 if budget != plan.capacityBudgets.last {
                     Divider().opacity(0.5)
                 }
             }
-            labeledRow("预计释放内置盘", bytes(plan.totalFreedBytes))
-            Text("同卷备份已计入该卷的计划需求；异卷备份单独计入对应备份盘容量。")
+            labeledRow(l10n("预计释放内置盘"), bytes(plan.totalFreedBytes))
+            Text(l10n("同卷备份已计入该卷的计划需求；异卷备份单独计入对应备份盘容量。"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -175,7 +175,7 @@ struct MigrationPlanReviewSheet: View {
 
     private func itemsCard(_ plan: MigrationPlanSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(title: "迁移明细", systemImage: "list.bullet.rectangle")
+            SectionHeader(title: l10n("迁移明细"), systemImage: "list.bullet.rectangle")
             ForEach(Array(plan.items.enumerated()), id: \.element.id) { index, item in
                 if index > 0 { Divider().opacity(0.5) }
                 itemRow(item)
@@ -195,7 +195,7 @@ struct MigrationPlanReviewSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
-                Text("目标：\(item.destinationName) · \(item.destinationPath)")
+                Text(l10n("目标：%@ · %@", item.destinationName, item.destinationPath))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -210,7 +210,7 @@ struct MigrationPlanReviewSheet: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
                 .monospacedDigit()
-            StatusPill(item.createsLink ? "建链" : "不建链",
+            StatusPill(item.createsLink ? l10n("建链") : l10n("不建链"),
                        systemImage: item.createsLink ? "link" : "link.slash",
                        color: item.createsLink ? MockTheme.accent : Color.secondary)
         }
@@ -240,7 +240,7 @@ struct MigrationPlanReviewSheet: View {
             }
         if !warnings.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                SectionHeader(title: "更新影响", systemImage: "arrow.triangle.2.circlepath")
+                SectionHeader(title: l10n("更新影响"), systemImage: "arrow.triangle.2.circlepath")
                 ForEach(warnings, id: \.id) { warning in
                     VStack(alignment: .leading, spacing: 4) {
                         Text("「\(warning.name)」")
@@ -266,7 +266,7 @@ struct MigrationPlanReviewSheet: View {
         let stages: [MigrationExecutionPhase] =
             [.preflight, .copyAndSwitch, .verify, .backupAndSwitch]
         return VStack(alignment: .leading, spacing: 14) {
-            SectionHeader(title: "执行阶段（固定四步）", systemImage: "list.number")
+            SectionHeader(title: l10n("执行阶段（固定四步）"), systemImage: "list.number")
             HStack(spacing: 0) {
                 ForEach(stages.indices, id: \.self) { index in
                     if index > 0 {
@@ -278,7 +278,7 @@ struct MigrationPlanReviewSheet: View {
                     MigrationStageNode(title: stages[index].displayName, state: .pending)
                 }
             }
-            Text("阶段顺序与迁移服务一致：预检、复制、文件校验、留底与切换。服务返回成功后才显示完成。")
+            Text(l10n("阶段顺序与迁移服务一致：预检、复制、文件校验、留底与切换。服务返回成功后才显示完成。"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -293,7 +293,7 @@ struct MigrationPlanReviewSheet: View {
                 .font(.system(size: 34))
                 .foregroundColor(MockTheme.statOrange)
                 .accessibilityHidden(true)
-            Text("当前无法开始迁移")
+            Text(l10n("当前无法开始迁移"))
                 .font(.system(size: 15, weight: .bold))
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(reasons, id: \.self) { reason in
@@ -315,7 +315,7 @@ struct MigrationPlanReviewSheet: View {
             )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("当前无法开始迁移：" + reasons.joined(separator: "；"))
+        .accessibilityLabel(l10n("当前无法开始迁移：") + reasons.joined(separator: "；"))
     }
 
     // MARK: 底部操作条
@@ -326,16 +326,16 @@ struct MigrationPlanReviewSheet: View {
             Spacer()
             switch state {
             case .ready:
-                Button("取消") { dismiss() }
+                Button(l10n("取消")) { dismiss() }
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)
-                MockGradientButton(title: "确认并开始", systemImage: "checkmark.seal.fill") {
+                MockGradientButton(title: l10n("确认并开始"), systemImage: "checkmark.seal.fill") {
                     guard let plan = state.summary else { return }
                     onConfirm(plan)
                     dismiss()
                 }
             case .blocked:
-                Button("关闭") { dismiss() }
+                Button(l10n("关闭")) { dismiss() }
             }
         }
         .padding(.horizontal, 18)
@@ -364,9 +364,9 @@ struct MigrationPlanReviewSheet: View {
     private func backupDescription(_ placement: MigrationBackupPlacement) -> String {
         switch placement {
         case .sameVolume:
-            return "备份：与目标同卷留底，已计入目标盘空间预算"
+            return l10n("备份：与目标同卷留底，已计入目标盘空间预算")
         case .alternateVolume(let name, let path):
-            return "备份：\(name)（\(path)），容量已单独计入"
+            return l10n("备份：%@（%@），容量已单独计入", name, path)
         }
     }
 }

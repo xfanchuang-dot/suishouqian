@@ -110,7 +110,7 @@ final class CrashJournal: @unchecked Sendable {
         queue.sync {
             guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
             guard let entry = loadEntry() else {
-                return ["崩溃日志损坏，没有改动任何文件"]
+                return [l10n("崩溃日志损坏，没有改动任何文件")]
             }
             let snap = Self.snapshot(of: entry, fileManager: fileManager)
             let plan = Self.plan(entry: entry, snapshot: snap)
@@ -158,12 +158,12 @@ final class CrashJournal: @unchecked Sendable {
             switch effect {
             case .removePartial(let path, let keeper):
                 guard canDiscard(path, keeper: keeper, fileManager: fileManager) else {
-                    return "原计划要清掉半截目录，但另一份副本已不在，已中止且未删除 \(path)"
+                    return l10n("原计划要清掉半截目录，但另一份副本已不在，已中止且未删除 %@", path)
                 }
                 try? fileManager.removeItem(atPath: path)
             case .replacePartialWithLink(let at, let to, let keeper):
                 guard canDiscard(at, keeper: keeper, fileManager: fileManager) else {
-                    return "链接位上有残留，但另一份副本已不在，未删除 \(at)"
+                    return l10n("链接位上有残留，但另一份副本已不在，未删除 %@", at)
                 }
                 try? fileManager.removeItem(atPath: at)
                 try? fileManager.createSymbolicLink(atPath: at, withDestinationPath: to)
@@ -176,7 +176,7 @@ final class CrashJournal: @unchecked Sendable {
             case .retargetLink(let at, let to):
                 switch classify(at, fileManager) {
                 case .bundle, .partialDirectory:
-                    return "链接位是目录，未覆盖 \(at)"
+                    return l10n("链接位是目录，未覆盖 %@", at)
                 case .symlink:
                     try? fileManager.removeItem(atPath: at)
                     let parent = (at as NSString).deletingLastPathComponent
@@ -187,7 +187,7 @@ final class CrashJournal: @unchecked Sendable {
                     try? fileManager.createDirectory(atPath: parent, withIntermediateDirectories: true)
                     try? fileManager.createSymbolicLink(atPath: at, withDestinationPath: to)
                 case .other:
-                    return "链接位被其它文件占用，未删除 \(at)"
+                    return l10n("链接位被其它文件占用，未删除 %@", at)
                 }
             case .clearMarker(let target):
                 try? fileManager.removeItem(atPath: target + AppMigrator.relocationMarkerSuffix)
@@ -208,33 +208,33 @@ final class CrashJournal: @unchecked Sendable {
         let link = entry.sourcePath
         let external = entry.targetPath
         if case .symlink(let dest) = snap.source, same(dest, external) {
-            return Plan(effects: [], message: "回迁未完成，入口链接已在，外置副本未动")
+            return Plan(effects: [], message: l10n("回迁未完成，入口链接已在，外置副本未动"))
         }
         switch snap.source {
         case .missing:
             if snap.target == .bundle {
                 return Plan(effects: [.makeLink(at: link, to: external)],
-                            message: "回迁中断，已把入口指回外置副本，未删除外置副本")
+                            message: l10n("回迁中断，已把入口指回外置副本，未删除外置副本"))
             }
             if snap.backup == .bundle, let backup = entry.backupPath {
                 return Plan(effects: [],
-                            message: "回迁中断且外置副本不在，备份仍在 \(backup)，未删除")
+                            message: l10n("回迁中断且外置副本不在，备份仍在 %@，未删除", backup))
             }
-            return Plan(effects: [], message: "回迁中断，没有找到可恢复的副本，未删除任何文件")
+            return Plan(effects: [], message: l10n("回迁中断，没有找到可恢复的副本，未删除任何文件"))
         case .partialDirectory:
             if snap.target == .bundle {
                 return Plan(
                     effects: [.replacePartialWithLink(at: link, to: external, keeper: external)],
-                    message: "回迁中断，已清掉内置盘上的半截副本并恢复链接，外置副本保留")
+                    message: l10n("回迁中断，已清掉内置盘上的半截副本并恢复链接，外置副本保留"))
             }
-            return Plan(effects: [], message: "回迁中断，内置盘有残留且外置副本不在，未删除残留")
+            return Plan(effects: [], message: l10n("回迁中断，内置盘有残留且外置副本不在，未删除残留"))
         case .bundle:
             if snap.target == .bundle {
-                return Plan(effects: [], message: "回迁中断，内置与外置两份都在，未删除任何一份")
+                return Plan(effects: [], message: l10n("回迁中断，内置与外置两份都在，未删除任何一份"))
             }
-            return Plan(effects: [], message: "回迁已落到内置盘，外置副本不在，未再删除内置副本")
+            return Plan(effects: [], message: l10n("回迁已落到内置盘，外置副本不在，未再删除内置副本"))
         case .symlink, .other:
-            return Plan(effects: [], message: "回迁中断，入口状态无法安全自动处理，未删除任何文件")
+            return Plan(effects: [], message: l10n("回迁中断，入口状态无法安全自动处理，未删除任何文件"))
         }
     }
 
@@ -243,7 +243,7 @@ final class CrashJournal: @unchecked Sendable {
         let target = entry.targetPath
         if entry.createLink, case .symlink(let dest) = snap.source, same(dest, target) {
             return Plan(effects: [.clearMarker(atTarget: target)],
-                        message: "迁移已切换完成，补清标记，未删除目标副本")
+                        message: l10n("迁移已切换完成，补清标记，未删除目标副本"))
         }
         switch snap.source {
         case .missing:
@@ -256,22 +256,22 @@ final class CrashJournal: @unchecked Sendable {
                 effects.append(.clearMarker(atTarget: target))
                 effects.append(contentsOf: linkEffects(entry, snap, target: target))
                 let msg = entry.createLink
-                    ? "迁移中断，源已不在，已把入口指到目标副本，未删除目标"
-                    : "迁移中断，应用留在目标位置，未删除目标副本"
+                    ? l10n("迁移中断，源已不在，已把入口指到目标副本，未删除目标")
+                    : l10n("迁移中断，应用留在目标位置，未删除目标副本")
                 return Plan(effects: effects, message: msg)
             }
             if snap.backup == .bundle, let backup = entry.backupPath {
                 return Plan(effects: [],
-                            message: "迁移中断，唯一完整副本在备份 \(backup)，未删除")
+                            message: l10n("迁移中断，唯一完整副本在备份 %@，未删除", backup))
             }
-            return Plan(effects: [], message: "迁移中断，没有找到完整副本，未删除任何文件")
+            return Plan(effects: [], message: l10n("迁移中断，没有找到完整副本，未删除任何文件"))
         case .bundle:
             if snap.target == .partialDirectory {
                 return Plan(
                     effects: [.removePartial(path: target, keeper: source)],
-                    message: "迁移中断，已清掉目标盘上的半截副本，原件未动")
+                    message: l10n("迁移中断，已清掉目标盘上的半截副本，原件未动"))
             }
-            return Plan(effects: [], message: "迁移中断，原件仍在，目标副本也保留，未删除任何一份")
+            return Plan(effects: [], message: l10n("迁移中断，原件仍在，目标副本也保留，未删除任何一份"))
         case .partialDirectory:
             if snap.target == .bundle {
                 var effects: [Effect] = [.removePartial(path: source, keeper: target)]
@@ -280,11 +280,11 @@ final class CrashJournal: @unchecked Sendable {
                 }
                 effects.append(contentsOf: linkEffects(entry, snap, target: target))
                 return Plan(effects: effects,
-                            message: "迁移中断，已清掉源位置的半截内容并指回目标副本，未删除目标")
+                            message: l10n("迁移中断，已清掉源位置的半截内容并指回目标副本，未删除目标"))
             }
-            return Plan(effects: [], message: "迁移中断，源位置不完整且目标也不是完整应用，未删除")
+            return Plan(effects: [], message: l10n("迁移中断，源位置不完整且目标也不是完整应用，未删除"))
         case .symlink, .other:
-            return Plan(effects: [], message: "迁移中断，源位置状态无法安全自动处理，未删除任何文件")
+            return Plan(effects: [], message: l10n("迁移中断，源位置状态无法安全自动处理，未删除任何文件"))
         }
     }
 

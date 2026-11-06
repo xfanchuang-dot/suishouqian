@@ -27,9 +27,9 @@ struct LaunchAgentIssue: Identifiable {
 
         var label: String {
             switch self {
-            case .userAgent:   return "用户自启项"
-            case .globalAgent: return "全体用户自启项"
-            case .daemon:      return "系统守护项"
+            case .userAgent:   return l10n("用户自启项")
+            case .globalAgent: return l10n("全体用户自启项")
+            case .daemon:      return l10n("系统守护项")
             }
         }
     }
@@ -37,13 +37,13 @@ struct LaunchAgentIssue: Identifiable {
     /// 一句话诊断。守护项的问题最重：它在挂载外置盘之前就要跑。
     var verdict: (text: String, severe: Bool) {
         if volumesOnline {
-            return ("盘在线 · 开机时若盘未就绪会启动失败", false)
+            return (l10n("盘在线 · 开机时若盘未就绪会启动失败"), false)
         }
         switch kind {
         case .daemon:
-            return ("盘未连接 · 开机阶段盘还没挂载，必然启动失败", true)
+            return (l10n("盘未连接 · 开机阶段盘还没挂载，必然启动失败"), true)
         default:
-            return ("盘未连接 · 登录时启动失败并可能弹错误框", true)
+            return (l10n("盘未连接 · 登录时启动失败并可能弹错误框"), true)
         }
     }
 }

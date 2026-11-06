@@ -82,7 +82,7 @@ final class DiskEjectGuard {
         onVeto(mountPath, running)
         // kDAReturnBusy 以匿名枚举常量导入为 Int，DAReturn 是 Int32 别名
         return DADissenterCreate(kCFAllocatorDefault, DAReturn(kDAReturnBusy),
-                                 "随手迁拔盘保护" as CFString)
+                                 l10n("随手迁拔盘保护") as CFString)
     }
 
     // MARK: - 纯逻辑（供测试）

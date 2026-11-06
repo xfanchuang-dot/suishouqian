@@ -38,69 +38,65 @@ final class DataMigrator: @unchecked Sendable {
     }
 
     static let catalog: [DataLocation] = [
-        .init(id: "jianying-drafts", title: "剪映草稿与素材",
+        .init(id: "jianying-drafts", title: l10n("剪映草稿与素材"),
               homeRelativePath: "~/Movies/JianyingPro",
               ownerBundleID: nil, ownerProcessNames: ["JianyingPro"],
               relocation: .native(
-                guide: "剪映 → 左上角「剪映专业版」菜单 → 全局设置 → 草稿位置，改到外置盘上的文件夹，剪映会自己把草稿搬过去。素材随草稿走，无需建链接。",
+                guide: l10n("剪映 → 左上角「剪映专业版」菜单 → 全局设置 → 草稿位置，改到外置盘上的文件夹，剪映会自己把草稿搬过去。素材随草稿走，无需建链接。"),
                 launchAppName: "JianyingPro"),
-              note: "草稿+素材集中地，GB 级大户"),
-        .init(id: "lmstudio-models", title: "LM Studio 模型",
+              note: l10n("草稿+素材集中地，GB 级大户")),
+        .init(id: "lmstudio-models", title: l10n("LM Studio 模型"),
               homeRelativePath: "~/.lmstudio/models",
               ownerBundleID: nil, ownerProcessNames: ["LM Studio"],
               relocation: .native(
-                guide: "LM Studio → 右侧边栏设置 → My Models，把模型目录指到外置盘文件夹，已有模型可在应用里重新指向。模型文件几十 GB，让应用自己管理最稳。",
+                guide: l10n("LM Studio → 右侧边栏设置 → My Models，把模型目录指到外置盘文件夹，已有模型可在应用里重新指向。模型文件几十 GB，让应用自己管理最稳。"),
                 launchAppName: "LM Studio"),
               note: nil),
-        .init(id: "docker-disk", title: "Docker 磁盘镜像",
+        .init(id: "docker-disk", title: l10n("Docker 磁盘镜像"),
               homeRelativePath: "~/Library/Containers/com.docker.docker/Data/vms/0/data/Docker.raw",
               ownerBundleID: "com.docker.docker", ownerProcessNames: ["Docker Desktop"],
               relocation: .native(
-                guide: "Docker Desktop → Settings → Resources → Disk image location，改到外置盘路径后按提示重启，Docker 会自己迁移数据。",
+                guide: l10n("Docker Desktop → Settings → Resources → Disk image location，改到外置盘路径后按提示重启，Docker 会自己迁移数据。"),
                 launchAppName: "Docker"),
-              note: "虚拟磁盘单文件，几十 GB 常见"),
-        .init(id: "ollama-models", title: "Ollama 模型",
+              note: l10n("虚拟磁盘单文件，几十 GB 常见")),
+        .init(id: "ollama-models", title: l10n("Ollama 模型"),
               homeRelativePath: "~/.ollama/models",
               ownerBundleID: nil, ownerProcessNames: ["ollama"],
               relocation: .native(
-                guide: "终端执行：launchctl setenv OLLAMA_MODELS /Volumes/<外置盘>/OllamaModels ，然后重启 ollama（菜单栏骆驼图标→Quit）再拉模型即可。",
+                guide: l10n("终端执行：launchctl setenv OLLAMA_MODELS /Volumes/<外置盘>/OllamaModels ，然后重启 ollama（菜单栏骆驼图标→Quit）再拉模型即可。"),
                 launchAppName: nil),
               note: nil),
-        .init(id: "ios-backup", title: "iPhone 备份",
+        .init(id: "ios-backup", title: l10n("iPhone 备份"),
               homeRelativePath: "~/Library/Application Support/MobileSync/Backup",
               ownerBundleID: nil, ownerProcessNames: ["iTunes"],
               relocation: .symlink,
-              note: "苹果没给改位置的入口，链接迁移是通用做法；迁移前确保没有正在进行的备份/同步"),
-        .init(id: "huggingface-cache", title: "HuggingFace 模型缓存",
+              note: l10n("苹果没给改位置的入口，链接迁移是通用做法；迁移前确保没有正在进行的备份/同步")),
+        .init(id: "huggingface-cache", title: l10n("HuggingFace 模型缓存"),
               homeRelativePath: "~/.cache/huggingface",
               ownerBundleID: nil, ownerProcessNames: [],
               relocation: .symlink,
               note: nil),
-        .init(id: "xcode-derived", title: "Xcode 派生数据",
+        .init(id: "xcode-derived", title: l10n("Xcode 派生数据"),
               homeRelativePath: "~/Library/Developer/Xcode/DerivedData",
               ownerBundleID: nil, ownerProcessNames: ["Xcode"],
               relocation: .native(
-                guide: "纯缓存，可整个删掉（Xcode 下次构建自动重建，项目索引会重跑）。想保留就 Xcode → Settings → Locations → Derived Data 改自定义路径到外置盘。",
+                guide: l10n("纯缓存，可整个删掉（Xcode 下次构建自动重建，项目索引会重跑）。想保留就 Xcode → Settings → Locations → Derived Data 改自定义路径到外置盘。"),
                 launchAppName: "Xcode"),
-              note: "纯缓存，删了也无损"),
-        .init(id: "steam-library", title: "Steam 游戏库",
+              note: l10n("纯缓存，删了也无损")),
+        .init(id: "steam-library", title: l10n("Steam 游戏库"),
               homeRelativePath: "~/Library/Application Support/Steam",
               ownerBundleID: nil, ownerProcessNames: ["steam_osx"],
               relocation: .native(
-                guide: "Steam → 设置 → 存储 → 添加外置盘上的库文件夹，再把已装游戏「移动」过去。不要直接搬整个 Steam 目录。",
+                guide: l10n("Steam → 设置 → 存储 → 添加外置盘上的库文件夹，再把已装游戏「移动」过去。不要直接搬整个 Steam 目录。"),
                 launchAppName: "Steam"),
               note: nil),
-        .init(id: "wechat-data", title: "微信聊天记录与文件",
+        .init(id: "wechat-data", title: l10n("微信聊天记录与文件"),
               homeRelativePath: "~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files",
               ownerBundleID: "com.tencent.xinWeChat", ownerProcessNames: ["WeChat"],
               relocation: .native(
-                guide: """
-                微信 → 设置 → 通用 → 文件存储位置 → 更改，选外置盘上的文件夹，微信会自己把聊天记录搬过去。
-
-                ⚠️ 想清楚再搬：聊天记录是每天要读写的热数据，搬外置盘后每次刷消息都走外置盘；盘没插时微信打不开历史。权衡后觉得值再动手。
-                """,
+                guide: l10n("\n                微信 → 设置 → 通用 → 文件存储位置 → 更改，选外置盘上的文件夹，微信会自己把聊天记录搬过去。\n\n                ⚠️ 想清楚再搬：聊天记录是每天要读写的热数据，搬外置盘后每次刷消息都走外置盘；盘没插时微信打不开历史。权衡后觉得值再动手。\n                "),
                 launchAppName: "WeChat"),
-              note: "聊天记录是日常热数据，搬前想清楚；沙盒受保护，此处体积可能显示为未知"),
+              note: l10n("聊天记录是日常热数据，搬前想清楚；沙盒受保护，此处体积可能显示为未知")),
     ]
 
     /// 数据目录在台账/备份目录里的命名前缀（checkBackups 据此跳过审计）
@@ -126,7 +122,7 @@ final class DataMigrator: @unchecked Sendable {
         /// 显示"体积未知"比误导性的"0 字节"诚实
         var sizeDisplay: String {
             sizeBytes > 0 ? ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file)
-                          : "体积未知"
+                          : l10n("体积未知")
         }
 
         var isWorthMigrating: Bool {
@@ -182,11 +178,11 @@ final class DataMigrator: @unchecked Sendable {
         async -> (success: Bool, error: String?) {
         let location = Self.catalog.first { $0.id == item.id }
         guard case .symlink = location?.relocation else {
-            return (false, "该位置应由应用自带设置搬迁，不做链接迁移")
+            return (false, l10n("该位置应由应用自带设置搬迁，不做链接迁移"))
         }
-        guard item.accessible else { return (false, "目录无法读取（可能受系统保护）") }
-        guard !item.ownerRunning else { return (false, "请先退出 \(location?.title ?? "相关应用") 再迁移") }
-        guard !item.isSymlink else { return (false, "该位置已经是链接，无需重复迁移") }
+        guard item.accessible else { return (false, l10n("目录无法读取（可能受系统保护）")) }
+        guard !item.ownerRunning else { return (false, l10n("请先退出 %@ 再迁移", location?.title ?? l10n("相关应用"))) }
+        guard !item.isSymlink else { return (false, l10n("该位置已经是链接，无需重复迁移")) }
 
         let site = item.path
         let externalPath = "\(Self.dataRoot(on: drivePath))/\(item.id)"
@@ -216,22 +212,22 @@ final class DataMigrator: @unchecked Sendable {
         // 快照保险（阻塞进程走 OffPool）
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
 
-        progress(0.1, "正在复制 \(title)...")
+        progress(0.1, l10n("正在复制 %@...", title))
         guard await migrator.copyWithDitto(from: site, to: externalPath, progress: { pct in
-            progress(0.1 + pct * 0.6, "复制 \(title)...")
+            progress(0.1 + pct * 0.6, l10n("复制 %@...", title))
         }) else {
             try? fileManager.removeItem(atPath: externalPath)
-            return (false, "复制失败")
+            return (false, l10n("复制失败"))
         }
 
-        progress(0.7, "正在校验完整性...")
+        progress(0.7, l10n("正在校验完整性..."))
         guard await migrator.verifyFiles(source: site, target: externalPath) else {
             try? fileManager.removeItem(atPath: externalPath)
             AuditLog.append("数据迁移失败 \(title)：校验未通过，已回滚目标副本")
-            return (false, "文件校验失败，请重试")
+            return (false, l10n("文件校验失败，请重试"))
         }
 
-        progress(0.85, "备份原件并切换链接...")
+        progress(0.85, l10n("备份原件并切换链接..."))
         // 跨盘备份：备份盘与数据盘可分离（破单点故障）；未指定时跟数据同盘
         let backupPath = "\(BackupLocations.backupRoot(for: drivePath))/\(manifestName)"
         try? fileManager.createDirectory(
@@ -250,7 +246,7 @@ final class DataMigrator: @unchecked Sendable {
         guard await migrator.moveItem(from: site, to: backupPath) else {
             MigrationManifest.shared.remove(appName: manifestName)  // 已知失败，清掉 pending
             try? fileManager.removeItem(atPath: externalPath)
-            return (false, "无法移动原目录（可能正在被使用）")
+            return (false, l10n("无法移动原目录（可能正在被使用）"))
         }
         // 备份 mtime 必须代表"备份时刻"，否则会被 cleanOldBackups 立刻当超龄清掉
         migrator.stampBackupCreation(at: backupPath)
@@ -261,13 +257,13 @@ final class DataMigrator: @unchecked Sendable {
             if restored {
                 try? fileManager.removeItem(atPath: externalPath)
                 MigrationManifest.shared.remove(appName: manifestName)
-                return (false, "创建链接失败：\(error.localizedDescription)")
+                return (false, l10n("创建链接失败：%@", error.localizedDescription))
             }
             // 原目录没搬回来。pending 台账留着：启动认领会在源位仍空、外置副本还在时补建链接。
             // 这时删掉已校验的外置副本，就会只剩一份可能搬不回去的备份。
             AuditLog.append("数据迁移失败 \(title)：建链失败且原目录搬回未完成，"
-                + "外置副本保留在 \(externalPath)，备份保留在 \(backupPath)")
-            return (false, "创建链接失败，且原目录搬回未完成——完整副本保留在 \(externalPath) 与 \(backupPath)，请勿删除")
+                + l10n("外置副本保留在 %@，备份保留在 %@", externalPath, backupPath))
+            return (false, l10n("创建链接失败，且原目录搬回未完成——完整副本保留在 %@ 与 %@，请勿删除", externalPath, backupPath))
         }
 
         if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {
@@ -278,7 +274,7 @@ final class DataMigrator: @unchecked Sendable {
                 kind: "data")
         }
         AuditLog.append("数据迁移成功 \(title)：\(sizeBytes) 字节 → \(externalPath)")
-        progress(1.0, "完成")
+        progress(1.0, l10n("完成"))
         return (true, nil)
     }
 
@@ -287,7 +283,7 @@ final class DataMigrator: @unchecked Sendable {
         async -> (success: Bool, error: String?) {
         let site = item.path
         guard item.isSymlink, let target = try? fileManager.destinationOfSymbolicLink(atPath: site) else {
-            return (false, "该位置不是链接，无需回迁")
+            return (false, l10n("该位置不是链接，无需回迁"))
         }
 
         // 与迁移方向对称的护栏：属主应用在运行时仍会往链接位写数据，而回迁的第一步是
@@ -297,7 +293,7 @@ final class DataMigrator: @unchecked Sendable {
         if let location = Self.catalog.first(where: { $0.id == item.id }),
            await OffPool.run({ [self] in isOwnerRunning(location) }) {
             AuditLog.append("拒绝数据回迁 \(item.title)：属主应用正在运行")
-            return (false, "请先退出 \(location.title) 再回迁")
+            return (false, l10n("请先退出 %@ 再回迁", location.title))
         }
 
         // 回迁写的是内置盘：预检必须针对内置盘空间（此前误用外置盘预检——
@@ -308,26 +304,26 @@ final class DataMigrator: @unchecked Sendable {
         }
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
 
-        progress(0.1, "删除链接...")
+        progress(0.1, l10n("删除链接..."))
         try? fileManager.removeItem(atPath: site)
 
-        progress(0.2, "正在回迁 \(item.title)...")
+        progress(0.2, l10n("正在回迁 %@...", item.title))
         guard await migrator.copyWithDitto(from: target, to: site, progress: { pct in
-            progress(0.2 + pct * 0.7, "回迁 \(item.title)...")
+            progress(0.2 + pct * 0.7, l10n("回迁 %@...", item.title))
         }) else {
             // 先腾空链接位再重建，否则半截副本会把链接位占住、建链失败（应用失去数据入口）
             try? fileManager.removeItem(atPath: site)
             try? fileManager.createSymbolicLink(atPath: site, withDestinationPath: target)
             AuditLog.append("数据回迁失败 \(item.title)：复制未完成，已恢复链接（外置副本保留）")
-            return (false, "回迁复制失败")
+            return (false, l10n("回迁复制失败"))
         }
 
-        progress(0.9, "校验...")
+        progress(0.9, l10n("校验..."))
         guard await migrator.verifyFiles(source: target, target: site) else {
             try? fileManager.removeItem(atPath: site)
             try? fileManager.createSymbolicLink(atPath: site, withDestinationPath: target)
             AuditLog.append("数据回迁校验失败 \(item.title)：已恢复链接，外置副本保留")
-            return (false, "文件校验失败，已恢复链接")
+            return (false, l10n("文件校验失败，已恢复链接"))
         }
 
         try? fileManager.removeItem(atPath: target)
@@ -337,7 +333,7 @@ final class DataMigrator: @unchecked Sendable {
         }
         MigrationManifest.shared.remove(appName: Self.manifestName(for: item.id))
         AuditLog.append("数据回迁成功 \(item.title)：已恢复到内置盘并清理外置副本")
-        progress(1.0, "完成")
+        progress(1.0, l10n("完成"))
         return (true, nil)
     }
 
@@ -357,10 +353,10 @@ final class DataMigrator: @unchecked Sendable {
         // standardizingPath 会把 /private/var/... 规范成 /var/...（符号链接的规范形），
         // 系统根检查必须两种形态都跑，否则 /private 家族会被悄悄放行
         let canonical = (path as NSString).resolvingSymlinksInPath
-        if p == "/" { return "不能迁移根目录" }
-        if p == home { return "不能迁移整个用户目录" }
+        if p == "/" { return l10n("不能迁移根目录") }
+        if p == home { return l10n("不能迁移整个用户目录") }
         if p.hasSuffix(".app") || p.hasSuffix(".bundle") {
-            return "应用请到「迁移」页处理，数据面板只搬普通文件夹"
+            return l10n("应用请到「迁移」页处理，数据面板只搬普通文件夹")
         }
         let systemRoots = ["/System", "/private", "/var", "/etc", "/tmp",
                            "/usr", "/bin", "/sbin",
@@ -369,17 +365,17 @@ final class DataMigrator: @unchecked Sendable {
             systemRoots.contains { q == $0 || q.hasPrefix($0 + "/") }
         }
         if hitsSystemRoot(p) || hitsSystemRoot(canonical) {
-            return "系统目录不能迁移"
+            return l10n("系统目录不能迁移")
         }
         // 前缀比对必须带 "/" 边界：/Volumes2 不能误伤 /Volumes 的规则，反之亦然
         let homeLibrary = home + "/Library"
         if p == homeLibrary || p.hasPrefix(homeLibrary + "/") {
-            return "资源库（Library）里的数据风险高，工具按内置清单处理，不开放自选"
+            return l10n("资源库（Library）里的数据风险高，工具按内置清单处理，不开放自选")
         }
         for name in ["Desktop", "Documents", "Downloads"] {
             let dir = home + "/" + name
             if p == dir || p.hasPrefix(dir + "/") {
-                return "桌面/文稿/下载是日常热用目录，搬外置盘会拖慢日常且反复弹授权，不开放自选"
+                return l10n("桌面/文稿/下载是日常热用目录，搬外置盘会拖慢日常且反复弹授权，不开放自选")
             }
         }
         return nil
@@ -392,25 +388,25 @@ final class DataMigrator: @unchecked Sendable {
         async -> (success: Bool, error: String?) {
         let path = (rawPath as NSString).standardizingPath
         let name = (path as NSString).lastPathComponent
-        let title = "自选 · \(name)"
+        let title = l10n("自选 · %@", name)
 
         // 护栏与体积预检含 du（阻塞子进程）：OffPool
         let precheck = await OffPool.run { [self] () -> (reason: String?, size: Int64) in
             guard let issue = Self.customFolderIssue(forPath: path, home: NSHomeDirectory()) else {
                 var isDir: ObjCBool = false
                 guard fileManager.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-                    return ("选中的不是文件夹", 0)
+                    return (l10n("选中的不是文件夹"), 0)
                 }
                 let attrs = try? fileManager.attributesOfItem(atPath: path)
                 if (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink {
-                    return ("这个位置已经是链接，无需迁移", 0)
+                    return (l10n("这个位置已经是链接，无需迁移"), 0)
                 }
                 guard fileManager.isReadableFile(atPath: path) else {
-                    return ("文件夹无法读取（可能受系统保护）", 0)
+                    return (l10n("文件夹无法读取（可能受系统保护）"), 0)
                 }
                 let size = duSize(path)
                 guard size >= 100 * 1_048_576 else {
-                    return ("体积小于 100MB，不值得迁移", size)
+                    return (l10n("体积小于 100MB，不值得迁移"), size)
                 }
                 return (nil, size)
             }
@@ -432,7 +428,7 @@ final class DataMigrator: @unchecked Sendable {
         let externalPath = "\(Self.dataRoot(on: drivePath))/\(Self.manifestName(for: id))"
         // 外置盘目标重名 = 另一个同名文件夹已迁过：宁可拒绝也不含糊覆盖
         if fileManager.fileExists(atPath: externalPath) {
-            return (false, "外置盘已有同名数据文件夹，请先处理旧数据或改用其他名称的文件夹")
+            return (false, l10n("外置盘已有同名数据文件夹，请先处理旧数据或改用其他名称的文件夹"))
         }
         return await linkMigrate(title: title, site: path, externalPath: externalPath,
                                  drivePath: drivePath, sizeBytes: precheck.size,
@@ -459,11 +455,11 @@ final class DataMigrator: @unchecked Sendable {
                 }
                 let folder = String(id.dropFirst(Self.customIDPrefix.count))
                 return DataLocationItem(
-                    id: id, title: "自选 · \(folder)", path: path,
+                    id: id, title: l10n("自选 · %@", folder), path: path,
                     sizeBytes: duSize(path), isSymlink: true,
                     linkBroken: linkBroken, accessible: true,
                     managedByUs: true, ownerRunning: false,
-                    relocation: .symlink, note: "自选文件夹迁移")
+                    relocation: .symlink, note: l10n("自选文件夹迁移"))
             }
         }
     }
@@ -504,7 +500,7 @@ final class DataMigrator: @unchecked Sendable {
     func isolateDivergence(_ divergence: DataDivergence) -> Bool {
         let stamp = DateFormatter()
         stamp.dateFormat = "MMdd-HHmm"
-        let isolatedPath = "\(divergence.sitePath)（离线重建 \(stamp.string(from: Date()))）"
+        let isolatedPath = l10n("%@（离线重建 %@）", divergence.sitePath, stamp.string(from: Date()))
         guard (try? fileManager.moveItem(atPath: divergence.sitePath,
                                          toPath: isolatedPath)) != nil else { return false }
         do {

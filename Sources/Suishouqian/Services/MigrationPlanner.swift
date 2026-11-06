@@ -92,7 +92,7 @@ enum MigrationPlanner {
                 .max(by: { volumes[$0].freeBytes < volumes[$1].freeBytes })
             else {
                 excluded.append(ExcludedApp(
-                    app: app, reason: "外置盘剩余空间不足以容纳（含留底备份的两份空间）"))
+                    app: app, reason: l10n("外置盘剩余空间不足以容纳（含留底备份的两份空间）")))
                 continue
             }
             let need = AppMigrator.requiredTargetBytes(appSize: app.size)
@@ -114,12 +114,12 @@ enum MigrationPlanner {
 
     /// 不纳入方案的人话原因；nil = 可候选
     static func exclusionReason(for app: AppCandidate, aggressive: Bool) -> String? {
-        if app.isSystemApp { return "系统应用，不参与迁移" }
-        if app.alreadyExternal { return "已在外置盘，无需再搬" }
-        if app.isRunning { return "正在运行，先退出后再安排" }
-        if app.size < 100 * 1_048_576 { return "不足 100MB，搬了也腾不出多少" }
+        if app.isSystemApp { return l10n("系统应用，不参与迁移") }
+        if app.alreadyExternal { return l10n("已在外置盘，无需再搬") }
+        if app.isRunning { return l10n("正在运行，先退出后再安排") }
+        if app.size < 100 * 1_048_576 { return l10n("不足 100MB，搬了也腾不出多少") }
         if app.mechanism == .unknown, !aggressive {
-            return "更新方式未知（保守模式跳过，可在设置里开激进模式）"
+            return l10n("更新方式未知（保守模式跳过，可在设置里开激进模式）")
         }
         return nil
     }
@@ -152,14 +152,14 @@ enum MigrationPlanner {
         let size = ByteCountFormatter.string(fromByteCount: app.size, countStyle: .file)
         var parts = [size]
         if app.launchesLast7Days < LaunchUsageTracker.suggestThreshold {
-            parts.append("近 7 天只用了 \(app.launchesLast7Days) 次")
+            parts.append(l10n("近 7 天只用了 %lld 次", app.launchesLast7Days))
         } else {
-            parts.append("近 7 天用了 \(app.launchesLast7Days) 次（\(tier.label)链路可承受）")
+            parts.append(l10n("近 7 天用了 %lld 次（%@链路可承受）", app.launchesLast7Days, tier.label))
         }
         switch app.mechanism {
-        case .appStore: parts.append("App Store 应用，纯搬迁无忧")
-        case .squirrel, .sparkle: parts.append("自带更新器，就地更新")
-        case .unknown: parts.append("更新方式未知，搬后留意第一次更新")
+        case .appStore: parts.append(l10n("App Store 应用，纯搬迁无忧"))
+        case .squirrel, .sparkle: parts.append(l10n("自带更新器，就地更新"))
+        case .unknown: parts.append(l10n("更新方式未知，搬后留意第一次更新"))
         }
         return parts.joined(separator: " · ")
     }

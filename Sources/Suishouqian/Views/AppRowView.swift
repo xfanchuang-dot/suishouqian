@@ -28,7 +28,7 @@ struct AppRowView: View {
                 }
             }
             // 悬停即知这个应用的更新方式，以及搬走后更新会怎样（不占界面、不主动打扰）
-            .help("更新方式：\(app.updateMechanism.label)\n\n\(app.updateMechanism.guidance)")
+            .help(l10n("更新方式：%@\n\n%@", app.updateMechanism.label, app.updateMechanism.guidance))
 
             Spacer()
 
@@ -48,7 +48,7 @@ struct AppRowView: View {
                 if let pendingSession = appState.updateSessions.first(where: {
                     ($0.bundleID != nil && $0.bundleID == app.bundleID) || $0.appPath == app.path
                 }) {
-                    Button("继续更新") {
+                    Button(l10n("继续更新")) {
                         appState.activeUpdateSession = pendingSession
                         appState.activeUpdateMechanism = app.updateMechanism
                     }
@@ -56,10 +56,10 @@ struct AppRowView: View {
                     .controlSize(.small)
                     .font(.system(size: 11))
                     .disabled(appState.isMigrationActive)
-                    .help("更新助手进行中：「\(app.name)」已在内置盘等待更新，更新完成后在这里点搬回去。")
+                    .help(l10n("更新助手进行中：「%@」已在内置盘等待更新，更新完成后在这里点搬回去。", app.name))
                 }
 
-                Button("迁移") {
+                Button(l10n("迁移")) {
                     migrateApp()
                 }
                 .buttonStyle(.borderedProminent)
@@ -68,44 +68,29 @@ struct AppRowView: View {
                 // 迁移/回迁/卸载都是会动文件的互斥操作，任务进行中必须禁用，
                 // 否则并发触发会互相覆盖 migrationTask 状态、留下半完成副本
                 .disabled(appState.isMigrationActive)
-                .help("""
-                迁移：把应用搬到外置盘，并在「应用程序」里留一个链接。
-
-                应用仍会出现在「应用程序」文件夹里，双击、卸载（拖到废纸篓）都和以前一样；\
-                启动时链接会被解析到外置盘；自带更新器就地更新（若某次更新后应用不见了，\
-                去体检页「从更新缓存恢复」）。
-                """)
+                .help(l10n("\n                迁移：把应用搬到外置盘，并在「应用程序」里留一个链接。\n\n                应用仍会出现在「应用程序」文件夹里，双击、卸载（拖到废纸篓）都和以前一样；\n                启动时链接会被解析到外置盘；自带更新器就地更新（若某次更新后应用不见了，\n                去体检页「从更新缓存恢复」）。\n                "))
 
                 // 纯搬迁与「迁移」并列显示，不做成隐藏菜单——它是对
                 // "更新会把迁移顶掉"的机制性解法，必须在动手那一刻就看得见
-                Button("纯搬迁") {
+                Button(l10n("纯搬迁")) {
                     moveToExternal()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .font(.system(size: 11))
                 .disabled(appState.isMigrationActive)
-                .help("""
-                纯搬迁：把应用搬到外置盘，但不在「应用程序」文件夹留链接。
+                .help(l10n("\n                纯搬迁：把应用搬到外置盘，但不在「应用程序」文件夹留链接。\n\n                好处是从机制上消除\"更新把链接顶掉、迁移被悄悄撤销\"这个问题——\n                应用就住在它自己的位置，自带更新器会就地更新。\n\n                代价：应用不再出现在「应用程序」里，改用 Spotlight / Dock 启动。\n\n                适合：看不出更新方式的应用，或曾经被更新顶掉过迁移的应用。\n                "))
 
-                好处是从机制上消除"更新把链接顶掉、迁移被悄悄撤销"这个问题——\
-                应用就住在它自己的位置，自带更新器会就地更新。
-
-                代价：应用不再出现在「应用程序」里，改用 Spotlight / Dock 启动。
-
-                适合：看不出更新方式的应用，或曾经被更新顶掉过迁移的应用。
-                """)
-
-                Button("卸载") {
+                Button(l10n("卸载")) {
                     uninstallApp()
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.red)
                 .font(.system(size: 11))
                 .disabled(appState.isMigrationActive)
-                .help("应用移入废纸篓（可恢复），并顺带排查它在资源库留下的数据")
+                .help(l10n("应用移入废纸篓（可恢复），并顺带排查它在资源库留下的数据"))
             } else if app.status == .externalOnly {
-                Button("搬回内置盘") {
+                Button(l10n("搬回内置盘")) {
                     moveBack()
                 }
                 .buttonStyle(.borderedProminent)
@@ -115,19 +100,19 @@ struct AppRowView: View {
 
                 // 更新助手入口：App Store 应用实测不受更新影响，不显示
                 if app.updateMechanism != .appStore {
-                    Button("更新") {
+                    Button(l10n("更新")) {
                         beginUpdate()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .font(.system(size: 11))
                     .disabled(appState.isMigrationActive)
-                    .help("更新助手：把 App 搬回内置盘，你更新完再一键搬回去。\n适合在外置盘上无法自动更新的应用。")
+                    .help(l10n("更新助手：把 App 搬回内置盘，你更新完再一键搬回去。\n适合在外置盘上无法自动更新的应用。"))
                 }
 
                 relocateMenu
 
-                Button("卸载") {
+                Button(l10n("卸载")) {
                     uninstallApp()
                 }
                 .buttonStyle(.plain)
@@ -136,7 +121,7 @@ struct AppRowView: View {
                 .disabled(appState.isMigrationActive)
             } else if app.status == .migrated {
                 HStack(spacing: 4) {
-                    Button("回迁") {
+                    Button(l10n("回迁")) {
                         restoreApp()
                     }
                     .buttonStyle(.bordered)
@@ -146,21 +131,21 @@ struct AppRowView: View {
 
                     // 更新助手入口：App Store 应用实测不受更新影响，不显示
                     if app.updateMechanism != .appStore {
-                        Button("更新") {
+                        Button(l10n("更新")) {
                             beginUpdate()
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .font(.system(size: 11))
                         .disabled(appState.isMigrationActive)
-                        .help("更新助手：把 App 搬回内置盘，你更新完再一键搬回去。\n适合在外置盘上无法自动更新的应用。")
+                        .help(l10n("更新助手：把 App 搬回内置盘，你更新完再一键搬回去。\n适合在外置盘上无法自动更新的应用。"))
                     }
 
                     // v3.1 盘间迁移：已在外置盘的应用，可直接搬到另一块在线外置盘，
                     // 不经过内置盘中转。Menu 形态——目标盘数量不确定，按钮放不下。
                     relocateMenu
 
-                    Button("卸载") {
+                    Button(l10n("卸载")) {
                         uninstallApp()
                     }
                     .buttonStyle(.plain)
@@ -180,19 +165,19 @@ struct AppRowView: View {
             case .normal:
                 EmptyView()
             case .migrated:
-                StatusPill("已迁移",
+                StatusPill(l10n("已迁移"),
                            systemImage: "externaldrive.fill",
                            color: appState.externalDrive != nil ? .green : .gray)
             case .migrating:
-                StatusPill("迁移中", color: .blue)
+                StatusPill(l10n("迁移中"), color: .blue)
             case .restoring:
-                StatusPill("回迁中", color: .orange)
+                StatusPill(l10n("回迁中"), color: .orange)
             case .needsSync:
-                StatusPill("待同步", systemImage: "clock.fill", color: .orange)
+                StatusPill(l10n("待同步"), systemImage: "clock.fill", color: .orange)
             case .systemApp:
-                StatusPill("系统", systemImage: "lock.fill", color: .secondary)
+                StatusPill(l10n("系统"), systemImage: "lock.fill", color: .secondary)
             case .externalOnly:
-                StatusPill("在外置盘", systemImage: "externaldrive",
+                StatusPill(l10n("在外置盘"), systemImage: "externaldrive",
                            color: appState.externalDrive != nil ? .teal : .gray)
             }
         }
@@ -247,10 +232,10 @@ struct AppRowView: View {
                     appName: app.name, spaceSaved: result.spaceSaved)
                 await state.scanApps()
             } else if var t = state.migrationTask {
-                t.status = .failed(result.error ?? "未知错误")
+                t.status = .failed(result.error ?? l10n("未知错误"))
                 state.migrationTask = t
                 state.notificationManager.notifyMigrationFailed(
-                    appName: app.name, error: result.error ?? "未知错误")
+                    appName: app.name, error: result.error ?? l10n("未知错误"))
             }
         }
     }
@@ -265,9 +250,9 @@ struct AppRowView: View {
     }
 
     private var relocateMenu: some View {
-        Menu("搬到…") {
+        Menu(l10n("搬到…")) {
             ForEach(relocateTargets) { vol in
-                Button("\(vol.displayName)（可用 \(vol.info.freeFormatted)）") {
+                Button(l10n("%@（可用 %@）", vol.displayName, vol.info.freeFormatted)) {
                     relocateApp(to: vol)
                 }
             }
@@ -276,7 +261,7 @@ struct AppRowView: View {
         .controlSize(.small)
         .font(.system(size: 11))
         .disabled(appState.isMigrationActive || relocateTargets.isEmpty)
-        .help("盘间迁移：把应用从当前外置盘直接搬到另一块外置盘，不经过内置盘中转。\n目标盘空间不足或离线时不会出现在列表里。")
+        .help(l10n("盘间迁移：把应用从当前外置盘直接搬到另一块外置盘，不经过内置盘中转。\n目标盘空间不足或离线时不会出现在列表里。"))
     }
 
     /// 盘间迁移执行链：走 migrationTask 通道（全局任务胶囊可见），journal 由
@@ -314,10 +299,10 @@ struct AppRowView: View {
                     appName: app.name, spaceSaved: result.spaceSaved)
                 await state.scanApps()
             } else if var t = state.migrationTask {
-                t.status = .failed(result.error ?? "未知错误")
+                t.status = .failed(result.error ?? l10n("未知错误"))
                 state.migrationTask = t
                 state.notificationManager.notifyMigrationFailed(
-                    appName: app.name, error: result.error ?? "未知错误")
+                    appName: app.name, error: result.error ?? l10n("未知错误"))
             }
         }
     }
@@ -354,10 +339,10 @@ struct AppRowView: View {
                     appName: app.name, spaceSaved: result.spaceSaved)
                 await state.scanApps()
             } else if var t = state.migrationTask {
-                t.status = .failed(result.error ?? "未知错误")
+                t.status = .failed(result.error ?? l10n("未知错误"))
                 state.migrationTask = t
                 state.notificationManager.notifyMigrationFailed(
-                    appName: app.name, error: result.error ?? "未知错误")
+                    appName: app.name, error: result.error ?? l10n("未知错误"))
             }
         }
     }
@@ -382,10 +367,10 @@ struct AppRowView: View {
         }
 
         let alert = NSAlert()
-        alert.messageText = "用更新助手更新「\(app.name)」？"
-        alert.informativeText = "随手迁会先把 App 搬回「应用程序」（内置盘）。\n\n然后你去更新它（自带更新器 / 官网下载新版），更新完点「搬回去」，随手迁再把它搬回外置盘原来的位置。"
-        alert.addButton(withTitle: "开始")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("用更新助手更新「%@」？", app.name)
+        alert.informativeText = l10n("随手迁会先把 App 搬回「应用程序」（内置盘）。\n\n然后你去更新它（自带更新器 / 官网下载新版），更新完点「搬回去」，随手迁再把它搬回外置盘原来的位置。")
+        alert.addButton(withTitle: l10n("开始"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         Task { @MainActor [weak appState] in
@@ -425,12 +410,12 @@ struct AppRowView: View {
                 await state.beginUpdateSession(session, mechanism: app.updateMechanism)
                 await state.scanApps()
             } else if var t = state.migrationTask {
-                t.status = .failed(result.error ?? "未知错误")
+                t.status = .failed(result.error ?? l10n("未知错误"))
                 state.migrationTask = t
                 // 失败必须弹出来：这是向导流程的第一步，静默失败=用户"点了没反应"
                 let fail = NSAlert()
-                fail.messageText = "更新助手未能把「\(app.name)」搬回内置盘"
-                fail.informativeText = result.error ?? "未知错误"
+                fail.messageText = l10n("更新助手未能把「%@」搬回内置盘", app.name)
+                fail.informativeText = result.error ?? l10n("未知错误")
                 fail.runModal()
             }
         }
@@ -440,20 +425,17 @@ struct AppRowView: View {
         // 运行中的应用不能卸（会留下半删状态与失控的数据写入）
         if let running = AppMigrator.runningAppName(matching: app.path) {
             let alert = NSAlert()
-            alert.messageText = "「\(running)」正在运行"
-            alert.informativeText = "请先退出应用再卸载。"
+            alert.messageText = l10n("「%@」正在运行", running)
+            alert.informativeText = l10n("请先退出应用再卸载。")
             alert.runModal()
             return
         }
 
         let alert = NSAlert()
-        alert.messageText = "确认卸载「\(app.name)」？"
-        alert.informativeText = """
-        应用本体与迁移备份将移入废纸篓（可恢复），台账同步清理。
-        卸载完成后还会帮你排查它在「资源库」里留下的数据，由你确认后再清。
-        """
-        alert.addButton(withTitle: "卸载")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("确认卸载「%@」？", app.name)
+        alert.informativeText = l10n("\n        应用本体与迁移备份将移入废纸篓（可恢复），台账同步清理。\n        卸载完成后还会帮你排查它在「资源库」里留下的数据，由你确认后再清。\n        ")
+        alert.addButton(withTitle: l10n("卸载"))
+        alert.addButton(withTitle: l10n("取消"))
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -464,8 +446,8 @@ struct AppRowView: View {
             let result = await appState.migrator.uninstall(app: app, drivePath: drivePath)
             guard result.success else {
                 let fail = NSAlert()
-                fail.messageText = "卸载未能完成"
-                fail.informativeText = result.error ?? "未知错误"
+                fail.messageText = l10n("卸载未能完成")
+                fail.informativeText = result.error ?? l10n("未知错误")
                 fail.runModal()
                 return
             }
@@ -480,10 +462,10 @@ struct AppRowView: View {
                     .map { "\($0.name)（\($0.sizeFormatted)）" }
                     .joined(separator: "、")
                 let ask = NSAlert()
-                ask.messageText = "发现 \(leftovers.count) 项残留数据，共 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))"
-                ask.informativeText = "\(names)\n\n是「\(app.name)」留在资源库里的数据，一并移入废纸篓吗？"
-                ask.addButton(withTitle: "一并清理")
-                ask.addButton(withTitle: "保留")
+                ask.messageText = l10n("发现 %lld 项残留数据，共 %@", leftovers.count, ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
+                ask.informativeText = l10n("%@\n\n是「%@」留在资源库里的数据，一并移入废纸篓吗？", names, app.name)
+                ask.addButton(withTitle: l10n("一并清理"))
+                ask.addButton(withTitle: l10n("保留"))
                 ask.alertStyle = .warning
                 if ask.runModal() == .alertFirstButtonReturn {
                     for item in leftovers {
