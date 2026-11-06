@@ -61,7 +61,7 @@
 
 ### 方式一：下载已编译版（推荐）
 
-从 [Releases](https://github.com/xfanchuang-dot/suishouqian/releases/latest) 下载最新 `.dmg`（当前 **v3.1.0**），打开后把随手迁拖进「应用程序」即可。
+从 [Releases](https://github.com/xfanchuang-dot/suishouqian/releases/latest) 下载最新 `.dmg`（当前 **v3.3.0**），打开后把随手迁拖进「应用程序」即可。
 
 > ⚠️ 未签名版本：首次打开时按住 Control 键点击 → 选择"打开"，之后即可正常使用。
 
@@ -122,7 +122,7 @@ See [CHANGELOG.md](CHANGELOG.md) for every safety fix on record.
 
 ## Install
 
-Download the latest `.dmg` (currently **v3.1.0**) from
+Download the latest `.dmg` (currently **v3.3.0**) from
 [Releases](https://github.com/xfanchuang-dot/suishouqian/releases/latest).
 
 > ⚠️ Unsigned build: on first launch, Control-click → "Open", then it works normally.

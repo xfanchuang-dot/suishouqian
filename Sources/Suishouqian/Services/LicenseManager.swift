@@ -23,6 +23,9 @@ import CryptoKit
 final class LicenseManager: ObservableObject {
     static let shared = LicenseManager()
 
+    /// 签发端与校验端共同接受的层级。目前只有买断 Pro。
+    static let proTier = "pro"
+
     /// 内嵌公钥（base64）。与仓库根 `license_public_key.txt` 同源，改一处必须改另一处。
     /// 私钥绝不进仓库：默认落在 `~/Library/Caches/suishouqian-license/private_key.txt`。
     static let publicKeyBase64 = "CVIcMAiWyS8ap1EY8Wm237flexTjFjf66CWZyQxWVQE="
@@ -51,9 +54,12 @@ final class LicenseManager: ObservableObject {
         guard !result.isExpired else {
             return (false, "许可证已过期（\(Self.dateString(result.expiry))）")
         }
+        guard result.grantsPro else {
+            return (false, "许可证层级不是 Pro（\(result.tier)），不能解锁")
+        }
         // 存**规范化后**的字符串：粘贴时带进来的换行/缩进不该让恢复时验签失败
         UserDefaults.standard.set(Self.normalized(license), forKey: Self.storageKey)
-        isPro = true
+        isPro = result.grantsPro
         licensedEmail = result.email
         AuditLog.append("Pro 许可证已激活：\(result.email)")
         return (true, "Pro 已激活，感谢支持！")
@@ -72,6 +78,9 @@ final class LicenseManager: ObservableObject {
         let email: String
         let expiry: Date
         let tier: String
+
+        /// 与功能门控同一口径：只有 `pro` 才算 Pro。验签通过但层级不对不能解锁。
+        var grantsPro: Bool { tier == LicenseManager.proTier }
 
         /// 有效期**含当日**：到期日当天仍可用，次日 00:00 起失效。
         /// 不这么做的话，`2099-12-31` 会在当天 00:00 就被判过期，用户看到"已过期"少一天。
@@ -112,7 +121,9 @@ final class LicenseManager: ObservableObject {
         let fields = payload.split(separator: "|").map(String.init)
         guard fields.count == 3 else { return nil }
         guard let expiry = payloadDateFormatter.date(from: fields[1]) else { return nil }
-        return LicenseInfo(email: fields[0], expiry: expiry, tier: fields[2])
+        let tier = fields[2]
+        guard tier == proTier else { return nil }
+        return LicenseInfo(email: fields[0], expiry: expiry, tier: tier)
     }
 
     /// 去掉粘贴许可证时带进来的全部空白（含内部换行）。签发端做同样处理，两端必须一致。

@@ -99,6 +99,16 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// 启动时处理了崩溃留下的迁移/回迁
+    func notifyCrashRecovery(notes: [String]) {
+        let list = notes.prefix(3).joined(separator: "；")
+        send(
+            title: "未完成的迁移已处理",
+            body: list,
+            sound: nil
+        )
+    }
+
     /// 断链自愈完成提示（按台账卷 UUID 重写链接，卷改名也能接上）
     func notifyLinksHealed(appNames: [String]) {
         let list = appNames.prefix(5).joined(separator: "、")

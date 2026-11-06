@@ -447,6 +447,13 @@ class AppState: ObservableObject {
         Task {
             // 高-4（2026-10-04 审计）：先认领崩溃遗留的 pending 数据迁移，
             // 再跑常规自愈（认领可能补建出链接，自愈接着能处理）
+            let crashNotes = await OffPool.run {
+                CrashJournal.shared.recover()
+            }
+            if !crashNotes.isEmpty {
+                notificationManager.notifyCrashRecovery(notes: crashNotes)
+                AuditLog.append("启动处理未完成的迁移/回迁：\(crashNotes.joined(separator: "；"))")
+            }
             let recovered = await OffPool.run {
                 bootDataMigrator.recoverPendingDataMigrations()
             }

@@ -159,6 +159,9 @@ func issue(_ args: Args) {
         fail("到期日必须是 YYYY-MM-DD，收到: \(expiry)")
     }
     let tier = args.flag("tier") ?? "pro"
+    guard tier == "pro" else {
+        fail("层级只接受 pro（与 App 内功能门控一致），收到: \(tier)")
+    }
 
     let payload = "\(emailClean)|\(expiry)|\(tier)"
     let payloadData = Data(payload.utf8)

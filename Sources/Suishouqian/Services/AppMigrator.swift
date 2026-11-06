@@ -86,36 +86,8 @@ class AppMigrator: @unchecked Sendable {
     private func authenticatedRewriteLink(linkPath: String, toTarget target: String) async
         -> (success: Bool, error: String?) {
         return await OffPool.run {
-            func escShell(_ s: String) -> String {
-                s.replacingOccurrences(of: "'", with: "'\\''")
-            }
-            func escAppleScript(_ s: String) -> String {
-                s.replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-            }
-            // ln -sfn：先摘旧链接再建新的（提权场景无 rename(2) 可用，窗口极小且
-            // 失败时旧链接仍在——ln 失败不会删源）
-            let command = "ln -sfn '\(escShell(target))' '\(escShell(linkPath))'"
-            let script = "tell application \"随手迁\" to activate\ndelay 0.3\n"
-                + "do shell script \"\(escAppleScript(command))\" with administrator privileges"
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-            let errPipe = Pipe()
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errPipe
-            do {
-                try process.run()
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                if process.terminationStatus == 0 { return (true, nil) }
-                let errMsg = String(data: errData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
-                if errMsg.contains("User canceled") { return (false, "已取消授权") }
-                return (false, errMsg)
-            } catch {
-                return (false, error.localizedDescription)
-            }
+            // 路径走 argv，脚本里用 quoted form of，不把路径拼进 AppleScript 源。
+            PrivilegedShell.run(.rewriteLink(link: linkPath, target: target))
         }
     }
 
@@ -335,6 +307,8 @@ class AppMigrator: @unchecked Sendable {
                       phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
                       progress: @escaping @Sendable (Double, String) -> Void) async -> MigrationResult {
         let appName = app.bundleName
+        var crashOpen = false
+        defer { if crashOpen { CrashJournal.shared.end() } }
         let relative = (sourcePath as NSString).lastPathComponent
         // 保持源盘上的相对布局（Applications/ 或 Suishouqian_Apps/ 原样带到目标盘）
         let parentName = (sourcePath as NSString).deletingLastPathComponent
@@ -369,6 +343,11 @@ class AppMigrator: @unchecked Sendable {
             fileManager, sourcePath: sourcePath, targetPath: targetPath) {
             return done(false, reject)
         }
+
+        CrashJournal.shared.begin(CrashJournal.Entry(
+            op: "relocate", appName: appName, sourcePath: sourcePath, targetPath: targetPath,
+            backupPath: nil, createLink: hadLink, linkPath: hadLink ? linkPath : nil))
+        crashOpen = true
 
         phaseProgress(.init(phase: .copying, progress: 0.1, message: "正在复制 \(app.name) 到目标盘..."))
         progress(0.1, "正在复制 \(app.name) 到目标盘...")
@@ -560,6 +539,8 @@ class AppMigrator: @unchecked Sendable {
 
         let appName = app.bundleName
         let sourcePath = app.path
+        var crashOpen = false
+        defer { if crashOpen { CrashJournal.shared.end() } }
         // targetSubdir 用于"搬回去"精确还原原位置（如 Suishouqian_Apps/）；默认 Applications/
         let targetDir = targetSubdir.map { "\(drivePath)/\($0)" } ?? "\(drivePath)/Applications"
         let targetPath = "\(targetDir)/\(appName)"
@@ -635,6 +616,11 @@ class AppMigrator: @unchecked Sendable {
             AuditLog.append("拒绝迁移 \(appName)：\(reject)")
             return MigrationResult(success: false, error: reject, spaceSaved: 0)
         }
+
+        CrashJournal.shared.begin(CrashJournal.Entry(
+            op: "migrate", appName: appName, sourcePath: sourcePath, targetPath: targetPath,
+            backupPath: skipBackup ? nil : backupPath, createLink: createLink, linkPath: nil))
+        crashOpen = true
 
         phaseProgress(.init(phase: .copying, progress: 0.1, message: "正在复制 \(app.name)..."))
         progress(0.1, "正在复制 \(app.name)...")
@@ -863,6 +849,8 @@ class AppMigrator: @unchecked Sendable {
         let sourcePath = app.path
         let externalPath = target
         let backupDir = "\(BackupLocations.backupRoot(for: drivePath))/\(appName)"
+        var crashOpen = false
+        defer { if crashOpen { CrashJournal.shared.end() } }
 
         // 稳定性：回迁同样要求应用未在运行
         if let runningName = Self.runningAppName(matching: sourcePath) {
@@ -889,6 +877,11 @@ class AppMigrator: @unchecked Sendable {
                 error: "该位置已不是软链接（可能已被应用更新替换为真目录），请重新扫描后再操作",
                 spaceSaved: 0)
         }
+
+        CrashJournal.shared.begin(CrashJournal.Entry(
+            op: "restore", appName: appName, sourcePath: sourcePath, targetPath: externalPath,
+            backupPath: backupDir, createLink: true, linkPath: nil))
+        crashOpen = true
 
         phaseProgress(.init(phase: .copying, progress: 0.1, message: "准备回迁..."))
         progress(0.1, "删除符号链接...")
@@ -940,6 +933,8 @@ class AppMigrator: @unchecked Sendable {
         phaseProgress(.init(phase: .preflight, progress: 0, message: "正在预检搬回操作…"))
         let sourcePath = app.path
         let destPath = "/Applications/\(app.bundleName)"
+        var crashOpen = false
+        defer { if crashOpen { CrashJournal.shared.end() } }
 
         if let runningName = Self.runningAppName(matching: sourcePath) {
             return MigrationResult(success: false,
@@ -955,6 +950,11 @@ class AppMigrator: @unchecked Sendable {
         }
 
         await OffPool.run { _ = SystemSnapshot.createThrottled() }
+
+        CrashJournal.shared.begin(CrashJournal.Entry(
+            op: "migrate", appName: app.bundleName, sourcePath: sourcePath, targetPath: destPath,
+            backupPath: nil, createLink: false, linkPath: nil))
+        crashOpen = true
 
         phaseProgress(.init(phase: .copying, progress: 0.1, message: "正在复制 \(app.name)..."))
         progress(0.1, "正在复制 \(app.name)...")
@@ -1508,7 +1508,7 @@ class AppMigrator: @unchecked Sendable {
         let sampleLimit = 32
         guard totalCount > 0 else { return true }
 
-        guard let files = self.listFiles(under: source), !files.isEmpty else { return true }
+        guard let files = self.listFiles(under: source), !files.isEmpty else { return false }
         let sample = files.count <= sampleLimit
             ? files
             : Array(files.shuffled().prefix(sampleLimit))
@@ -1520,22 +1520,31 @@ class AppMigrator: @unchecked Sendable {
         let srcArgs = relSample.map { "\(srcRoot)/\($0)" }
         let dstArgs = relSample.map { "\(dstRoot)/\($0)" }
 
-        guard let srcMap = self.shasum(files: srcArgs, relativeTo: srcRoot), !srcMap.isEmpty,
-              let dstMap = self.shasum(files: dstArgs, relativeTo: dstRoot), !dstMap.isEmpty else {
-            return true    // 读不出（权限等）→ 信任字节对比，不误报
-        }
+        return Self.hashesMatch(
+            relativePaths: relSample,
+            source: self.shasum(files: srcArgs, relativeTo: srcRoot),
+            target: self.shasum(files: dstArgs, relativeTo: dstRoot))
+    }
 
-        return relSample.allSatisfy { rel in
-            guard let a = srcMap[rel], let b = dstMap[rel] else { return true }
-            return a == b
+    /// 抽样路径必须在两侧都有哈希，且哈希相同。缺一项就是失败，不能当成通过。
+    static func hashesMatch(relativePaths: [String],
+                            source: [String: String]?,
+                            target: [String: String]?) -> Bool {
+        guard !relativePaths.isEmpty else { return true }
+        guard let source, let target else { return false }
+        for rel in relativePaths {
+            guard let left = source[rel], let right = target[rel], left == right else {
+                return false
+            }
         }
+        return true
     }
 
     /// 批量 shasum，返回 相对路径(去根前缀) → 哈希；进程失败返回 nil
     private func shasum(files: [String], relativeTo root: String) -> [String: String]? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/shasum")
-        process.arguments = ["-a", "256"] + files
+        process.arguments = ["-a", "256", "--"] + files
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -1648,52 +1657,7 @@ class AppMigrator: @unchecked Sendable {
         // osascript 会阻塞等待用户输密码（可能很久）：必须 OffPool，
         // 协作线程池被占死就是两次冻结事故的根因（2026-09-23 审查修）
         return await OffPool.run {
-            // 两层转义：先按 shell 单引号串转义，再按 AppleScript 双引号串转义。
-            // 路径要穿过 AppleScript → shell 两层，只做一层会在含引号的路径上拼坏命令
-            func escShell(_ s: String) -> String {
-                s.replacingOccurrences(of: "'", with: "'\\''")
-            }
-            func escAppleScript(_ s: String) -> String {
-                s.replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-            }
-
-            let command = createLink
-                ? "rm -rf '\(escShell(source))' && ln -s '\(escShell(linkTarget))' '\(escShell(source))'"
-                : "rm -rf '\(escShell(source))'"
-            let script = "tell application \"随手迁\" to activate\ndelay 0.3\n"
-                + "do shell script \"\(escAppleScript(command))\" with administrator privileges"
-            
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-            
-            // stdout 直接丢弃：这条命令的 stdout 我们不读，若接成管道又没人读，
-            // 一旦写满 64KB 缓冲，进程会永久阻塞在写上（本项目被烧过两次的死锁形态）。
-            // 只有 stderr 需要读——读至 EOF 再等待退出，顺序不能颠倒
-            let errPipe = Pipe()
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errPipe
-            
-            do {
-                try process.run()
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                
-                if process.terminationStatus == 0 {
-                    return (true, nil)
-                } else {
-                    let errMsg = String(data: errData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
-                    // 用户取消了密码弹窗
-                    if errMsg.contains("User canceled") {
-                        return (false, "已取消授权")
-                    }
-                    return (false, errMsg)
-                }
-            } catch {
-                return (false, error.localizedDescription)
-            }
+            PrivilegedShell.run(.remove(source: source, linkTarget: linkTarget, createLink: createLink))
         }
     }
 
@@ -1737,42 +1701,8 @@ class AppMigrator: @unchecked Sendable {
     /// 管道纪律与 authenticatedRemove 相同：stdout 丢弃、stderr 先读后等。
     private func authenticatedTrash(path: String) async -> (success: Bool, error: String?) {
         let trashDir = NSHomeDirectory() + "/.Trash"
-        let command = Self.privilegedTrashCommand(sourcePath: path, userTrashDir: trashDir)
         return await OffPool.run {
-            func escAppleScript(_ s: String) -> String {
-                s.replacingOccurrences(of: "\\", with: "\\\\")
-                    .replacingOccurrences(of: "\"", with: "\\\"")
-            }
-            let script = "tell application \"随手迁\" to activate\ndelay 0.3\n"
-                + "do shell script \"\(escAppleScript(command))\" with administrator privileges"
-
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-
-            let errPipe = Pipe()
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = errPipe
-
-            do {
-                try process.run()
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-
-                if process.terminationStatus == 0 {
-                    return (true, nil)
-                } else {
-                    let errMsg = String(data: errData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
-                    // 用户取消了密码弹窗
-                    if errMsg.contains("User canceled") {
-                        return (false, "已取消授权")
-                    }
-                    return (false, errMsg)
-                }
-            } catch {
-                return (false, error.localizedDescription)
-            }
+            PrivilegedShell.run(.trash(source: path, trashDir: trashDir))
         }
     }
 }
