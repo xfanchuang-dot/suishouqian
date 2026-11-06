@@ -113,7 +113,154 @@ final class LocalizationCatalogTests: XCTestCase {
         defer { L10n.localeOverride = nil }
         XCTAssertEqual(l10n("取消"), "Cancel")
         XCTAssertEqual(l10n("设置"), "Settings")
-        XCTAssertEqual(l10n("已选 %lld 个（%@）", 1, "12 MB"), "1 selected (12 MB)")
+        XCTAssertEqual(l10n("已选 %lld 个（%@）", 0, "12 MB"), "0 items selected (12 MB)")
+        XCTAssertEqual(l10n("已选 %lld 个（%@）", 1, "12 MB"), "1 item selected (12 MB)")
+        XCTAssertEqual(l10n("已选 %lld 个（%@）", 2, "12 MB"), "2 items selected (12 MB)")
+    }
+
+    func testEnglishQuantitiesUseSingularAndPlural() {
+        L10n.localeOverride = Locale(identifier: "en")
+        defer { L10n.localeOverride = nil }
+
+        XCTAssertEqual(
+            l10n("近 %lld 天启动 %lld 次 · %@", 0, 2, "X"),
+            "In the last 0 days, launched 2 times · X")
+        XCTAssertEqual(
+            l10n("近 %lld 天启动 %lld 次 · %@", 1, 1, "X"),
+            "In the last 1 day, launched 1 time · X")
+        XCTAssertEqual(
+            l10n("近 %lld 天启动 %lld 次 · %@", 2, 1, "X"),
+            "In the last 2 days, launched 1 time · X")
+        XCTAssertEqual(l10n("%lld 个高频应用住在外置盘", 0),
+                       "0 apps you use often live on an external drive")
+        XCTAssertEqual(l10n("%lld 个高频应用住在外置盘", 1),
+                       "1 app you use often lives on an external drive")
+        XCTAssertEqual(l10n("%lld 个高频应用住在外置盘", 2),
+                       "2 apps you use often live on an external drive")
+        XCTAssertEqual(l10n("已用 %lld%%", 0), "0% used")
+        XCTAssertEqual(l10n("已用 %lld%%", 1), "1% used")
+        XCTAssertEqual(l10n("已用 %lld%%", 2), "2% used")
+        XCTAssertEqual(l10n("先处理：%@，可回 %lld 分", "links", 1),
+                       "Start with links. That can restore 1 point")
+        XCTAssertEqual(l10n("先处理：%@，可回 %lld 分", "links", 2),
+                       "Start with links. That can restore 2 points")
+    }
+
+    func testChineseCountsStayInTheOriginalSentence() {
+        XCTAssertEqual(l10n("已选 %lld 个（%@）", 0, "12 MB"), "已选 0 个（12 MB）")
+        XCTAssertEqual(l10n("已选 %lld 个（%@）", 1, "12 MB"), "已选 1 个（12 MB）")
+        XCTAssertEqual(l10n("已选 %lld 个（%@）", 2, "12 MB"), "已选 2 个（12 MB）")
+        XCTAssertEqual(l10n("近 %lld 天启动 %lld 次 · %@", 1, 2, "X"), "近 1 天启动 2 次 · X")
+        XCTAssertEqual(l10n("已用 %lld%%", 12), "已用 12%")
+    }
+
+    func testEveryCountedEnglishStringHasPluralRules() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Suishouqian/en.lproj")
+        let plistData = try Data(contentsOf: root.appendingPathComponent("Localizable.stringsdict"))
+        let plist = try PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any]
+        let rules = try XCTUnwrap(plist)
+        let counted = try countedStringKeys(in: root.appendingPathComponent("Localizable.strings"))
+        XCTAssertEqual(Set(rules.keys), counted)
+
+        L10n.localeOverride = Locale(identifier: "en")
+        defer { L10n.localeOverride = nil }
+        for (key, value) in rules {
+            let entry = try XCTUnwrap(value as? [String: Any])
+            XCTAssertNotNil(entry["NSStringLocalizedFormatKey"], key)
+            var singularDiffers = false
+            for (name, raw) in entry where name != "NSStringLocalizedFormatKey" {
+                let rule = try XCTUnwrap(raw as? [String: Any], name)
+                let one = try XCTUnwrap(rule["one"] as? String, key)
+                let other = try XCTUnwrap(rule["other"] as? String, key)
+                if one != other { singularDiffers = true }
+            }
+            let zero = L10n.render(key, countArguments(key, number: 0), locale: Locale(identifier: "en"))
+            let one = L10n.render(key, countArguments(key, number: 1), locale: Locale(identifier: "en"))
+            let two = L10n.render(key, countArguments(key, number: 2), locale: Locale(identifier: "en"))
+            XCTAssertNotEqual(zero, one, key)
+            XCTAssertNotEqual(zero, two, key)
+            if singularDiffers {
+                XCTAssertNotEqual(one, two, key)
+            }
+        }
+    }
+
+    private func countedStringKeys(in url: URL) throws -> Set<String> {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        var keys = Set<String>()
+        var index = text.startIndex
+        while index < text.endIndex {
+            guard text[index] == "\"" else {
+                index = text.index(after: index)
+                continue
+            }
+            let parsed = try parseStringsLiteral(text, from: text.index(after: index))
+            let key = parsed.value
+            var cursor = parsed.end
+            while cursor < text.endIndex, text[cursor].isWhitespace { cursor = text.index(after: cursor) }
+            if cursor < text.endIndex, text[cursor] == "=", key.contains("%lld") {
+                keys.insert(key)
+            }
+            index = parsed.end
+        }
+        return keys
+    }
+
+    private func parseStringsLiteral(_ text: String, from start: String.Index) throws -> (value: String, end: String.Index) {
+        var value = ""
+        var index = start
+        while index < text.endIndex {
+            if text[index] == "\\" {
+                let next = text.index(after: index)
+                guard next < text.endIndex else { break }
+                let map: [Character: String] = ["n": "\n", "r": "\r", "t": "\t", "\"": "\"", "\\": "\\"]
+                value += map[text[next]] ?? String(text[next])
+                index = text.index(after: next)
+                continue
+            }
+            if text[index] == "\"" {
+                return (value, text.index(after: index))
+            }
+            value.append(text[index])
+            index = text.index(after: index)
+        }
+        throw NSError(domain: "strings", code: 1)
+    }
+
+    private func countArguments(_ key: String, number: Int) -> [CVarArg] {
+        var args: [CVarArg] = []
+        var index = key.startIndex
+        while index < key.endIndex {
+            guard key[index] == "%" else {
+                index = key.index(after: index)
+                continue
+            }
+            if key[index...].hasPrefix("%%") {
+                index = key.index(index, offsetBy: 2)
+                continue
+            }
+            if key[index...].hasPrefix("%lld") {
+                args.append(number)
+                index = key.index(index, offsetBy: 4)
+                continue
+            }
+            if key[index...].hasPrefix("%.0f") {
+                args.append(1.0)
+                index = key.index(index, offsetBy: 4)
+                continue
+            }
+            if key[index...].hasPrefix("%@") {
+                args.append("X")
+                index = key.index(index, offsetBy: 2)
+                continue
+            }
+            index = key.index(after: index)
+        }
+        return args
     }
 
     func testObjectPlaceholderAcceptsInteger() {

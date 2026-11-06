@@ -365,7 +365,7 @@ extension HealthCheckView {
 
     private func speedAlertText(_ item: SpeedAlertIssue) -> String {
         var text = l10n("最近实测 %lld MB/s，只有历史基线", Int(item.alert.latestMBps))
-            + l10n("（%lld MB/s）的 %@%", Int(item.alert.baselineMBps), item.alert.percentOfBaseline)
+            + l10n("（%lld MB/s）的 %lld%%", Int(item.alert.baselineMBps), item.alert.percentOfBaseline)
         if let at = item.measuredAt {
             text += l10n("（%@ 测得）", at.formatted(date: .abbreviated, time: .shortened))
         }

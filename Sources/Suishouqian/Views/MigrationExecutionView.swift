@@ -118,7 +118,7 @@ struct MigrationExecutionView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(l10n("%@，进度 %lld%", title(task), Int(task.progress * 100)))
+        .accessibilityLabel(l10n("%@，进度 %lld%%", title(task), Int(task.progress * 100)))
     }
 
     /// 取消控制：按下只置位 token 并等待服务返回最终文件状态，不清 appState.migrationTask。

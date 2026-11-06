@@ -28,16 +28,7 @@ enum L10n {
 
 /// 按当前语言取文案。`key` 用中文原文（带 `%@` / `%lld` 占位）。
 func l10n(_ key: String, _ args: CVarArg...) -> String {
-    let locale = L10n.locale
-    let format = L10n.string(key, locale: locale)
-    guard !args.isEmpty else { return format }
-    // `%@` 配整数会在 String(format:) 里段错误。迁移动作已经做完才写成功日志，
-    // 这里把数字收成字符串，避免成功路径把进程打死。
-    let specs = L10n.formatSpecifiers(format)
-    let safe = args.enumerated().map { index, arg in
-        L10n.argument(arg, for: index < specs.count ? specs[index] : "")
-    }
-    return String(format: format, locale: locale, arguments: safe)
+    L10n.render(key, args, locale: L10n.locale)
 }
 
 extension L10n {
@@ -108,6 +99,122 @@ extension L10n {
         case let value as Double: return String(value)
         case let value as Float: return String(value)
         default: return arg
+        }
+    }
+
+    /// 英文复数规则。只读 `en.lproj`，跟系统当前语言无关。
+    private static let englishPluralRules: [String: [String: Any]] = {
+        guard let dir = Bundle.module.path(forResource: "en", ofType: "lproj") else { return [:] }
+        let url = URL(fileURLWithPath: dir).appendingPathComponent("Localizable.stringsdict")
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
+            return [:]
+        }
+        var rules: [String: [String: Any]] = [:]
+        for (key, value) in plist {
+            if let entry = value as? [String: Any] {
+                rules[key] = entry
+            }
+        }
+        return rules
+    }()
+
+    static func render(_ key: String, _ args: [CVarArg], locale: Locale) -> String {
+        let base = string(key, locale: locale)
+        // 英文复数在 en.lproj/Localizable.stringsdict。这里自己展开，
+        // 不走系统当前语言，中文目录没有这份文件就不会被改写。
+        let format = pluralFormat(key: key, fallback: base, locale: locale, args: args)
+        guard !args.isEmpty else { return format }
+        // `%@` 配整数会在 String(format:) 里段错误。迁移动作已经做完才写成功日志，
+        // 这里把数字收成字符串，避免成功路径把进程打死。
+        let specs = formatSpecifiers(format)
+        let safe = args.enumerated().map { index, arg in
+            argument(arg, for: index < specs.count ? specs[index] : "")
+        }
+        return String(format: format, locale: locale, arguments: safe)
+    }
+
+    static func pluralFormat(key: String, fallback: String, locale: Locale, args: [CVarArg]) -> String {
+        guard locale.language.languageCode?.identifier == "en",
+              let entry = englishPluralRules[key],
+              let template = entry["NSStringLocalizedFormatKey"] as? String else {
+            return fallback
+        }
+        return expandPluralTemplate(template, entry: entry, args: args)
+    }
+
+    private static func expandPluralTemplate(_ template: String, entry: [String: Any], args: [CVarArg]) -> String {
+        var output = ""
+        var index = template.startIndex
+        var argumentIndex = 0
+        while index < template.endIndex {
+            guard template[index] == "%" else {
+                output.append(template[index])
+                index = template.index(after: index)
+                continue
+            }
+            let rest = template[index...]
+            if rest.hasPrefix("%%") {
+                output += "%%"
+                index = template.index(index, offsetBy: 2)
+                continue
+            }
+            if rest.hasPrefix("%#@") {
+                let nameStart = template.index(index, offsetBy: 3)
+                guard let nameEnd = template[nameStart...].firstIndex(of: "@") else {
+                    output.append("%")
+                    index = template.index(after: index)
+                    continue
+                }
+                let name = String(template[nameStart..<nameEnd])
+                let value = argumentIndex < args.count ? integerArgument(args[argumentIndex]) : nil
+                output += pluralVariant(entry[name], value: value)
+                argumentIndex += 1
+                index = template.index(after: nameEnd)
+                continue
+            }
+            var cursor = template.index(after: index)
+            var found = false
+            while cursor < template.endIndex {
+                let character = template[cursor]
+                cursor = template.index(after: cursor)
+                if "diouxXfFeEgGaAcsp@".contains(character) {
+                    found = true
+                    break
+                }
+            }
+            guard found else {
+                output.append("%")
+                index = template.index(after: index)
+                continue
+            }
+            output += template[index..<cursor]
+            argumentIndex += 1
+            index = cursor
+        }
+        return output
+    }
+
+    private static func pluralVariant(_ raw: Any?, value: Int64?) -> String {
+        guard let dict = raw as? [String: Any] else { return "%lld" }
+        let category = value == 1 ? "one" : "other"
+        if let text = dict[category] as? String { return text }
+        if let text = dict["other"] as? String { return text }
+        return "%lld"
+    }
+
+    private static func integerArgument(_ arg: CVarArg) -> Int64? {
+        switch arg {
+        case let value as Int: return Int64(value)
+        case let value as Int64: return value
+        case let value as Int32: return Int64(value)
+        case let value as Int16: return Int64(value)
+        case let value as UInt: return Int64(value)
+        case let value as UInt64: return Int64(exactly: value)
+        case let value as UInt32: return Int64(value)
+        case let value as Double: return Int64(value)
+        case let value as Float: return Int64(value)
+        default: return nil
         }
     }
 }

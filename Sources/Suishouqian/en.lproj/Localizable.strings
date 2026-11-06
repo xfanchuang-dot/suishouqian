@@ -1,9 +1,9 @@
-/* Generated from Localizable.xcstrings. */
+/* Generated from Localizable.xcstrings. English plurals: Localizable.stringsdict. */
 "迁移完成" = "Move complete";
 "「%@」已迁移到外置硬盘，节省 %@" = "“%@” is now on an external drive. Freed %@";
-"自动恢复 %lld 个：%@%@" = "Automatically moved %lld back: %@%@";
-"%lld 个失败：%@" = "%lld failed: %@";
-"%lld 个跳过（App Store 应用/正在运行）" = "%lld skipped (App Store or still running)";
+"自动恢复 %lld 个：%@%@" = "Automatically moved %lld apps back: %@%@";
+"%lld 个失败：%@" = "%lld apps failed: %@";
+"%lld 个跳过（App Store 应用/正在运行）" = "%lld apps skipped (App Store or still running)";
 "升级顶掉已自动恢复" = "Apps replaced by updates were moved again";
 "卸载完成" = "Uninstall complete";
 "「%@」已卸载，应用与备份在废纸篓里，反悔可拖回" = "“%@” was uninstalled. The app and its backup are in the Trash — drag them back if you change your mind";
@@ -39,7 +39,7 @@
 "外置盘未连接" = "External drive not connected";
 "查看磁盘详情与测速" = "Drive details and speed test";
 "内置磁盘" = "Internal";
-"已用 %lld%" = "%lld% used";
+"已用 %lld%%" = "%lld%% used";
 "更新源地址不合法：%@" = "The update feed address isn’t valid: %@";
 "更新源返回了非 HTTP 响应。" = "The update feed didn’t return an HTTP response.";
 "\n            更新源返回 404：%@\n            最常见的原因是仓库为私有（Sparkle 拉 feed 时不带任何凭证，GitHub 对匿名请求\n            一律返回 404），或者还没有发布过任何正式 Release。两种情况 Sparkle 都拿不到 appcast。\n            " = "The update feed returned 404: %@\n\nThe usual causes are a private repository (Sparkle fetches the feed with no credentials, and GitHub answers anonymous requests with 404) or no public release yet. Either way Sparkle can’t read the appcast.";
@@ -316,7 +316,7 @@
 "%@（离线重建 %@）" = "%@ (recreated offline %@)";
 "高频应用 · 建议搬回内置盘" = "Used often — consider moving it back";
 "近 %lld 天经常启动，却要靠外置盘才能打开（随手迁运行时的启动才会记账）" = "Launched often in the last %lld days, but it only opens when the external drive is connected (only launches while Suishouqian is running are recorded)";
-"近 %lld 天启动 %lld 次 · %@" = "Launched %lld times in %lld days · %@";
+"近 %lld 天启动 %lld 次 · %@" = "In the last %lld days, launched %lld times · %@";
 "搬回内置盘" = "Move Back";
 "搬回后应用就在内置盘本地，不再依赖外置盘" = "After this, the app lives on the internal drive and no longer needs the external drive.";
 "长期未用 · 外置盘" = "Unused · external drive";
@@ -351,7 +351,7 @@
 "「%@」未连接，插回后自动恢复" = "“%@” isn’t connected. It will come back when you plug it in";
 "未检测到外置硬盘，插入后自动识别" = "No external drive detected. It will be recognized when you connect one";
 "正在传输" = "Transferring";
-"%@，进度 %lld%" = "%@, %lld% ";
+"%@，进度 %lld%%" = "%@, %lld%%";
 "正在请求停止，等待文件状态确认…" = "Stopping at the next safe point…";
 "等待迁移服务返回源位置与目标副本状态" = "Waiting until the move reports the state of the original and the copy";
 "取消迁移" = "Cancel Move";
@@ -545,7 +545,7 @@
 "实测速度异常" = "Measured speed looks wrong";
 "与该盘自己的历史测速对比" = "Compared with this drive’s own past tests";
 "最近实测 %lld MB/s，只有历史基线" = "Latest test was %lld MB/s, only a fraction of the baseline";
-"（%lld MB/s）的 %@%" = "(%lld MB/s) %@%";
+"（%lld MB/s）的 %lld%%" = "(%lld MB/s) %lld%%";
 "（%@ 测得）" = "(measured %@)";
 "。速度塌陷常是盘体故障前兆——请尽快备份数据，考虑更换盘体或硬盘盒" = ". A drop like this often comes before a drive fails — back up, and consider replacing the drive or the enclosure";
 "失联的卷" = "Missing volumes";
@@ -556,22 +556,22 @@
 "清理死链接" = "Remove Dead Links";
 "清理失联卷的死链接" = "Remove dead links for missing volumes";
 "其中 %lld 个是 App Store 应用" = "%lld of them are App Store apps";
-"\n        %@%@。\n\n        它们更适合用行内的「纯搬迁」（不留链接）：不留链接时 App Store 更新会就地写到\n        外置盘上（本机实测），搬迁不会被撤销。而这里的一键迁移用的是「留链接」，\n        更新有可能把链接换成真目录。\n\n        其余 %lld 个可以正常一键迁移。\n        " = "%@%@.\n\nThese are better moved with “Move Without Link” on the row. Without a link, the App Store updates the copy on the external drive in place (confirmed locally), so the move isn’t undone. Move All leaves a link, and an update might replace that link with a real folder.\n\nThe other %lld can use Move All.";
-"跳过这 %lld 个，迁移其余" = "Skip these %lld and move the rest";
+"\n        %@%@。\n\n        它们更适合用行内的「纯搬迁」（不留链接）：不留链接时 App Store 更新会就地写到\n        外置盘上（本机实测），搬迁不会被撤销。而这里的一键迁移用的是「留链接」，\n        更新有可能把链接换成真目录。\n\n        其余 %lld 个可以正常一键迁移。\n        " = "%@%@.\n\nThese are better moved with “Move Without Link” on the row. Without a link, the App Store updates the copy on the external drive in place (confirmed locally), so the move isn’t undone. Move All leaves a link, and an update might replace that link with a real folder.\n\nThe other %lld apps can use Move All.";
+"跳过这 %lld 个，迁移其余" = "Skip these %lld apps and move the rest";
 "全部迁移（留链接）" = "Move All (leave links)";
 "进行中" = "In progress";
 "生成安全计划" = "Make a Safe Plan";
-"全部回迁（%lld 个）" = "Move All Back (%lld)";
+"全部回迁（%lld 个）" = "Move All Back (%lld apps)";
 "一键腾空间…" = "Free Up Space…";
 "告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由" = "Say how much free space you want. The planner picks the best apps to move and explains why.";
 "盘要退休…" = "Retire Drive…";
 "换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘" = "Replacing or selling this drive? Move everything Suishouqian manages on it back to the internal drive.";
-"%lld 个待迁移" = "%lld waiting to move";
-"%lld 个已迁移" = "%lld already moved";
+"%lld 个待迁移" = "%lld apps waiting to move";
+"%lld 个已迁移" = "%lld apps already moved";
 "把大应用搬到外置硬盘" = "Move large apps to an external drive";
 "去「应用」页面挑选，点击「迁移」释放内置盘空间" = "Open Apps, then click Move to free space on the internal drive";
 "外置硬盘已连接，可以开始迁移" = "An external drive is connected. You can start moving.";
-"已跳过全部 %@ 个 App Store 应用，没有需要迁移的应用" = "Skipped all %@ App Store apps. Nothing else needs to move.";
+"已跳过全部 %lld 个 App Store 应用，没有需要迁移的应用" = "Skipped all %lld App Store apps. Nothing else needs to move.";
 "计划已过期，未开始迁移" = "The plan expired. The move did not start.";
 "「%@」在计划批准后已不可迁移" = "“%@” can no longer be moved. The plan was already approved.";
 "（可能已被迁移、正在运行或列表已重新扫描），" = "(it may already have been moved, it may be running, or the list was rescanned),";
@@ -582,8 +582,8 @@
 "目标盘身份变化，已阻止" = "Destination identity changed. Blocked.";
 "需要检查恢复" = "Recovery needs a look";
 "「%@」%@，本批剩余条目未开始" = "“%@” %@. The rest of this batch did not start.";
-"批量迁移完成：%lld 个全部成功" = "Batch finished: all %lld succeeded";
-"批量迁移结束：%lld 成功 / %lld 失败" = "Batch finished: %lld succeeded, %lld failed";
+"批量迁移完成：%lld 个全部成功" = "Batch finished: all %lld apps succeeded";
+"批量迁移结束：%lld 成功 / %lld 失败" = "Batch finished: %lld apps succeeded, %lld apps failed";
 "目标盘身份已变化或不可用，计划未开始" = "The destination’s identity changed or can’t be read. The plan did not start.";
 "这块盘上没有随手迁管理的内容" = "Suishouqian isn’t managing anything on this drive";
 "没有链接应用、外置盘原住民或已迁移的数据目录需要迁回。" = "Nothing to move back: no linked apps, no apps that live on the external drive, and no moved data folders.";
@@ -608,7 +608,7 @@
 "%@ 硬盘未连接" = "%@ drive not connected";
 "%@ 断链" = "%@ broken links";
 "一键修复断链" = "Repair All Broken Links";
-"上次修复：%lld 条" = "Last repair: %lld";
+"上次修复：%lld 条" = "Last repair: %lld links";
 "已按迁移台账自动自愈 %lld 条（卷改名/换挂载点）" = "%lld links were repaired from the move log (the volume was renamed or remounted)";
 "修复" = "Repair";
 "一切正常" = "All clear";
@@ -661,11 +661,11 @@
 "%@：可用 %@" = "%@: %@ free";
 "打开随手迁" = "Open Suishouqian";
 "退出随手迁" = "Quit Suishouqian";
-"已选 %lld 个（%@）" = "%lld selected (%@)";
+"已选 %lld 个（%@）" = "%lld items selected (%@)";
 "迁移选中" = "Move Selected";
 "回迁选中" = "Move Selected Back";
 "取消选择" = "Clear Selection";
-"仅显示最大的 30 个，共 %lld 个" = "Showing the largest 30 of %lld";
+"仅显示最大的 30 个，共 %lld 个" = "Showing the largest 30 of %lld apps";
 "搜索应用…" = "Search apps…";
 "切换列表/大小图表" = "Switch between list and size chart";
 "切换列表或大小图表" = "Switch between list and size chart";
@@ -710,7 +710,7 @@
 "内置盘剩余 %@ GB，已经高于目标 %lld GB，无需腾空间。" = "%@ GB is already free on the internal drive, which is more than the %lld GB goal. Nothing to move.";
 "想要更多余量，把目标改大后重新生成方案" = "For more free space, raise the goal and make the plan again.";
 "没有可搬迁的候选（目标盘空间不足或所有应用都被排除了，见下方排除说明）" = "Nothing to move. The destination doesn’t have enough space, or every app was excluded. See the reasons below.";
-"按方案执行（%lld 个）" = "Run the Plan (%lld)";
+"按方案执行（%lld 个）" = "Run the Plan (%lld apps)";
 "输入目标后点「生成方案」：引擎按体积 × 更新方式风险 × 使用频率排序，" = "Enter a goal, then click Make a Plan. Apps are ordered by size, update risk, and how often you use them.";
 "自动挑出性价比最高的一批，被排除的应用都会说明原因" = "The best candidates are chosen for you, and every excluded app has a reason.";
 "没有纳入方案的应用" = "Apps not in the plan";
@@ -784,7 +784,7 @@
 "© 2026 随手迁 · 为个人 Mac 打造的应用迁移工具" = "© 2026 Suishouqian · An app mover for your own Mac";
 "正在检查……" = "Checking…";
 "重新检查" = "Check Again";
-"已用 %lld% · %@ / %@" = "%lld% used · %@ / %@";
+"已用 %lld%% · %@ / %@" = "%lld%% used · %@ / %@";
 "接入后这里显示用量与剩余空间" = "Usage and free space show here after you connect a drive";
 "测速中" = "Testing…";
 "实测外置盘读写速度（写入几百 MB，需几秒）" = "Measure read and write speed. Writes a few hundred megabytes and takes a few seconds.";

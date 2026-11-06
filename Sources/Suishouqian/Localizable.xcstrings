@@ -681,19 +681,19 @@
         }
       }
     },
-    "已用 %lld%": {
+    "已用 %lld%%": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld% used"
+            "value": "%lld%% used"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已用 %lld%"
+            "value": "已用 %lld%%"
           }
         }
       }
@@ -5985,19 +5985,19 @@
         }
       }
     },
-    "%@，进度 %lld%": {
+    "%@，进度 %lld%%": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, %lld% "
+            "value": "%@, %lld%%"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@，进度 %lld%"
+            "value": "%@，进度 %lld%%"
           }
         }
       }
@@ -9283,19 +9283,19 @@
         }
       }
     },
-    "（%lld MB/s）的 %@%": {
+    "（%lld MB/s）的 %lld%%": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "(%lld MB/s) %@%"
+            "value": "(%lld MB/s) %lld%%"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "（%lld MB/s）的 %@%"
+            "value": "（%lld MB/s）的 %lld%%"
           }
         }
       }
@@ -9725,19 +9725,19 @@
         }
       }
     },
-    "已跳过全部 %@ 个 App Store 应用，没有需要迁移的应用": {
+    "已跳过全部 %lld 个 App Store 应用，没有需要迁移的应用": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skipped all %@ App Store apps. Nothing else needs to move."
+            "value": "Skipped all %lld App Store apps. Nothing else needs to move."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已跳过全部 %@ 个 App Store 应用，没有需要迁移的应用"
+            "value": "已跳过全部 %lld 个 App Store 应用，没有需要迁移的应用"
           }
         }
       }
@@ -13346,19 +13346,19 @@
         }
       }
     },
-    "已用 %lld% · %@ / %@": {
+    "已用 %lld%% · %@ / %@": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld% used · %@ / %@"
+            "value": "%lld%% used · %@ / %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已用 %lld% · %@ / %@"
+            "value": "已用 %lld%% · %@ / %@"
           }
         }
       }

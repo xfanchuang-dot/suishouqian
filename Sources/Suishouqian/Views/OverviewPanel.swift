@@ -101,7 +101,7 @@ struct OverviewPanel: View {
                 diskCard(
                     icon: "internaldrive.fill", iconColor: MockTheme.accent,
                     name: l10n("内置磁盘"),
-                    detail: l10n("已用 %lld% · %@ / %@", Int(builtin.usageRatio * 100), usedText(builtin), builtin.totalFormatted),
+                    detail: l10n("已用 %lld%% · %@ / %@", Int(builtin.usageRatio * 100), usedText(builtin), builtin.totalFormatted),
                     ratio: builtin.usageRatio, bar: MockTheme.builtinBar)
             }
             if let external = appState.externalDrive {
@@ -150,7 +150,7 @@ struct OverviewPanel: View {
                     Text(drive.name)
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
-                    Text(l10n("已用 %lld% · %@ / %@", Int(drive.usageRatio * 100), usedText(drive), drive.totalFormatted))
+                    Text(l10n("已用 %lld%% · %@ / %@", Int(drive.usageRatio * 100), usedText(drive), drive.totalFormatted))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .monospacedDigit()

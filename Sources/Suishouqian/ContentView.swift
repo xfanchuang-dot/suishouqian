@@ -210,7 +210,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     HStack {
                         Spacer()
-                        Text(l10n("已用 %lld%", Int(builtin.usageRatio * 100)))
+                        Text(l10n("已用 %lld%%", Int(builtin.usageRatio * 100)))
                             .font(.system(size: 11))
                             .monospacedDigit()
                             .foregroundColor(.secondary)

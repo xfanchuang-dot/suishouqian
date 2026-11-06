@@ -171,7 +171,7 @@ struct MigrationPanel: View {
         guard let targets = MigrationAdvisor.resolveBatch(movableApps) else { return }
         let skipped = movableApps.count - targets.count
         guard !targets.isEmpty else {
-            batchSummary = l10n("已跳过全部 %@ 个 App Store 应用，没有需要迁移的应用", skipped)
+            batchSummary = l10n("已跳过全部 %lld 个 App Store 应用，没有需要迁移的应用", skipped)
             return
         }
 
