@@ -9572,23 +9572,6 @@
         }
       }
     },
-    "将删除 %@ 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ dead links to this volume will be removed, and the log will be updated (%@%@). The targets are already gone, so deleting the links is safe. You can reinstall the apps afterward."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将删除 %@ 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。"
-          }
-        }
-      }
-    },
     "其中 %lld 个是 App Store 应用": {
       "extractionState": "manual",
       "localizations": {
@@ -14311,6 +14294,23 @@
           "stringUnit": {
             "state": "translated",
             "value": " · 应用已卸载"
+          }
+        }
+      }
+    },
+    "将删除 %lld 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld dead links to this volume will be removed, and the log will be updated (%@%@). The targets are already gone, so deleting the links is safe. You can reinstall the apps afterward."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将删除 %lld 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。"
           }
         }
       }

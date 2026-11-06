@@ -392,7 +392,7 @@ extension HealthCheckView {
             ForEach(model.lostVolumes) { vol in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(l10n("卷 %@…", vol.volumeUUID.prefix(8)))
+                        Text(l10n("卷 %@…", String(vol.volumeUUID.prefix(8))))
                             .font(.system(size: 12, weight: .medium))
                         if let seen = vol.lastSeen {
                             Text(l10n("最后出现 %@", seen.formatted(date: .abbreviated, time: .omitted)))
@@ -420,7 +420,7 @@ extension HealthCheckView {
     private func confirmCleanupLostVolume(_ vol: LostVolumeInfo) {
         let alert = NSAlert()
         alert.messageText = l10n("清理失联卷的死链接")
-        alert.informativeText = l10n("将删除 %@ 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。", vol.appNames.count, vol.appNames.prefix(5).joined(separator: "、"), vol.appNames.count > 5 ? "…" : "")
+        alert.informativeText = l10n("将删除 %lld 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。", vol.appNames.count, vol.appNames.prefix(5).joined(separator: "、"), vol.appNames.count > 5 ? "…" : "")
         alert.addButton(withTitle: l10n("清理"))
         alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
