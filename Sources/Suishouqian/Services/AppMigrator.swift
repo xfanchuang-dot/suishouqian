@@ -1544,7 +1544,7 @@ class AppMigrator: @unchecked Sendable {
     private func shasum(files: [String], relativeTo root: String) -> [String: String]? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/shasum")
-        process.arguments = ["-a", "256", "--"] + files
+        process.arguments = ["-a", "256"] + files
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice

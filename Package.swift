@@ -20,6 +20,8 @@ let package = Package(
             resources: [
                 .process("Assets.xcassets"),
                 .process("Localizable.xcstrings"),
+                .process("en.lproj"),
+                .process("zh-Hans.lproj"),
             ]
         ),
         .testTarget(

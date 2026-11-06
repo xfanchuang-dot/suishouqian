@@ -21,12 +21,35 @@ enum L10n {
 /// 按当前语言取文案。`key` 用中文原文（带 `%@` / `%lld` 占位）。
 func l10n(_ key: String, _ args: CVarArg...) -> String {
     let locale = L10n.locale
-    let format = String(
-        localized: String.LocalizationValue(stringLiteral: key),
-        bundle: .module,
-        locale: locale)
+    let format = L10n.string(key, locale: locale)
     guard !args.isEmpty else { return format }
     return String(format: format, locale: locale, arguments: args)
+}
+
+extension L10n {
+    /// String Catalog 在测试包里不一定按 `locale:` 选中英文，所以按语言目录直接取。
+    static func string(_ key: String, locale: Locale) -> String {
+        for code in candidateCodes(locale) {
+            guard let path = Bundle.module.path(forResource: code, ofType: "lproj"),
+                  let bundle = Bundle(path: path) else { continue }
+            let value = bundle.localizedString(forKey: key, value: key, table: "Localizable")
+            if value != key || code.hasPrefix("zh") { return value }
+        }
+        return key
+    }
+
+    private static func candidateCodes(_ locale: Locale) -> [String] {
+        var codes: [String] = []
+        let id = locale.identifier.replacingOccurrences(of: "_", with: "-")
+        codes.append(id)
+        if let lang = locale.language.languageCode?.identifier {
+            codes.append(lang)
+            if lang == "zh" { codes.append("zh-Hans") }
+        }
+        codes.append("zh-Hans")
+        var seen = Set<String>()
+        return codes.filter { seen.insert($0).inserted }
+    }
 }
 
 extension Button where Label == Text {
