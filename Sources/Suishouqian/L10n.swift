@@ -102,19 +102,37 @@ extension L10n {
         }
     }
 
+    /// 加载后不再改。不用 `[String: Any]`，否则 Swift 6 把这份静态缓存当成可变共享状态。
+    private struct PluralForm: Sendable {
+        var one: String
+        var other: String
+    }
+
+    private struct PluralEntry: Sendable {
+        var format: String
+        var variables: [String: PluralForm]
+    }
+
     /// 英文复数规则。只读 `en.lproj`，跟系统当前语言无关。
-    private static let englishPluralRules: [String: [String: Any]] = {
+    private static let englishPluralRules: [String: PluralEntry] = {
         guard let dir = Bundle.module.path(forResource: "en", ofType: "lproj") else { return [:] }
         let url = URL(fileURLWithPath: dir).appendingPathComponent("Localizable.stringsdict")
         guard let data = try? Data(contentsOf: url),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
             return [:]
         }
-        var rules: [String: [String: Any]] = [:]
+        var rules: [String: PluralEntry] = [:]
         for (key, value) in plist {
-            if let entry = value as? [String: Any] {
-                rules[key] = entry
+            guard let entry = value as? [String: Any],
+                  let format = entry["NSStringLocalizedFormatKey"] as? String else { continue }
+            var variables: [String: PluralForm] = [:]
+            for (name, raw) in entry where name != "NSStringLocalizedFormatKey" {
+                guard let form = raw as? [String: Any],
+                      let one = form["one"] as? String,
+                      let other = form["other"] as? String else { continue }
+                variables[name] = PluralForm(one: one, other: other)
             }
+            rules[key] = PluralEntry(format: format, variables: variables)
         }
         return rules
     }()
@@ -136,14 +154,13 @@ extension L10n {
 
     static func pluralFormat(key: String, fallback: String, locale: Locale, args: [CVarArg]) -> String {
         guard locale.language.languageCode?.identifier == "en",
-              let entry = englishPluralRules[key],
-              let template = entry["NSStringLocalizedFormatKey"] as? String else {
+              let entry = englishPluralRules[key] else {
             return fallback
         }
-        return expandPluralTemplate(template, entry: entry, args: args)
+        return expandPluralTemplate(entry.format, entry: entry, args: args)
     }
 
-    private static func expandPluralTemplate(_ template: String, entry: [String: Any], args: [CVarArg]) -> String {
+    private static func expandPluralTemplate(_ template: String, entry: PluralEntry, args: [CVarArg]) -> String {
         var output = ""
         var index = template.startIndex
         var argumentIndex = 0
@@ -168,7 +185,7 @@ extension L10n {
                 }
                 let name = String(template[nameStart..<nameEnd])
                 let value = argumentIndex < args.count ? integerArgument(args[argumentIndex]) : nil
-                output += pluralVariant(entry[name], value: value)
+                output += pluralVariant(entry.variables[name], value: value)
                 argumentIndex += 1
                 index = template.index(after: nameEnd)
                 continue
@@ -195,12 +212,9 @@ extension L10n {
         return output
     }
 
-    private static func pluralVariant(_ raw: Any?, value: Int64?) -> String {
-        guard let dict = raw as? [String: Any] else { return "%lld" }
-        let category = value == 1 ? "one" : "other"
-        if let text = dict[category] as? String { return text }
-        if let text = dict["other"] as? String { return text }
-        return "%lld"
+    private static func pluralVariant(_ form: PluralForm?, value: Int64?) -> String {
+        guard let form else { return "%lld" }
+        return value == 1 ? form.one : form.other
     }
 
     private static func integerArgument(_ arg: CVarArg) -> Int64? {
