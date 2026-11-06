@@ -28,7 +28,7 @@ final class MigrationSafetyReviewTests: XCTestCase {
         try? fm.removeItem(at: root)
     }
 
-    private final class NoGuardMigrator: AppMigrator {
+    private class NoGuardMigrator: AppMigrator, @unchecked Sendable {
         override func validateTarget(
             drivePath: String, appSize: Int64,
             expectedVolumeUUID: String? = nil,
@@ -37,7 +37,7 @@ final class MigrationSafetyReviewTests: XCTestCase {
     }
 
     /// 第一次搬移成功；第二次把原件搬回失败，用来钉住「失败不许删已校验副本」。
-    private final class RollbackFailsMigrator: NoGuardMigrator {
+    private final class RollbackFailsMigrator: NoGuardMigrator, @unchecked Sendable {
         override func moveItem(from src: String, to dst: String) async -> Bool {
             if src.contains(".suishouqian-backup") { return false }
             let ok = await super.moveItem(from: src, to: dst)
