@@ -808,9 +808,10 @@ class AppMigrator: @unchecked Sendable {
         }
         
         progress(1.0, l10n("完成"))
+        let byteCount = String(app.size)
         AuditLog.append(createLink
-            ? l10n("迁移成功 %@：%@ 字节 → %@", appName, app.size, targetPath)
-            : l10n("纯搬迁成功 %@：%@ 字节 → %@（未在 /Applications 留链接）", appName, app.size, targetPath))
+            ? l10n("迁移成功 %@：%@ 字节 → %@", appName, byteCount, targetPath)
+            : l10n("纯搬迁成功 %@：%@ 字节 → %@（未在 /Applications 留链接）", appName, byteCount, targetPath))
 
         // 台账只在留链接时需要——它的用途是"卷改名后按 UUID 重写链接"。
         // 纯搬迁没有链接可修，而且台账校准会把 linkPath 不存在的条目当幽灵清掉，

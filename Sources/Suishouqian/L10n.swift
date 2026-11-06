@@ -31,7 +31,13 @@ func l10n(_ key: String, _ args: CVarArg...) -> String {
     let locale = L10n.locale
     let format = L10n.string(key, locale: locale)
     guard !args.isEmpty else { return format }
-    return String(format: format, locale: locale, arguments: args)
+    // `%@` 配整数会在 String(format:) 里段错误。迁移动作已经做完才写成功日志，
+    // 这里把数字收成字符串，避免成功路径把进程打死。
+    let specs = L10n.formatSpecifiers(format)
+    let safe = args.enumerated().map { index, arg in
+        L10n.argument(arg, for: index < specs.count ? specs[index] : "")
+    }
+    return String(format: format, locale: locale, arguments: safe)
 }
 
 extension L10n {
@@ -57,6 +63,52 @@ extension L10n {
         codes.append("zh-Hans")
         var seen = Set<String>()
         return codes.filter { seen.insert($0).inserted }
+    }
+
+    /// 取出转换符（`@`、`d`、`f`）。`%%` 不算占位。
+    static func formatSpecifiers(_ format: String) -> [String] {
+        var specs: [String] = []
+        var index = format.startIndex
+        while index < format.endIndex {
+            guard format[index] == "%" else {
+                index = format.index(after: index)
+                continue
+            }
+            let next = format.index(after: index)
+            if next < format.endIndex, format[next] == "%" {
+                index = format.index(after: next)
+                continue
+            }
+            var cursor = next
+            while cursor < format.endIndex {
+                let character = format[cursor]
+                cursor = format.index(after: cursor)
+                if "diouxXfFeEgGaAcsp@".contains(character) {
+                    specs.append(String(character))
+                    break
+                }
+            }
+            index = cursor
+        }
+        return specs
+    }
+
+    /// `%@` 只接受对象。整数和浮点先变成十进制文本。
+    static func argument(_ arg: CVarArg, for specifier: String) -> CVarArg {
+        guard specifier == "@" else { return arg }
+        switch arg {
+        case let value as String: return value
+        case let value as Int: return String(value)
+        case let value as Int64: return String(value)
+        case let value as Int32: return String(value)
+        case let value as Int16: return String(value)
+        case let value as UInt: return String(value)
+        case let value as UInt64: return String(value)
+        case let value as UInt32: return String(value)
+        case let value as Double: return String(value)
+        case let value as Float: return String(value)
+        default: return arg
+        }
     }
 }
 

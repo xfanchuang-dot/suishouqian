@@ -115,4 +115,10 @@ final class LocalizationCatalogTests: XCTestCase {
         XCTAssertEqual(l10n("设置"), "Settings")
         XCTAssertEqual(l10n("已选 %lld 个（%@）", 1, "12 MB"), "1 selected (12 MB)")
     }
+
+    func testObjectPlaceholderAcceptsInteger() {
+        XCTAssertEqual(
+            l10n("迁移成功 %@：%@ 字节 → %@", "X.app", Int64(12), "/tmp/X.app"),
+            "迁移成功 X.app：12 字节 → /tmp/X.app")
+    }
 }
