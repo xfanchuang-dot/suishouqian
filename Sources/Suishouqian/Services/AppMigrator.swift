@@ -1516,8 +1516,14 @@ class AppMigrator: @unchecked Sendable {
         // 以相对路径为键，分别对源/目标批量哈希
         let srcRoot = source.hasSuffix("/") ? String(source.dropLast()) : source
         let dstRoot = target.hasSuffix("/") ? String(target.dropLast()) : target
-        let relSample = sample.map { String($0.dropFirst(srcRoot.count + 1)) }
-        let srcArgs = relSample.map { "\(srcRoot)/\($0)" }
+        // find 可能把 /var 解析成 /private/var，不能按原字符串裁前缀。
+        let paired = sample.compactMap { path -> (rel: String, path: String)? in
+            guard let rel = Self.relativePath(path, under: srcRoot) else { return nil }
+            return (rel, path)
+        }
+        guard paired.count == sample.count else { return false }
+        let relSample = paired.map(\.rel)
+        let srcArgs = paired.map(\.path)
         let dstArgs = relSample.map { "\(dstRoot)/\($0)" }
 
         return Self.hashesMatch(
@@ -1556,17 +1562,42 @@ class AppMigrator: @unchecked Sendable {
 
         let output = String(data: data, encoding: .utf8) ?? ""
         var map: [String: String] = [:]
-        let prefix = root + "/"
         for line in output.split(separator: "\n") {
             let parts = line.split(separator: " ", maxSplits: 1)
             guard parts.count == 2 else { continue }
             let hash = String(parts[0])
             let path = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "* "))
-            guard path.hasPrefix(prefix) else { continue }
-            let rel = String(path.dropFirst(prefix.count))
+            guard let rel = Self.relativePath(path, under: root) else { continue }
             map[rel] = hash
         }
         return map.isEmpty ? nil : map
+    }
+
+    /// `/var` 与 `/private/var` 视为同一路径，再取相对路径。对不上返回 nil。
+    static func relativePath(_ path: String, under root: String) -> String? {
+        func variants(_ raw: String) -> [String] {
+            let standardized = (raw as NSString).standardizingPath
+            let resolved = (raw as NSString).resolvingSymlinksInPath
+            var values = [raw, standardized, resolved]
+            for item in [raw, standardized, resolved] {
+                if item.hasPrefix("/private/var/") {
+                    values.append(String(item.dropFirst("/private".count)))
+                } else if item.hasPrefix("/var/") {
+                    values.append("/private" + item)
+                }
+            }
+            return values
+        }
+        for candidate in variants(path) {
+            for base in variants(root) {
+                if candidate == base { return "" }
+                let prefix = base.hasSuffix("/") ? base : base + "/"
+                if candidate.hasPrefix(prefix) {
+                    return String(candidate.dropFirst(prefix.count))
+                }
+            }
+        }
+        return nil
     }
 
     func listFiles(under dir: String) -> [String]? {

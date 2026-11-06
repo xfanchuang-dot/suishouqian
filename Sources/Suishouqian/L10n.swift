@@ -14,7 +14,15 @@ enum L10n {
 
     private static var isRunningTests: Bool {
         let env = ProcessInfo.processInfo.environment
-        return env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil
+        if env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil {
+            return true
+        }
+        // `swift test` 不一定导出上面的环境变量，但进程一定是 xctest。
+        if ProcessInfo.processInfo.processName == "xctest" { return true }
+        return Bundle.allBundles.contains { bundle in
+            let path = bundle.bundlePath
+            return path.hasSuffix(".xctest") || path.contains(".xctest/")
+        }
     }
 }
 

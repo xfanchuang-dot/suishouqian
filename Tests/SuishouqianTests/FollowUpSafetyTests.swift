@@ -18,6 +18,18 @@ final class HashMatchTests: XCTestCase {
             target: [:]))
     }
 
+    func testRelativePathTreatsPrivateVarAsTheSameRoot() {
+        XCTAssertEqual(
+            AppMigrator.relativePath("/private/var/folders/a/X.app/Contents/Info.plist",
+                                     under: "/var/folders/a/X.app"),
+            "Contents/Info.plist")
+        XCTAssertEqual(
+            AppMigrator.relativePath("/var/folders/a/X.app/bin",
+                                     under: "/private/var/folders/a/X.app"),
+            "bin")
+        XCTAssertNil(AppMigrator.relativePath("/tmp/other", under: "/var/folders/a"))
+    }
+
     func testMismatchIsFailureAndMatchPasses() {
         XCTAssertFalse(AppMigrator.hashesMatch(
             relativePaths: ["a"],
