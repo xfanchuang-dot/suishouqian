@@ -1225,108 +1225,6 @@
         }
       }
     },
-    "%@ 条修不好的断链": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ broken links couldn’t be repaired"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 条修不好的断链"
-          }
-        }
-      }
-    },
-    "%@ 块存有应用的盘处于离线状态": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ drives that hold apps are offline"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 块存有应用的盘处于离线状态"
-          }
-        }
-      }
-    },
-    "%@ 条迁移被更新顶掉（回归）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ moves were undone by an app update"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 条迁移被更新顶掉（回归）"
-          }
-        }
-      }
-    },
-    "%@ 处数据两地分居（需对账）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ data folders exist in two places and need a decision"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 处数据两地分居（需对账）"
-          }
-        }
-      }
-    },
-    "%@ 条备份孤儿/超龄": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ backups are orphaned or past the retention period"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 条备份孤儿/超龄"
-          }
-        }
-      }
-    },
-    "%@ 项卸载残留": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ leftovers from uninstalled apps"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 项卸载残留"
-          }
-        }
-      }
-    },
     "有应用住在 USB2 链路的盘上（体感上限低）": {
       "extractionState": "manual",
       "localizations": {
@@ -1408,23 +1306,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "建议处理"
-          }
-        }
-      }
-    },
-    "先处理：%@，可回 %@ 分": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start with %@. That can restore %@ points"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "先处理：%@，可回 %@ 分"
           }
         }
       }
@@ -12275,23 +12156,6 @@
         }
       }
     },
-    "预计腾出 %@，达标；约需 %@ 分钟（串行逐个搬，每步都有校验与备份）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "About %@ would be freed, which meets the goal. About %@ minutes, one app at a time, with a check and a backup for each."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预计腾出 %@，达标；约需 %@ 分钟（串行逐个搬，每步都有校验与备份）"
-          }
-        }
-      }
-    },
     "预计只能腾出 %@，未达标（候选不够或目标盘空间不足）": {
       "extractionState": "manual",
       "localizations": {
@@ -14311,6 +14175,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "将删除 %lld 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。"
+          }
+        }
+      }
+    },
+    "%lld 条修不好的断链": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld broken links couldn’t be repaired"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条修不好的断链"
+          }
+        }
+      }
+    },
+    "%lld 块存有应用的盘处于离线状态": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld drives that hold apps are offline"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 块存有应用的盘处于离线状态"
+          }
+        }
+      }
+    },
+    "%lld 条迁移被更新顶掉（回归）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld moves were undone by an app update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条迁移被更新顶掉（回归）"
+          }
+        }
+      }
+    },
+    "%lld 处数据两地分居（需对账）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld data folders exist in two places and need a decision"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 处数据两地分居（需对账）"
+          }
+        }
+      }
+    },
+    "%lld 条备份孤儿/超龄": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld backups are orphaned or past the retention period"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条备份孤儿/超龄"
+          }
+        }
+      }
+    },
+    "%lld 项卸载残留": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld leftovers from uninstalled apps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 项卸载残留"
+          }
+        }
+      }
+    },
+    "先处理：%@，可回 %lld 分": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start with %@. That can restore %lld points"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先处理：%@，可回 %lld 分"
+          }
+        }
+      }
+    },
+    "预计腾出 %@，达标；约需 %lld 分钟（串行逐个搬，每步都有校验与备份）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About %@ would be freed, which meets the goal. About %lld minutes, one app at a time, with a check and a backup for each."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预计腾出 %@，达标；约需 %lld 分钟（串行逐个搬，每步都有校验与备份）"
           }
         }
       }

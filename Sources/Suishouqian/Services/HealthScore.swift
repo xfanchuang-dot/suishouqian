@@ -62,17 +62,17 @@ enum HealthScore {
         }
 
         apply(input.brokenLinks * brokenLinkPerItem, brokenLinkCap,
-              l10n("%@ 条修不好的断链", input.brokenLinks))
+              l10n("%lld 条修不好的断链", input.brokenLinks))
         apply(input.offlineVolumesWithApps * offlineVolumePenalty, offlineVolumePenalty * 2,
-              l10n("%@ 块存有应用的盘处于离线状态", input.offlineVolumesWithApps))
+              l10n("%lld 块存有应用的盘处于离线状态", input.offlineVolumesWithApps))
         apply(input.regressions * regressionPerItem, regressionCap,
-              l10n("%@ 条迁移被更新顶掉（回归）", input.regressions))
+              l10n("%lld 条迁移被更新顶掉（回归）", input.regressions))
         apply(input.dataForks * dataForkPerItem, dataForkCap,
-              l10n("%@ 处数据两地分居（需对账）", input.dataForks))
+              l10n("%lld 处数据两地分居（需对账）", input.dataForks))
         apply(input.backupIssues * backupPerItem, backupCap,
-              l10n("%@ 条备份孤儿/超龄", input.backupIssues))
+              l10n("%lld 条备份孤儿/超龄", input.backupIssues))
         apply(input.residues * residuePerItem, residueCap,
-              l10n("%@ 项卸载残留", input.residues))
+              l10n("%lld 项卸载残留", input.residues))
         if input.hasUSB2VolumeWithApps {
             apply(usb2Penalty, usb2Penalty, l10n("有应用住在 USB2 链路的盘上（体感上限低）"))
         }
@@ -94,7 +94,7 @@ enum HealthScore {
         }
         // 最优先待办 = 扣分最多的那一项（把分数变成行动）
         let top = deductions.max { $0.points < $1.points }
-        return (grade, top.map { l10n("先处理：%@，可回 %@ 分", $0.reason, $0.points) })
+        return (grade, top.map { l10n("先处理：%@，可回 %lld 分", $0.reason, $0.points) })
     }
 }
 

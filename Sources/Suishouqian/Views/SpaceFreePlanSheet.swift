@@ -112,7 +112,7 @@ struct SpaceFreePlanSheet: View {
                     .foregroundColor(.secondary)
             } else {
                 Text(plan.targetMet
-                     ? l10n("预计腾出 %@，达标；约需 %@ 分钟（串行逐个搬，每步都有校验与备份）", freed, max(minutes, 1))
+                     ? l10n("预计腾出 %@，达标；约需 %lld 分钟（串行逐个搬，每步都有校验与备份）", freed, max(minutes, 1))
                      : l10n("预计只能腾出 %@，未达标（候选不够或目标盘空间不足）", freed))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
