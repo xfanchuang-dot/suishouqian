@@ -104,6 +104,14 @@ final class OperationJournalTests: XCTestCase {
         XCTAssertFalse(UndoPlanner.plan(entry: e,
                                         context: context(internalFree: 1 << 30)).feasible,
                        "内置盘空间小于应用体积时拒绝回迁撤销")
+        let size: Int64 = 2 << 30
+        XCTAssertFalse(UndoPlanner.plan(
+            entry: e, context: context(internalFree: size, size: size)).feasible,
+                       "回迁预检还要 5% 余量，刚好等于应用体积不够")
+        XCTAssertTrue(UndoPlanner.plan(
+            entry: e,
+            context: context(internalFree: AppMigrator.requiredSingleCopyBytes(appSize: size),
+                             size: size)).feasible)
     }
 
     func testUndoRestoreRequiresInternalCopyAndTwoCopyExternalSpace() {
@@ -129,6 +137,17 @@ final class OperationJournalTests: XCTestCase {
         let offline = UndoPlanner.plan(entry: e, context: context(originOnline: false))
         XCTAssertFalse(offline.feasible)
         XCTAssertTrue(offline.message.contains("不在线"))
+    }
+
+    /// 盘间迁移的撤销只复制一份，不写留底。一份 + 5% 就该放行，两份门槛会误伤。
+    func testUndoRelocateNeedsOneCopyNotTwo() {
+        let e = entry(app: "G.app", op: .relocate)
+        let size: Int64 = 2 << 30
+        let oneCopy = AppMigrator.requiredSingleCopyBytes(appSize: size)
+        XCTAssertTrue(UndoPlanner.plan(
+            entry: e, context: context(externalFree: oneCopy, size: size)).feasible)
+        XCTAssertFalse(UndoPlanner.plan(
+            entry: e, context: context(externalFree: oneCopy - 1, size: size)).feasible)
     }
 
     func testUndoUninstallSpecialTrashPath() {

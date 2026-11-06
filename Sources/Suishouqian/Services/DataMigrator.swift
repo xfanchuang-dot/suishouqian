@@ -257,9 +257,17 @@ final class DataMigrator: @unchecked Sendable {
         do {
             try fileManager.createSymbolicLink(atPath: site, withDestinationPath: externalPath)
         } catch {
-            _ = await migrator.moveItem(from: backupPath, to: site)
-            try? fileManager.removeItem(atPath: externalPath)
-            return (false, "创建链接失败：\(error.localizedDescription)")
+            let restored = await migrator.moveItem(from: backupPath, to: site)
+            if restored {
+                try? fileManager.removeItem(atPath: externalPath)
+                MigrationManifest.shared.remove(appName: manifestName)
+                return (false, "创建链接失败：\(error.localizedDescription)")
+            }
+            // 原目录没搬回来。pending 台账留着：启动认领会在源位仍空、外置副本还在时补建链接。
+            // 这时删掉已校验的外置副本，就会只剩一份可能搬不回去的备份。
+            AuditLog.append("数据迁移失败 \(title)：建链失败且原目录搬回未完成，"
+                + "外置副本保留在 \(externalPath)，备份保留在 \(backupPath)")
+            return (false, "创建链接失败，且原目录搬回未完成——完整副本保留在 \(externalPath) 与 \(backupPath)，请勿删除")
         }
 
         if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {

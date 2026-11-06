@@ -35,7 +35,8 @@ final class SkipBackupMigrationTests: XCTestCase {
     private final class NoGuardMigrator: AppMigrator {
         override func validateTarget(
             drivePath: String, appSize: Int64,
-            expectedVolumeUUID: String? = nil
+            expectedVolumeUUID: String? = nil,
+            reservesBackupCopy: Bool = true
         ) -> String? { nil }
     }
 

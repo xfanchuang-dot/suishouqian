@@ -404,7 +404,8 @@ class AppState: ObservableObject {
             for name in fresh {
                 // .app 是目录：attributesOfItem 的 .size 只有几十字节（目录条目本身），
                 // 拿它比 500MB 永远不成立——旧版提醒功能因此从未生效过。
-                // 必须递归量体积，且 du 要带 -L（这里应用可能是迁移后的软链接）。
+                // 必须递归量体积。已迁移应用的入口是软链接，由 directorySizeBytes
+                // 只解析路径各段；不能改回 du -L，否则包内回指链接会把体积算爆。
                 // du 是阻塞子进程：放 OffPool，不占协作线程池
                 let bytes = await OffPool.run {
                     AppScanner.directorySizeBytes(atPath: "/Applications/\(name)")

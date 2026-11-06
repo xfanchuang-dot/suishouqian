@@ -279,6 +279,7 @@ struct AppListView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 72)
                 .help("切换列表/大小图表")
+                .accessibilityLabel("切换列表或大小图表")
 
                 // 排序（对照效果图：“排序 ⌄”药丸按钮）
                 Menu {

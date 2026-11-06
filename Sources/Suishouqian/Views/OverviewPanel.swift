@@ -89,6 +89,7 @@ struct OverviewPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help("重新检查")
+                .accessibilityLabel("重新检查")
             }
         }
     }

@@ -25,12 +25,15 @@ final class LaunchAgentManager {
         //
         // 两个路径都从 argv 传入（$1/$2），不拼进脚本文本：这样整份脚本只需做一次
         // XML 转义即可，卷名里的引号、$、反引号也无法破坏脚本（此前只转义了
-        // WatchPaths 那处，脚本内嵌的同一路径没转义，卷名含 & 时会生成非法 plist）
+        // WatchPaths 那处，脚本内嵌的同一路径没转义，卷名含 & 时会生成非法 plist）。
+        //
+        // pgrep -f 匹配整条命令行，而这条命令行就是下面的脚本本身，里面写着要搜的
+        // 那串路径。不排除当前 shell 的话，pgrep 永远命中自己，插盘就不会 open。
         let shell = """
         V="$1"; A="$2"; S="$HOME/.suishouqian-watch-state$(printf '%s' "$V" | tr -c 'A-Za-z0-9' '_')"; \
         if [ -d "$V" ]; then \
           if [ ! -f "$S" ]; then echo ok > "$S"; \
-            pgrep -f '随手迁.app/Contents/MacOS' >/dev/null 2>&1 || open "$A"; fi; \
+            if [ -z "$(pgrep -f '随手迁.app/Contents/MacOS' | grep -v "^$$")" ]; then open "$A"; fi; fi; \
         else rm -f "$S"; fi
         """
         // WatchPaths 监视**父目录**（/Volumes），而不是卷自己的挂载点：

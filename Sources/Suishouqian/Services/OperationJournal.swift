@@ -208,7 +208,9 @@ enum UndoPlanner {
                 return UndoPlan(feasible: false,
                                 message: "外置盘上的副本已不在，无法回迁撤销", inverseOp: nil)
             }
-            guard context.internalFreeBytes >= context.appSize else {
+            // 与回迁预检一致：一份副本 + 5%。只比应用体积会在差这 5% 时放行，执行时再被拒绝。
+            guard context.internalFreeBytes
+                    >= AppMigrator.requiredSingleCopyBytes(appSize: context.appSize) else {
                 return UndoPlan(feasible: false,
                                 message: "内置盘剩余空间不够放下这个应用，先清理再撤销", inverseOp: nil)
             }
@@ -239,10 +241,11 @@ enum UndoPlanner {
                 return UndoPlan(feasible: false,
                                 message: "原来的那块盘现在不在线，插上后再撤销", inverseOp: nil)
             }
-            let need = AppMigrator.requiredTargetBytes(appSize: context.appSize)
+            // 反向盘间迁移只复制一份，不写留底备份。按两份空间拒绝会把本来搬得回去的撤销卡住。
+            let need = AppMigrator.requiredSingleCopyBytes(appSize: context.appSize)
             guard context.externalFreeBytes >= need else {
                 return UndoPlan(feasible: false,
-                                message: "目标盘剩余空间不够（需容纳副本与留底备份两份）", inverseOp: nil)
+                                message: "原来的盘剩余空间不够放下这份副本", inverseOp: nil)
             }
             return UndoPlan(feasible: true, message: "搬回原来的盘（链接指回源盘）",
                             inverseOp: .relocate)

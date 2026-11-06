@@ -47,7 +47,7 @@ class AppMigrator: @unchecked Sendable {
         backupRoot: String
     ) -> CapacityRequirement {
         let backupIsOnDestination = backupRoot == "\(destinationPath)/.suishouqian-backup"
-        let oneCopyWithMargin = appSize + appSize / 20
+        let oneCopyWithMargin = requiredSingleCopyBytes(appSize: appSize)
         return CapacityRequirement(
             backupIsOnDestination: backupIsOnDestination,
             destinationBytes: backupIsOnDestination ? requiredTargetBytes(appSize: appSize) : oneCopyWithMargin,
@@ -157,9 +157,10 @@ class AppMigrator: @unchecked Sendable {
         guard fileManager.fileExists(atPath: sourcePath) else {
             return finish(false, "源盘上的应用副本不存在（\(sourcePath)）")
         }
-        // 目标盘三重验证（挂载点/空间两份+5%/TM 排除），阻塞调用走 OffPool
+        // 目标盘三重验证（挂载点/一份副本+5%/TM 排除）。盘间迁移不留备份，
+        // 不能按「副本+同盘留底」的两份空间去拒绝。阻塞调用走 OffPool。
         let targetIssue = await OffPool.run { [self] in
-            validateTarget(drivePath: to, appSize: app.size)
+            validateTarget(drivePath: to, appSize: app.size, reservesBackupCopy: false)
         }
         if let reason = targetIssue {
             return finish(false, reason)
@@ -180,14 +181,51 @@ class AppMigrator: @unchecked Sendable {
     /// 重试见标记 → 清掉遗留重搬（收敛）；无标记 → 外来应用，拒绝。
     static let relocationMarkerSuffix = ".suishouqian-relocating"
 
-    /// 返回 nil = 目标可用（标记已就位）；返回文案 = 拒绝原因
-    static func prepareTargetForCopy(_ fm: FileManager, targetPath: String) -> String? {
+    /// 带标记的目标副本是否还能当「半截遗留」删掉重拷。
+    ///
+    /// 标记的契约是：复制尚未完成，源仍是独立真目录。源一旦变成符号链接，
+    /// 或源已经不在，说明切换已经发生——skipBackup 没有留底时，目标就是唯一副本。
+    /// 这时再按标记删目标，等于把应用从磁盘上抹掉。
+    static func markedTargetMayBeDeleted(sourcePath: String, targetPath: String,
+                                         fileManager: FileManager = .default) -> Bool {
+        let source = (sourcePath as NSString).standardizingPath
+        let target = (targetPath as NSString).standardizingPath
+        if source == target { return false }
+        guard let attrs = try? fileManager.attributesOfItem(atPath: sourcePath),
+              let type = attrs[.type] as? FileAttributeType,
+              type == .typeDirectory else {
+            // 源不存在，或源已是符号链接（attributesOfItem 不跟随链接）：都不能删目标
+            return false
+        }
+        let resolvedSource = (sourcePath as NSString).resolvingSymlinksInPath
+        let resolvedTarget = (targetPath as NSString).resolvingSymlinksInPath
+        if resolvedSource == resolvedTarget { return false }
+        if resolvedSource.hasPrefix(resolvedTarget + "/") { return false }
+        return true
+    }
+
+    /// 两条路径是否指向同一条目（字面相等，或解析符号链接后相等）。
+    static func pathsIdentifySameItem(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs { return true }
+        return (lhs as NSString).resolvingSymlinksInPath
+            == (rhs as NSString).resolvingSymlinksInPath
+    }
+
+    /// 返回 nil = 目标可用（标记已就位）；返回文案 = 拒绝原因。
+    /// `sourcePath` 用来确认源仍是独立真目录，避免把已经切换完成的唯一副本清掉。
+    static func prepareTargetForCopy(_ fm: FileManager, sourcePath: String,
+                                     targetPath: String) -> String? {
         let marker = targetPath + relocationMarkerSuffix
         if fm.fileExists(atPath: targetPath) {
             guard fm.fileExists(atPath: marker) else {
                 return "目标盘已存在同名应用（\(targetPath)），为避免覆盖已中止"
             }
-            // 上次中断的遗留：副本与标记成对清掉
+            guard markedTargetMayBeDeleted(sourcePath: sourcePath, targetPath: targetPath,
+                                           fileManager: fm) else {
+                return "目标盘上的副本可能已是唯一真身（源位置已不是独立原件），"
+                    + "为避免删除唯一副本已中止。应用仍在 \(targetPath)"
+            }
+            // 上次中断的遗留：副本与标记成对清掉（源仍是完整真目录，删了可以重拷）
             try? fm.removeItem(atPath: targetPath)
             try? fm.removeItem(atPath: marker)
         }
@@ -205,6 +243,89 @@ class AppMigrator: @unchecked Sendable {
     /// 防止陈旧标记让日后的外来同名应用被误判成遗留而遭覆盖
     static func clearRelocationMarker(_ fm: FileManager, targetPath: String) {
         try? fm.removeItem(atPath: targetPath + relocationMarkerSuffix)
+    }
+
+    /// 切换已经发生、标记却还在时，把这次重试收成终态，而不是删掉目标重拷。
+    /// 返回 nil 表示源仍是独立真目录，调用方可以走正常的「清遗留再复制」。
+    private func recoverCommittedSwitch(app: AppItem, sourcePath: String, targetPath: String,
+                                        drivePath: String, createLink: Bool) -> MigrationResult? {
+        let marker = targetPath + Self.relocationMarkerSuffix
+        guard fileManager.fileExists(atPath: targetPath),
+              fileManager.fileExists(atPath: marker) else { return nil }
+        guard !Self.markedTargetMayBeDeleted(
+            sourcePath: sourcePath, targetPath: targetPath, fileManager: fileManager) else {
+            return nil
+        }
+
+        let appName = app.bundleName
+        let linkDest = try? fileManager.destinationOfSymbolicLink(atPath: sourcePath)
+        let sourceMissing = (try? fileManager.attributesOfItem(atPath: sourcePath)) == nil
+        let linkPointsAtTarget = linkDest.map {
+            Self.pathsIdentifySameItem($0, targetPath)
+        } ?? false
+
+        func commit(note: String) -> MigrationResult {
+            recordBundleManifestIfLinked(
+                appName: appName, sourcePath: sourcePath, targetPath: targetPath,
+                drivePath: drivePath, createLink: createLink)
+            Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+            AuditLog.append(note)
+            return MigrationResult(success: true, error: nil, spaceSaved: app.size)
+        }
+
+        if createLink {
+            if linkPointsAtTarget {
+                return commit(note: "迁移收敛 \(appName)：链接已指向已校验副本，补清迁移标记（未删除目标）")
+            }
+            if sourceMissing {
+                do {
+                    try fileManager.createSymbolicLink(atPath: sourcePath,
+                                                       withDestinationPath: targetPath)
+                } catch {
+                    AuditLog.append("迁移收敛失败 \(appName)：源已不在，目标副本保留在 \(targetPath)，"
+                        + "重建链接失败：\(error.localizedDescription)")
+                    return MigrationResult(
+                        success: false,
+                        error: "源位置已空，完整副本保留在 \(targetPath)，但重建链接失败：\(error.localizedDescription)。请勿删除该副本",
+                        spaceSaved: 0)
+                }
+                return commit(note: "迁移收敛 \(appName)：源已不在，已补建指向 \(targetPath) 的链接")
+            }
+            AuditLog.append("拒绝迁移 \(appName)：目标副本可能是唯一真身，源位置不是独立原件")
+            return MigrationResult(
+                success: false,
+                error: "目标盘上的副本可能已是唯一真身（源位置已不是独立原件），为避免删除唯一副本已中止。应用仍在 \(targetPath)",
+                spaceSaved: 0)
+        }
+
+        if sourceMissing {
+            return commit(note: "迁移收敛 \(appName)：纯搬迁已完成，补清迁移标记")
+        }
+        if linkPointsAtTarget {
+            do {
+                try fileManager.removeItem(atPath: sourcePath)
+            } catch {
+                return MigrationResult(
+                    success: false,
+                    error: "应用真身在 \(targetPath)，但无法移除源位置的链接：\(error.localizedDescription)",
+                    spaceSaved: 0)
+            }
+            return commit(note: "迁移收敛 \(appName)：已摘掉源位置链接，真身留在 \(targetPath)")
+        }
+        return MigrationResult(
+            success: false,
+            error: "目标盘上的副本可能已是唯一真身，为避免删除唯一副本已中止。应用仍在 \(targetPath)",
+            spaceSaved: 0)
+    }
+
+    private func recordBundleManifestIfLinked(appName: String, sourcePath: String,
+                                              targetPath: String, drivePath: String,
+                                              createLink: Bool) {
+        guard createLink, targetPath.hasPrefix(drivePath + "/") else { return }
+        guard let uuid = MigrationManifest.volumeUUID(atPath: drivePath) else { return }
+        MigrationManifest.shared.record(
+            appName: appName, linkPath: sourcePath, volumeUUID: uuid,
+            relativePath: String(targetPath.dropFirst(drivePath.count + 1)))
     }
 
     /// 盘间迁移核心（可测入口：不做卷级护栏，路径全由调用方保证）。
@@ -244,7 +365,8 @@ class AppMigrator: @unchecked Sendable {
 
         // 高-3（2026-10-04 审计）：复制前检查目标占用。无标记的同名应用是目标盘上
         // 的无关应用，拒绝；带标记的是上次中断遗留，清掉重搬（中断恢复契约）。
-        if let reject = Self.prepareTargetForCopy(fileManager, targetPath: targetPath) {
+        if let reject = Self.prepareTargetForCopy(
+            fileManager, sourcePath: sourcePath, targetPath: targetPath) {
             return done(false, reject)
         }
 
@@ -480,7 +602,8 @@ class AppMigrator: @unchecked Sendable {
         let targetIssue = await OffPool.run { [self] in
             validateTarget(
                 drivePath: drivePath, appSize: app.size,
-                expectedVolumeUUID: expectedTargetVolumeUUID)
+                expectedVolumeUUID: expectedTargetVolumeUUID,
+                reservesBackupCopy: !skipBackup)
         }
         if let reason = targetIssue {
             AuditLog.append("拒绝迁移 \(appName)：\(reason)")
@@ -496,10 +619,19 @@ class AppMigrator: @unchecked Sendable {
                   error: "无法创建目标目录: \(error.localizedDescription)", spaceSaved: 0)
         }
         
+        // 标记还在、但源已经不是独立真目录：切换已经发生（常见于清标记前崩溃，
+        // 或 skipBackup 建链前后）。这时目标可能是唯一副本，补完链接即可，绝不能重拷。
+        if let recovered = recoverCommittedSwitch(
+            app: app, sourcePath: sourcePath, targetPath: targetPath,
+            drivePath: drivePath, createLink: createLink) {
+            return recovered
+        }
+
         // 高-3（2026-10-04 审计）：复制前检查目标路径占用（copyWithDitto 首句就是删目标）。
-        // 无标记的同名应用是目标盘上的无关应用，拒绝；带标记的是上次中断的遗留，
-        // 清掉重搬——崩溃后重试必须能收敛。口径与 moveBackToInternalInternal 一致。
-        if let reject = Self.prepareTargetForCopy(fileManager, targetPath: targetPath) {
+        // 无标记的同名应用是目标盘上的无关应用，拒绝；带标记且源仍是真目录的，
+        // 是上次中断的遗留，清掉重搬——崩溃后重试必须能收敛。
+        if let reject = Self.prepareTargetForCopy(
+            fileManager, sourcePath: sourcePath, targetPath: targetPath) {
             AuditLog.append("拒绝迁移 \(appName)：\(reject)")
             return MigrationResult(success: false, error: reject, spaceSaved: 0)
         }
@@ -652,17 +784,18 @@ class AppMigrator: @unchecked Sendable {
             // "删目标+删备份"会把应用从电脑上抹掉（落地审查抓到的 P0）。
             // 取消改为回滚：原件搬回 /Applications，只清目标副本。
             if cancellationToken?.isCancelled == true {
-                AuditLog.append("迁移取消 \(appName)：搬移阶段取消，原件搬回内置盘，目标副本已清理")
+                AuditLog.append("迁移取消 \(appName)：搬移阶段取消，尝试把原件搬回内置盘")
                 let movedBack = await moveItem(from: backupPath, to: sourcePath)
-                try? fileManager.removeItem(atPath: targetPath)
-                Self.clearRelocationMarker(fileManager, targetPath: targetPath)
                 if movedBack {
+                    try? fileManager.removeItem(atPath: targetPath)
+                    Self.clearRelocationMarker(fileManager, targetPath: targetPath)
                     return MigrationResult(success: false, error: "已取消",
                           spaceSaved: 0, cancelled: true)
                 }
-                // 回滚失败：备份成为唯一副本，绝不能删——如实告知位置让人工恢复
+                // 搬回失败时目标副本仍是校验过的完整副本，不能跟着删掉。
+                AuditLog.append("迁移取消 \(appName)：原件搬回失败，副本保留在 \(targetPath) 与 \(backupPath)")
                 return MigrationResult(success: false,
-                      error: "已取消，但原件搬回失败——完整原件保留在 \(backupPath)，请从该位置手动恢复",
+                      error: "已取消，但原件搬回失败——完整副本保留在 \(targetPath) 与 \(backupPath)，请勿删除",
                       spaceSaved: 0, cancelled: true)
             }
             if createLink {
@@ -670,11 +803,19 @@ class AppMigrator: @unchecked Sendable {
                     try fileManager.createSymbolicLink(atPath: sourcePath,
                                                        withDestinationPath: targetPath)
                 } catch {
-                    _ = await moveItem(from: backupPath, to: sourcePath)
-                    try? fileManager.removeItem(atPath: targetPath)
-                    Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                    let movedBack = await moveItem(from: backupPath, to: sourcePath)
+                    if movedBack {
+                        try? fileManager.removeItem(atPath: targetPath)
+                        Self.clearRelocationMarker(fileManager, targetPath: targetPath)
+                        return MigrationResult(success: false,
+                              error: "创建符号链接失败: \(error.localizedDescription)", spaceSaved: 0)
+                    }
+                    // 原件没有搬回来：已校验的目标副本和备份都是退路，删掉任何一个都可能只剩半份。
+                    AuditLog.append("迁移失败 \(appName)：建链失败且原件搬回未完成，"
+                        + "已校验副本保留在 \(targetPath)，原件备份保留在 \(backupPath)")
                     return MigrationResult(success: false,
-                          error: "创建符号链接失败: \(error.localizedDescription)", spaceSaved: 0)
+                          error: "创建符号链接失败，且原件搬回未完成——完整副本保留在 \(targetPath) 与 \(backupPath)，请勿删除",
+                          spaceSaved: 0)
                 }
             }
         }
@@ -687,13 +828,9 @@ class AppMigrator: @unchecked Sendable {
         // 台账只在留链接时需要——它的用途是"卷改名后按 UUID 重写链接"。
         // 纯搬迁没有链接可修，而且台账校准会把 linkPath 不存在的条目当幽灵清掉，
         // 所以不记录才是正确的（这类应用由扫描 <盘>/Applications 识别为「在外置盘」）
-        if createLink, targetPath.hasPrefix(drivePath + "/") {
-            if let uuid = MigrationManifest.volumeUUID(atPath: drivePath) {
-                MigrationManifest.shared.record(
-                    appName: appName, linkPath: sourcePath, volumeUUID: uuid,
-                    relativePath: String(targetPath.dropFirst(drivePath.count + 1)))
-            }
-        }
+        recordBundleManifestIfLinked(
+            appName: appName, sourcePath: sourcePath, targetPath: targetPath,
+            drivePath: drivePath, createLink: createLink)
         Self.clearRelocationMarker(fileManager, targetPath: targetPath)
         return MigrationResult(success: true, error: nil, spaceSaved: app.size)
     }
@@ -1053,7 +1190,8 @@ class AppMigrator: @unchecked Sendable {
     func validateTarget(
         drivePath: String,
         appSize: Int64,
-        expectedVolumeUUID: String? = nil
+        expectedVolumeUUID: String? = nil,
+        reservesBackupCopy: Bool = true
     ) -> String? {
         var st = statfs()
         guard drivePath.withCString({ statfs($0, &st) }) == 0 else {
@@ -1118,17 +1256,27 @@ class AppMigrator: @unchecked Sendable {
             return "目标盘是 exFAT 格式：应用包内的软链接在 exFAT 上会损坏，无法迁移。请备份数据后在「磁盘工具」中将该盘抹为 APFS 再试"
         }
         
-        // 空间检查：目标盘上要同时落【两份】——目标副本 + 同盘留底备份
+        // 空间检查：会留备份时，目标盘上要同时落【两份】——目标副本 + 同盘留底备份
         // （needsAuth 分支是两次 ditto；非 auth 分支是 ditto + 跨卷 move，move 同样是整树复制）。
         // 此前按一份体积 + 5% 校验，会在第二步备份时把盘写满、迁移失败。
+        // skipBackup 与盘间迁移不写留底，只需要一份副本 + 5%。
         //
         // 跨盘备份时：备份落在另一块盘上，目标盘只需【一份】，但备份盘要单独预检
         // （此前只查目标盘，备份盘满了会跑到 85% 才失败回滚——白跑一趟）。
         let backupRoot = BackupLocations.backupRoot(for: drivePath)
-        let backupOnSameVolume = backupRoot == "\(drivePath)/.suishouqian-backup"
+        let backupOnSameVolume = reservesBackupCopy
+            && backupRoot == "\(drivePath)/.suishouqian-backup"
         let freeBytes = Int64(st.f_bavail) * Int64(st.f_bsize)
 
-        if backupOnSameVolume {
+        if !reservesBackupCopy {
+            let needed = Self.requiredSingleCopyBytes(appSize: appSize)
+            if freeBytes < needed {
+                let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
+                let total = ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)
+                let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+                return "目标盘空间不足：\(need) 的应用需要约 \(total)，仅剩 \(free)"
+            }
+        } else if backupOnSameVolume {
             let needed = Self.requiredTargetBytes(appSize: appSize)
             if freeBytes < needed {
                 let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
@@ -1138,7 +1286,7 @@ class AppMigrator: @unchecked Sendable {
             }
         } else {
             // 目标盘：只要目标副本一份（+5% 余量）
-            let targetNeeded = appSize + appSize / 20
+            let targetNeeded = Self.requiredSingleCopyBytes(appSize: appSize)
             if freeBytes < targetNeeded {
                 let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
                 let total = ByteCountFormatter.string(fromByteCount: targetNeeded, countStyle: .file)
@@ -1146,7 +1294,7 @@ class AppMigrator: @unchecked Sendable {
                 return "目标盘空间不足：\(need) 的应用需要约 \(total)，仅剩 \(free)"
             }
             // 备份盘：单独预检备份空间（+5% 余量）
-            let backupNeeded = appSize + appSize / 20
+            let backupNeeded = Self.requiredSingleCopyBytes(appSize: appSize)
             if let backupFree = Self.freeBytes(at: backupRoot), backupFree < backupNeeded {
                 let need = ByteCountFormatter.string(fromByteCount: appSize, countStyle: .file)
                 let total = ByteCountFormatter.string(fromByteCount: backupNeeded, countStyle: .file)
@@ -1177,6 +1325,11 @@ class AppMigrator: @unchecked Sendable {
 
     static func requiredTargetBytes(appSize: Int64) -> Int64 {
         appSize * 2 + appSize / 20
+    }
+
+    /// 只落一份副本时的空间（盘间迁移、skipBackup）：1 份 + 5% 余量。
+    static func requiredSingleCopyBytes(appSize: Int64) -> Int64 {
+        appSize + appSize / 20
     }
     
     /// 回迁预检：内置盘（根卷）剩余空间是否足够
