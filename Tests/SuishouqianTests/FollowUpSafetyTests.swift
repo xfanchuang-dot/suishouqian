@@ -18,6 +18,21 @@ final class HashMatchTests: XCTestCase {
             target: [:]))
     }
 
+    func testSHA256MatchesKnownVectorAndMissingFileFails() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sha-\(UUID().uuidString)")
+        try Data("abc".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        XCTAssertEqual(AppMigrator.sha256Hex(ofFile: url.path), expected)
+        let root = url.deletingLastPathComponent().path
+        XCTAssertEqual(
+            AppMigrator.digestMap(files: [url.path], relativeTo: root)?[url.lastPathComponent],
+            expected)
+        XCTAssertNil(AppMigrator.sha256Hex(ofFile: url.path + ".missing"))
+        XCTAssertNil(AppMigrator.digestMap(files: [url.path + ".missing"], relativeTo: root))
+    }
+
     func testRelativePathTreatsPrivateVarAsTheSameRoot() {
         XCTAssertEqual(
             AppMigrator.relativePath("/private/var/folders/a/X.app/Contents/Info.plist",

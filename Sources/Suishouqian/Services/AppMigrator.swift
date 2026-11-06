@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 class AppMigrator: @unchecked Sendable {
     private let fileManager = FileManager.default
@@ -1487,8 +1488,7 @@ class AppMigrator: @unchecked Sendable {
     /// 逻辑大小（stat %z）跨盘确定，此前用 du 块大小在 APFS 稀疏/克隆
     /// 文件场景下源目标必不相等，造成校验误报。
     /// 抽样哈希把"大小一致"升级为"抽样内容一致"，防位腐烂/静默写坏；
-    /// 文件总数 ≤ 抽样上限时自动全量哈希。抽样失败（如个别文件无读权限）
-    /// 不降级整体结果——以字节对比为准，避免误报。
+    /// 文件总数 ≤ 抽样上限时自动全量哈希。任一抽样文件读不出哈希即失败。
     func verifyFiles(source: String, target: String) async -> Bool {
         // 阻塞型 find/stat/shasum 走 GCD（OffPool）
         return await OffPool.run { [self] in
@@ -1503,7 +1503,7 @@ class AppMigrator: @unchecked Sendable {
         }
     }
 
-    /// 随机抽样哈希对比；返回 false 仅当两侧均成功读出且内容确有差异
+    /// 随机抽样哈希对比。缺哈希或内容不同都是失败。
     private func sampleHashesMatch(source: String, target: String, totalCount: Int) -> Bool {
         let sampleLimit = 32
         guard totalCount > 0 else { return true }
@@ -1528,8 +1528,8 @@ class AppMigrator: @unchecked Sendable {
 
         return Self.hashesMatch(
             relativePaths: relSample,
-            source: self.shasum(files: srcArgs, relativeTo: srcRoot),
-            target: self.shasum(files: dstArgs, relativeTo: dstRoot))
+            source: Self.digestMap(files: srcArgs, relativeTo: srcRoot),
+            target: Self.digestMap(files: dstArgs, relativeTo: dstRoot))
     }
 
     /// 抽样路径必须在两侧都有哈希，且哈希相同。缺一项就是失败，不能当成通过。
@@ -1546,31 +1546,32 @@ class AppMigrator: @unchecked Sendable {
         return true
     }
 
-    /// 批量 shasum，返回 相对路径(去根前缀) → 哈希；进程失败返回 nil
-    private func shasum(files: [String], relativeTo root: String) -> [String: String]? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/shasum")
-        process.arguments = ["-a", "256"] + files
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        // 先读至 EOF 再等待退出（项目铁律：先等后读会在输出写满管道时死锁）
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-
-        let output = String(data: data, encoding: .utf8) ?? ""
+    /// 逐个文件算 SHA256。读不出或路径对不上根目录时返回 nil，调用方必须判失败。
+    /// 不用 `/usr/sbin/shasum`：那条路径在 macOS 上不存在，进程失败会被误当成缺哈希。
+    static func digestMap(files: [String], relativeTo root: String) -> [String: String]? {
+        guard !files.isEmpty else { return nil }
         var map: [String: String] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(separator: " ", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            let hash = String(parts[0])
-            let path = String(parts[1]).trimmingCharacters(in: CharacterSet(charactersIn: "* "))
-            guard let rel = Self.relativePath(path, under: root) else { continue }
+        for file in files {
+            guard let rel = relativePath(file, under: root),
+                  let hash = sha256Hex(ofFile: file) else { return nil }
             map[rel] = hash
         }
-        return map.isEmpty ? nil : map
+        return map
+    }
+
+    /// 流式 SHA256。文件打不开或读到一半出错返回 nil。
+    static func sha256Hex(ofFile path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        do {
+            while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+        } catch {
+            return nil
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// `/var` 与 `/private/var` 视为同一路径，再取相对路径。对不上返回 nil。
