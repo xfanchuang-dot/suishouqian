@@ -43,98 +43,79 @@ struct ContentView: View {
 
     // MARK: - 侧边栏
 
-    private var panelSelection: Binding<Panel?> {
-        Binding(
-            get: { appState.activePanel },
-            set: { if let panel = $0 { appState.activePanel = panel } }
-        )
-    }
-
     private var sidebar: some View {
-        List(selection: panelSelection) {
-            Section {
-                sidebarLink(l10n("概览"), "chart.pie", .overview)
-                sidebarLink(l10n("应用"), "square.grid.2x2", .apps)
-                sidebarLink(l10n("迁移"), "arrow.left.arrow.right", .migrate)
-                sidebarLink(l10n("体检"), "checkmark.shield", .health)
-                sidebarLink(l10n("数据"), "cylinder", .data)
-                sidebarLink(l10n("设置"), "gearshape", .settings)
-            }
-            Section {
-                sidebarDiskRows
-            } header: {
-                Text(l10n("磁盘"))
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            sidebarRow(l10n("概览"), "house.fill", Studio.blue, .overview)
+            sidebarRow(l10n("应用"), "square.grid.2x2.fill", Color.indigo, .apps)
+            sidebarRow(l10n("迁移"), "arrow.left.arrow.right", Studio.teal, .migrate)
+            sidebarRow(l10n("体检"), "heart.fill", Color.pink, .health)
+            sidebarRow(l10n("数据"), "cylinder.split.1x2.fill", Color.purple, .data)
+            sidebarRow(l10n("设置"), "gearshape.fill", Color.secondary, .settings)
+            Spacer(minLength: 12)
+            sidebarDriveNote
         }
-        .listStyle(.sidebar)
-        .symbolRenderingMode(.hierarchical)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 16)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        .studioCanvas()
     }
 
-    private func sidebarLink(_ title: String, _ symbol: String, _ panel: Panel) -> some View {
-        Label(title, systemImage: symbol)
-            .tag(panel)
-            .accessibilityLabel(title)
+    private func sidebarRow(_ title: String, _ symbol: String, _ tint: Color, _ panel: Panel) -> some View {
+        let selected = appState.activePanel == panel
+        return Button {
+            appState.activePanel = panel
+        } label: {
+            HStack(spacing: 10) {
+                SidebarTile(systemImage: symbol, tint: tint, selected: selected)
+                Text(title)
+                    .font(.system(size: 14, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(selected ? Studio.blue : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     @ViewBuilder
-    private var sidebarDiskRows: some View {
+    private var sidebarDriveNote: some View {
         Button {
             appState.activePanel = .overview
         } label: {
-            Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(l10n("内置磁盘"))
-                    if let builtin = appState.builtinDrive {
-                        Text(l10n("已用 %lld%%", Int(builtin.usageRatio * 100)))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                if let builtin = appState.builtinDrive {
+                    Label(l10n("已用 %lld%%", Int(builtin.usageRatio * 100)), systemImage: "internaldrive")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            } icon: {
-                Image(systemName: "internaldrive")
+                if let external = appState.externalDrive {
+                    Label(l10n("可用 %@", external.freeFormatted), systemImage: "externaldrive")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Label(l10n("外置盘未连接"), systemImage: "externaldrive.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
         }
         .buttonStyle(.plain)
-        .help(l10n("查看磁盘详情与测速"))
-
-        Button {
-            appState.activePanel = .overview
-        } label: {
-            if let external = appState.externalDrive {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(external.name).lineLimit(1)
-                        Text(l10n("可用 %@", external.freeFormatted))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                } icon: {
-                    Image(systemName: "externaldrive")
-                        .foregroundStyle(.green)
-                }
-            } else {
-                Label(l10n("外置盘未连接"), systemImage: "externaldrive.badge.exclamationmark")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .buttonStyle(.plain)
+        .padding(4)
+        .studioCard()
         .help(l10n("查看磁盘详情与测速"))
     }
 
     // MARK: - 内容区
-
-    private var panelTitle: String {
-        switch appState.activePanel {
-        case .overview: return l10n("概览")
-        case .apps: return l10n("应用")
-        case .migrate: return l10n("迁移")
-        case .health: return l10n("体检")
-        case .data: return l10n("数据")
-        case .settings: return l10n("设置")
-        }
-    }
 
     @ViewBuilder
     private var detail: some View {
@@ -165,14 +146,13 @@ struct ContentView: View {
                     .padding(.vertical, 12)
             }
         }
-        .navigationTitle(panelTitle)
+        .navigationTitle(l10n("随手迁"))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        // 任务胶囊浮在内容区顶部：任何页面（含应用/设置）都能看到在跑的任务。
-        // 用 safeAreaInset 而非 overlay——胶囊出现时把内容往下推，不压磁盘卡
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .studioCanvas()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             GlobalTaskCapsule()
-                .padding(.top, 8)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18),
                    value: appState.activePanel)

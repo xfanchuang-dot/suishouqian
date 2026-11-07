@@ -334,9 +334,15 @@ struct AppListView: View {
             } else {
                 List(apps, selection: $selectedApps) { app in
                     AppRowView(app: app)
-                        .listRowInsets(EdgeInsets(top: 2, leading: 12, bottom: 2, trailing: 12))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(.thinMaterial)
+                                .padding(.vertical, 3)
+                        )
                 }
                 .listStyle(.plain)
+                .scrollContentBackground(.hidden)
                 // 白卡上的列表：隐藏 List 自带底色，行直接坐在卡面上
                 .scrollContentBackground(.hidden)
                 // 搜索/排序/筛选变化时，行变更用弹簧过渡（List 行级动画由系统处理）

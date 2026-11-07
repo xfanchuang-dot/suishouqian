@@ -52,12 +52,14 @@ struct SettingsView: View {
     }
 
     private func settingsPage<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        Form {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 content()
             }
+            .padding(18)
+            .studioCard()
+            .padding(20)
         }
-        .formStyle(.grouped)
         // ⚠️ 不做 onAppear 自动探测（v2.3.3 红线）：读 TCC 保护目录在未授予时会弹
         // 授权框，打开设置就弹=弹窗轰炸重演。默认「未知」，用户点「刷新状态」
         // 才真正探测一次——那一刻弹框是用户预期的、可点掉的
@@ -161,7 +163,7 @@ struct SettingsView: View {
     }
 
     private var rowDivider: some View {
-        EmptyView()
+        Divider().opacity(0.35)
     }
 
     // MARK: - 权限

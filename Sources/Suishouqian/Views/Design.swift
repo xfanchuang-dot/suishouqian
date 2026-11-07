@@ -196,15 +196,22 @@ struct PrimaryActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            if let systemImage {
-                Label(title, systemImage: systemImage)
-            } else {
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                }
                 Text(title)
             }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 22)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(LinearGradient(colors: Studio.ringBlue,
+                                                      startPoint: .leading, endPoint: .trailing)))
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
     }
 }
 

@@ -86,6 +86,8 @@ struct DataPanelView: View {
                 Spacer()
             }
         }
+        .padding(16)
+        .studioCard()
     }
 
     // MARK: - 备份记录（效果图行样式：图标方块 + 标题/副标题 + 大小 + 箭头）

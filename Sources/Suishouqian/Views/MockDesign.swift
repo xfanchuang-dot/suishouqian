@@ -49,7 +49,7 @@ private struct MockCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous))
+            .studioCard()
     }
 }
 
@@ -182,15 +182,22 @@ struct MockGradientButton: View {
 
     var body: some View {
         Button(action: action) {
-            if let systemImage {
-                Label(title, systemImage: systemImage)
-            } else {
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                }
                 Text(title)
             }
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Capsule().fill(LinearGradient(colors: Studio.ringBlue,
+                                                      startPoint: .leading, endPoint: .trailing)))
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
     }
 }
 

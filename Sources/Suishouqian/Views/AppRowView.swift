@@ -13,6 +13,9 @@ struct AppRowView: View {
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
 
+                MockUsageBar(ratio: min(1, Double(app.size) / Double(20 * 1_073_741_824)),
+                             gradient: MockTheme.builtinBar, height: 4)
+                    .frame(maxWidth: 140)
                 HStack(spacing: 4) {
                     Text(app.sizeFormatted)
                         .font(.system(size: 11, weight: .medium))

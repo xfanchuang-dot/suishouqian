@@ -37,7 +37,9 @@ struct OverviewPanel: View {
             VStack(alignment: .leading, spacing: 16) {
                 // —— 效果图头部：大标题 + 双盘卡 + 三统计卡 + 健康评分横幅 ——
                 titleRow
-                diskCardsRow
+                connectionRow
+                heroDiskCard
+                recentlyMovedRow
                 statCardsRow
                 if let score = healthScore {
                     healthBanner(score)
@@ -94,101 +96,174 @@ struct OverviewPanel: View {
         }
     }
 
-    /// 双盘卡（效果图：内置盘紫条 / 外置盘绿条，已用百分比 + 用量/总量）
-    private var diskCardsRow: some View {
-        HStack(spacing: 16) {
-            if let builtin = appState.builtinDrive {
-                diskCard(
-                    icon: "internaldrive.fill", iconColor: MockTheme.accent,
-                    name: l10n("内置磁盘"),
-                    detail: l10n("已用 %lld%% · %@ / %@", Int(builtin.usageRatio * 100), usedText(builtin), builtin.totalFormatted),
-                    ratio: builtin.usageRatio, bar: MockTheme.builtinBar)
+    private var connectionRow: some View {
+        HStack {
+            Text(l10n("把内置盘上的大应用安全搬到外置磁盘，释放空间"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if appState.externalDrive != nil {
+                Label(l10n("外置硬盘已连接"), systemImage: "circle.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.green)
+            } else {
+                Label(l10n("外置盘未连接"), systemImage: "circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var freedBytes: Int64 {
+        appState.apps.filter { $0.status == .migrated }.reduce(0) { $0 + $1.size }
+    }
+
+    private var heroDiskCard: some View {
+        VStack(spacing: 18) {
+            HStack(alignment: .center, spacing: 18) {
+                if let builtin = appState.builtinDrive {
+                    diskRing(name: builtin.name.isEmpty ? l10n("内置磁盘") : builtin.name,
+                             caption: l10n("内置磁盘"),
+                             total: builtin.totalFormatted,
+                             used: usedText(builtin),
+                             ratio: builtin.usageRatio,
+                             colors: Studio.ringBlue,
+                             symbol: "internaldrive")
+                }
+                Image(systemName: "arrow.right")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(LinearGradient(colors: Studio.ringBlue + Studio.ringTeal,
+                                                    startPoint: .leading, endPoint: .trailing))
+                    .accessibilityHidden(true)
+                if let external = appState.externalDrive {
+                    diskRing(name: external.name,
+                             caption: l10n("外置硬盘已连接"),
+                             total: external.totalFormatted,
+                             used: usedText(external),
+                             ratio: external.usageRatio,
+                             colors: Studio.ringTeal,
+                             symbol: "externaldrive")
+                } else {
+                    diskRing(name: l10n("外置盘未连接"),
+                             caption: l10n("接入后这里显示用量与剩余空间"),
+                             total: "—",
+                             used: "—",
+                             ratio: 0,
+                             colors: [Color.secondary.opacity(0.4), Color.secondary.opacity(0.2)],
+                             symbol: "externaldrive.badge.exclamationmark")
+                }
+            }
+            VStack(spacing: 4) {
+                Text(l10n("已释放 %@", ByteCountFormatter.string(fromByteCount: freedBytes, countStyle: .file)))
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(Studio.savedGradient)
+                Text(l10n("在内置盘上释放了 %@", ByteCountFormatter.string(fromByteCount: freedBytes, countStyle: .file)))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
             if let external = appState.externalDrive {
-                externalDiskCard(external)
+                HStack {
+                    Button {
+                        runOverviewSpeedTest(mount: external.mountPoint)
+                    } label: {
+                        Label(overviewSpeedRunning ? l10n("测速中") : l10n("测速"),
+                              systemImage: "gauge.with.dots.needle.bottom.50percent")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(overviewSpeedRunning)
+                    .help(l10n("实测外置盘读写速度（写入几百 MB，需几秒）"))
+                    if let speed = overviewSpeedText {
+                        Text(speed)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .padding(18)
+        .studioCard()
+    }
+
+    private func diskRing(name: String, caption: String, total: String, used: String,
+                          ratio: Double, colors: [Color], symbol: String) -> some View {
+        VStack(spacing: 8) {
+            ZStack {
+                UsageRing(ratio: ratio, colors: colors)
+                    .frame(width: 112, height: 112)
+                VStack(spacing: 2) {
+                    Image(systemName: symbol)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(l10n("%lld%%", Int(min(max(ratio, 0), 1) * 100)))
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                }
+            }
+            Text(name).font(.headline).lineLimit(1)
+            Text(used).font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+            Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.center)
+            Text(total).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var recentlyMovedRow: some View {
+        let moved = appState.apps
+            .filter { $0.status == .migrated }
+            .sorted { $0.size > $1.size }
+            .prefix(6)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(l10n("最近迁移"))
+                    .font(.headline)
+                Spacer()
+                Button(l10n("查看全部")) { appState.activePanel = .apps }
+                    .buttonStyle(.borderless)
+                    .font(.subheadline)
+            }
+            if moved.isEmpty {
+                Text(l10n("还没有迁移备份，第一次迁移后会自动留底"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             } else {
-                diskCard(
-                    icon: "externaldrive.badge.exclamationmark", iconColor: .secondary,
-                    name: l10n("外置盘未连接"),
-                    detail: l10n("接入后这里显示用量与剩余空间"),
-                    ratio: 0, bar: MockTheme.externalBar)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(Array(moved)) { app in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    if let icon = app.icon {
+                                        Image(nsImage: icon).resizable().frame(width: 36, height: 36)
+                                    } else {
+                                        Image(systemName: "app.fill")
+                                            .font(.title2)
+                                            .symbolRenderingMode(.hierarchical)
+                                            .foregroundStyle(Studio.blue)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                }
+                                Text(app.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                Text(app.sizeFormatted)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                            .padding(12)
+                            .frame(width: 160, alignment: .leading)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                    }
+                }
             }
         }
     }
 
     private func usedText(_ drive: DriveInfo) -> String {
         ByteCountFormatter.string(fromByteCount: drive.totalSize - drive.freeSize, countStyle: .file)
-    }
-
-    private func diskCard(icon: String, iconColor: Color, name: String,
-                          detail: String, ratio: Double, bar: LinearGradient) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                MockIconSquare(systemImage: icon, color: iconColor, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                    Text(detail)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            MockUsageBar(ratio: ratio, gradient: bar, height: 10)
-        }
-        .mockCard()
-    }
-
-    /// 外置盘卡（含测速按钮）：新 UI 下 DiskBarView 只在体检页，概览页需要测速入口
-    private func externalDiskCard(_ drive: DriveInfo) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                MockIconSquare(systemImage: "externaldrive.fill", color: MockTheme.accent, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(drive.name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                    Text(l10n("已用 %lld%% · %@ / %@", Int(drive.usageRatio * 100), usedText(drive), drive.totalFormatted))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                // 测速按钮
-                Button {
-                    runOverviewSpeedTest(mount: drive.mountPoint)
-                } label: {
-                    HStack(spacing: 4) {
-                        if overviewSpeedRunning {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "gauge.with.dots.needle.bottom.50percent")
-                                .font(.system(size: 11))
-                        }
-                        Text(overviewSpeedRunning ? l10n("测速中") : l10n("测速"))
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
-                .disabled(overviewSpeedRunning)
-                .help(l10n("实测外置盘读写速度（写入几百 MB，需几秒）"))
-            }
-            MockUsageBar(ratio: drive.usageRatio, gradient: MockTheme.externalBar, height: 10)
-            if let speed = overviewSpeedText {
-                Text(speed)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-            }
-        }
-        .mockCard()
     }
 
     private func runOverviewSpeedTest(mount: String) {

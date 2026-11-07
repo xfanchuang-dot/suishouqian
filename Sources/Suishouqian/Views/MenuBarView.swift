@@ -27,9 +27,9 @@ struct MenuBarView: View {
             .buttonStyle(.borderless)
         }
         .font(.body)
-        .padding(12)
-        .frame(minWidth: 260, alignment: .leading)
-        .background(.regularMaterial)
+        .padding(14)
+        .frame(minWidth: 280, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Studio.radius, style: .continuous))
         .task {
             await appState.volumeStore.refresh()
         }

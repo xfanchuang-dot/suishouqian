@@ -843,3 +843,8 @@
 "预计腾出 %@，达标；约需 %lld 分钟（串行逐个搬，每步都有校验与备份）" = "About %@ would be freed, which meets the goal. About %lld minutes, one app at a time, with a check and a backup for each.";
 "磁盘" = "Disks";
 "筛选" = "Filter";
+"最近迁移" = "Recently Moved";
+"查看全部" = "View All";
+"在内置盘上释放了 %@" = "Freed %@ on the internal drive";
+"迁移进行中…" = "Migration in progress…";
+"%lld%%" = "%lld%%";
