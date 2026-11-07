@@ -240,32 +240,14 @@ struct AppListView: View {
 
                 Spacer(minLength: 8)
 
-                // 分段筛选（对照效果图：米色选中药丸 + 分隔线，非原生分段样式）
-                HStack(spacing: 0) {
+                Picker(l10n("筛选"), selection: $filterMode) {
                     ForEach(FilterMode.allCases, id: \.self) { mode in
-                        Button { filterMode = mode } label: {
-                            Text(mode.rawValue)
-                                .font(.system(size: 13, weight: filterMode == mode ? .medium : .regular))
-                                .foregroundColor(filterMode == mode ? .primary : .secondary)
-                                .lineLimit(1)
-                                .fixedSize()
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule().fill(filterMode == mode
-                                        // 效果图：暖米色选中（非系统灰）
-                                        ? Color(red: 0.90, green: 0.86, blue: 0.78)
-                                        : Color.clear)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        if mode != FilterMode.allCases.last {
-                            Divider().frame(height: 16)
-                        }
+                        Text(mode.rawValue).tag(mode)
                     }
                 }
-                .padding(3)
-                .background(Capsule().fill(Color.primary.opacity(0.06)))
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
 
                 Spacer(minLength: 8)
 

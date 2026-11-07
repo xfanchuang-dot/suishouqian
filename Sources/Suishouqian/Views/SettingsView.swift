@@ -32,25 +32,32 @@ struct SettingsView: View {
     @State private var updateManager = UpdateManager()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            MockCapsuleTabs(
-                tabs: [(.permissions, l10n("权限")), (.general, l10n("通用")), (.backup, l10n("备份")),
-                       (.watch, l10n("外置盘守护")), (.about, l10n("关于"))],
-                selection: $tab)
+        TabView(selection: $tab) {
+            settingsPage { permissionsRows }
+                .tag(Tab.permissions)
+                .tabItem { Label(l10n("权限"), systemImage: "lock.shield") }
+            settingsPage { generalRows }
+                .tag(Tab.general)
+                .tabItem { Label(l10n("通用"), systemImage: "gearshape") }
+            settingsPage { backupRows }
+                .tag(Tab.backup)
+                .tabItem { Label(l10n("备份"), systemImage: "externaldrive.badge.timemachine") }
+            settingsPage { watchRows }
+                .tag(Tab.watch)
+                .tabItem { Label(l10n("外置盘守护"), systemImage: "externaldrive.badge.checkmark") }
+            settingsPage { aboutRows }
+                .tag(Tab.about)
+                .tabItem { Label(l10n("关于"), systemImage: "info.circle") }
+        }
+    }
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    switch tab {
-                    case .permissions: permissionsRows
-                    case .general: generalRows
-                    case .backup: backupRows
-                    case .watch: watchRows
-                    case .about: aboutRows
-                    }
-                }
+    private func settingsPage<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        Form {
+            Section {
+                content()
             }
         }
-        .padding(4)
+        .formStyle(.grouped)
         // ⚠️ 不做 onAppear 自动探测（v2.3.3 红线）：读 TCC 保护目录在未授予时会弹
         // 授权框，打开设置就弹=弹窗轰炸重演。默认「未知」，用户点「刷新状态」
         // 才真正探测一次——那一刻弹框是用户预期的、可点掉的
@@ -131,7 +138,6 @@ struct SettingsView: View {
             Toggle("", isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .tint(.blue)  // 效果图：开启态为蓝色开关
                 .disabled(disabled)
                 .onChange(of: isOn.wrappedValue) { _, new in onChange?(new) }
         }
@@ -155,7 +161,7 @@ struct SettingsView: View {
     }
 
     private var rowDivider: some View {
-        Divider().opacity(0.6)
+        EmptyView()
     }
 
     // MARK: - 权限

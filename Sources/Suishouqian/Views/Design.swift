@@ -71,25 +71,7 @@ struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                    .fill(Color(NSColor.controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.45),
-                                .white.opacity(0.08),
-                                .black.opacity(0.08)
-                            ],
-                            startPoint: .top, endPoint: .bottom
-                        ),
-                        lineWidth: 0.5
-                    )
-            )
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous))
     }
 }
 
@@ -214,25 +196,15 @@ struct PrimaryActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .semibold))
-                }
+            if let systemImage {
+                Label(title, systemImage: systemImage)
+            } else {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 12)
-            .background(
-                Capsule().fill(enabled ? MockTheme.accent : Color.primary.opacity(0.2)))
-            .shadow(color: enabled ? MockTheme.accent.opacity(0.25) : .clear,
-                    radius: 10, y: 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
         .disabled(!enabled)
-        .pressScale()
     }
 }
 
