@@ -16,9 +16,9 @@ struct LinkHealth: Identifiable {
 
         var label: String {
             switch self {
-            case .healthy: return "正常"
-            case .volumeOffline: return "硬盘未连接"
-            case .broken: return "断链"
+            case .healthy: return l10n("正常")
+            case .volumeOffline: return l10n("硬盘未连接")
+            case .broken: return l10n("断链")
             }
         }
     }
@@ -130,39 +130,39 @@ enum BigFileClassifier {
             || p.contains("group containers/group.com.apple.")
             || p.hasPrefix("/private/var")
             || p.contains("library/cloudstorage") {
-            return Result(label: "系统数据（建议保留）", systemManaged: true)
+            return Result(label: l10n("系统数据（建议保留）"), systemManaged: true)
         }
         // iPhone 备份：不可再生的高价值数据。残留扫描已把 MobileSync 列进保护名单，
         // 大文件面板此前却给了一个可点的「清理」按钮（只有通用确认文案），
         // 同一份数据两套安全等级。这里统一为"工具不提供一键清理"。
         if p.contains("mobilesync") {
-            return Result(label: "iPhone 备份（不可再生，本工具不提供清理）",
+            return Result(label: l10n("iPhone 备份（不可再生，本工具不提供清理）"),
                           systemManaged: false, protected: true)
         }
         // 开发缓存：可再生，清理无损
         let devCaches = ["deriveddata", "coresimulator", "node_modules",
                          "/.cocoapods", "/.gradle", "/.npm", "xcode/archives"]
         if devCaches.contains(where: { p.contains($0) }) {
-            return Result(label: "开发缓存（可清理，会自动重建）", systemManaged: false)
+            return Result(label: l10n("开发缓存（可清理，会自动重建）"), systemManaged: false)
         }
         // 应用数据：清理可能丢设置/记录
         if p.contains("application support") || p.contains("/containers/")
             || p.contains("group containers") {
-            return Result(label: "应用数据（清理可能丢失设置或记录）", systemManaged: false)
+            return Result(label: l10n("应用数据（清理可能丢失设置或记录）"), systemManaged: false)
         }
 
         let ext = (path as NSString).pathExtension.lowercased()
         switch ext {
         case "dmg", "iso", "pkg":
-            return Result(label: "安装镜像/安装包（装完即可删）", systemManaged: false)
+            return Result(label: l10n("安装镜像/安装包（装完即可删）"), systemManaged: false)
         case "mp4", "mkv", "mov", "avi", "m4v", "mp3", "flac", "wav", "aac":
-            return Result(label: "音视频文件", systemManaged: false)
+            return Result(label: l10n("音视频文件"), systemManaged: false)
         case "zip", "rar", "7z", "tar", "gz", "bz2":
-            return Result(label: "压缩包", systemManaged: false)
+            return Result(label: l10n("压缩包"), systemManaged: false)
         case "raw", "vmdk", "qcow2", "img", "hdd", "vdi":
-            return Result(label: "虚拟磁盘镜像", systemManaged: false)
+            return Result(label: l10n("虚拟磁盘镜像"), systemManaged: false)
         default:
-            return Result(label: "其他大文件", systemManaged: false)
+            return Result(label: l10n("其他大文件"), systemManaged: false)
         }
     }
 }
@@ -454,11 +454,11 @@ class HealthChecker: @unchecked Sendable {
                                cacheRoots: [String]? = nil) -> String? {
         guard let target = try? fileManager.destinationOfSymbolicLink(atPath: link.linkPath),
               !fileManager.fileExists(atPath: target) else {
-            return "链接目标仍存在，无需恢复"
+            return l10n("链接目标仍存在，无需恢复")
         }
         guard let candidate = Self.findVanishedAppCandidates(
                 appName: link.appName, cacheRoots: cacheRoots).first else {
-            return "更新缓存里没有找到「\(link.appName)」的新版本"
+            return l10n("更新缓存里没有找到「%@」的新版本", link.appName)
         }
 
         do {
@@ -469,7 +469,7 @@ class HealthChecker: @unchecked Sendable {
             AuditLog.append("从更新缓存恢复 \(link.appName)：\(candidate) → \(target)")
             return nil
         } catch {
-            return "恢复失败：\(error.localizedDescription)"
+            return l10n("恢复失败：%@", error.localizedDescription)
         }
     }
 
@@ -721,7 +721,7 @@ class HealthChecker: @unchecked Sendable {
             let items = (try? fileManager.contentsOfDirectory(atPath: base)) ?? []
             for item in items {
                 // 系统自有目录与工具自身目录不参与；保护名单绝不上报
-                if item.lowercased().hasPrefix("com.apple.") || item == "随手迁" { continue }
+                if item.lowercased().hasPrefix("com.apple.") || item == l10n("随手迁") { continue }
                 if protectedResidueNames.contains(item) { continue }
 
                 let full = "\(base)/\(item)"

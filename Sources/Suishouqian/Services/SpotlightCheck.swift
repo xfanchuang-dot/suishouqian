@@ -47,33 +47,7 @@ enum SpotlightCheck {
     /// 返回 (是否成功, 失败原因)。
     @discardableResult
     static func setIndexing(_ enabled: Bool, mountPoint: String) -> (success: Bool, error: String?) {
-        let flag = enabled ? "on" : "off"
-        // 挂载点名含空格/单引号也不破壳：shell 层单引号包裹，单引号翻倍转义
-        let escaped = mountPoint.replacingOccurrences(of: "'", with: "'\\''")
-        let script = "do shell script \"mdutil -i \(flag) '\(escaped)'\" with administrator privileges"
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-
-        // stdout 直接丢弃：不读它的输出，接成管道没人读会写满 64KB 永久阻塞
-        let errPipe = Pipe()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errPipe
-
-        do {
-            try process.run()
-        } catch {
-            return (false, error.localizedDescription)
-        }
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        if process.terminationStatus == 0 { return (true, nil) }
-        let msg = String(data: errData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "未知错误"
-        if msg.contains("User canceled") { return (false, "已取消授权") }
-        return (false, msg)
+        PrivilegedShell.run(.spotlight(enabled: enabled, mount: mountPoint))
     }
 
     /// 给用户复制/留档用的等价命令

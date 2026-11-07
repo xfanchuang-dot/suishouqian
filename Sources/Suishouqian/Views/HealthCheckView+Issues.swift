@@ -9,9 +9,9 @@ extension HealthCheckView {
     var regressionSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "迁移被撤销", systemImage: "arrow.uturn.backward.circle")
+                SectionHeader(title: l10n("迁移被撤销"), systemImage: "arrow.uturn.backward.circle")
                 Spacer()
-                Text("应用升级时替换了链接，内置盘被重新占用")
+                Text(l10n("应用升级时替换了链接，内置盘被重新占用"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -24,14 +24,14 @@ extension HealthCheckView {
                     Text(item.appName.replacingOccurrences(of: ".app", with: ""))
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
-                    Text("重新占用 \(item.sizeFormatted)")
+                    Text(l10n("重新占用 %@", item.sizeFormatted))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("重新迁移") { remigrate(item) }
+                    Button(l10n("重新迁移")) { remigrate(item) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                    Button("忽略") {
+                    Button(l10n("忽略")) {
                         checker.ignoreRegression(item)
                         model.regressions.removeAll { $0.id == item.id }
                     }
@@ -46,11 +46,11 @@ extension HealthCheckView {
     var backupSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("备份可清理（孤儿或超过 \(checker.backupRetentionDays) 天）")
+                Text(l10n("备份可清理（孤儿或超过 %lld 天）", checker.backupRetentionDays))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.orange)
                 Spacer()
-                Button("全部清理") { cleanAllBackups() }
+                Button(l10n("全部清理")) { cleanAllBackups() }
                     .controlSize(.small)
                     .buttonStyle(.bordered)
             }
@@ -62,19 +62,19 @@ extension HealthCheckView {
                         .font(.system(size: 11))
                     Text(issue.appName.replacingOccurrences(of: ".app", with: ""))
                         .font(.system(size: 12))
-                    Text("\(issue.sizeFormatted) · \(issue.ageDays) 天前\(issue.isOrphan ? " · 应用已卸载" : "")")
+                    Text(l10n("%@ · %lld 天前%@", issue.sizeFormatted, issue.ageDays, issue.isOrphan ? l10n(" · 应用已卸载") : ""))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("删除") {
+                    Button(l10n("删除")) {
                         Task { await deleteBackup(issue) }
                     }
                     .controlSize(.small)
                 }
                 .padding(.vertical, 2)
                 .help(issue.isOrphan
-                      ? "这个应用在内置盘和外置盘的应用目录里都不存在了（已卸载），这份迁移前备份已经没有用处。删除会移入废纸篓，可恢复。"
-                      : "这是迁移「\(issue.appName)」时留的底，已超过保留期。只要应用还能正常打开就可以删。删除会移入废纸篓，可恢复。")
+                      ? l10n("这个应用在内置盘和外置盘的应用目录里都不存在了（已卸载），这份迁移前备份已经没有用处。删除会移入废纸篓，可恢复。")
+                      : l10n("这是迁移「%@」时留的底，已超过保留期。只要应用还能正常打开就可以删。删除会移入废纸篓，可恢复。", issue.appName))
             }
         }
         .cardStyle()
@@ -84,14 +84,14 @@ extension HealthCheckView {
     var residueSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "已卸载应用残留", systemImage: "trash.slash")
+                SectionHeader(title: l10n("已卸载应用残留"), systemImage: "trash.slash")
                 Spacer()
-                Text("移入废纸篓，可恢复")
+                Text(l10n("移入废纸篓，可恢复"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                 // v3.1 深清理：残留按体积倒序，一键全清省得逐项点
                 if !model.residues.isEmpty {
-                    Button("全部清理") { Task { await confirmRecycleAllResidues() } }
+                    Button(l10n("全部清理")) { Task { await confirmRecycleAllResidues() } }
                         .controlSize(.small)
                 }
             }
@@ -108,11 +108,11 @@ extension HealthCheckView {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("清理") { Task { await confirmRecycleResidue(item) } }
+                    Button(l10n("清理")) { Task { await confirmRecycleResidue(item) } }
                         .controlSize(.small)
                 }
                 .padding(.vertical, 2)
-                .help("该目录体积 ≥100MB，且没有任何已安装应用认领它——判断为已卸载应用的残留数据。\n位置：\(item.path)\n不确定是什么时，可先点「显示」去 Finder 里看看再决定。")
+                .help(l10n("该目录体积 ≥100MB，且没有任何已安装应用认领它——判断为已卸载应用的残留数据。\n位置：%@\n不确定是什么时，可先点「显示」去 Finder 里看看再决定。", item.path))
             }
         }
         .cardStyle()
@@ -120,10 +120,10 @@ extension HealthCheckView {
 
     private func confirmRecycleResidue(_ item: ResidueItem) async {
         let alert = NSAlert()
-        alert.messageText = "清理应用残留"
-        alert.informativeText = "将把「\(item.name)」（\(item.sizeFormatted)）移入废纸篓。它不隶属于任何已安装的应用，如无异常可放心清理。"
-        alert.addButton(withTitle: "移入废纸篓")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("清理应用残留")
+        alert.informativeText = l10n("将把「%@」（%@）移入废纸篓。它不隶属于任何已安装的应用，如无异常可放心清理。", item.name, item.sizeFormatted)
+        alert.addButton(withTitle: l10n("移入废纸篓"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         if await checker.recycleResidue(item) {
             model.residues.removeAll { $0.id == item.id }
@@ -137,10 +137,10 @@ extension HealthCheckView {
         let total = items.reduce(0) { $0 + $1.sizeBytes }
         let totalStr = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
         let alert = NSAlert()
-        alert.messageText = "清理全部应用残留"
-        alert.informativeText = "将把 \(items.count) 项残留（共 \(totalStr)）逐项移入废纸篓。它们都不隶属于任何已安装的应用。"
-        alert.addButton(withTitle: "全部移入废纸篓")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("清理全部应用残留")
+        alert.informativeText = l10n("将把 %lld 项残留（共 %@）逐项移入废纸篓。它们都不隶属于任何已安装的应用。", items.count, totalStr)
+        alert.addButton(withTitle: l10n("全部移入废纸篓"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         var done = 0
         for item in items {
@@ -157,15 +157,15 @@ extension HealthCheckView {
         VStack(alignment: .leading, spacing: 10) {
             let total = model.bigFiles.reduce(0) { $0 + $1.sizeBytes }
             HStack {
-                SectionHeader(title: "大文件 TOP\(model.bigFiles.count)", systemImage: "doc.fill")
+                SectionHeader(title: l10n("大文件 TOP%lld", model.bigFiles.count), systemImage: "doc.fill")
                 Spacer()
-                Text("共 \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
+                Text(l10n("共 %@", ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.blue)
             }
 
             if !checker.extendedScanEnabled {
-                Text("桌面/文稿/下载默认不扫描（避免权限弹窗），当前只扫描「资源库」；需要覆盖全部位置时，到 设置 → 通用 → 「扩展扫描桌面/文稿/下载」开启（开启前先授予完全磁盘访问权限）。")
+                Text(l10n("桌面/文稿/下载默认不扫描（避免权限弹窗），当前只扫描「资源库」；需要覆盖全部位置时，到 设置 → 通用 → 「扩展扫描桌面/文稿/下载」开启（开启前先授予完全磁盘访问权限）。"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -191,9 +191,9 @@ extension HealthCheckView {
                     Spacer()
                     Text(file.sizeFormatted)
                         .font(.system(size: 11, weight: .semibold))
-                    Button("显示") { checker.revealInFinder(file.path) }
+                    Button(l10n("显示")) { checker.revealInFinder(file.path) }
                         .controlSize(.small)
-                    Button("清理") { Task { await confirmRecycleBigFile(file) } }
+                    Button(l10n("清理")) { Task { await confirmRecycleBigFile(file) } }
                         .controlSize(.small)
                         .disabled(file.classification.cleanupDisabled)
                 }
@@ -207,21 +207,21 @@ extension HealthCheckView {
     /// 大文件条目的悬浮说明：把"为什么不能从这里清"讲清楚
     private func bigFileHelp(_ file: BigFileItem) -> String {
         if file.classification.protected {
-            return "\(file.path)\n\(file.classification.label)。这是不可再生的高价值数据，"
-                 + "随手迁不提供一键清理；确认确实不需要时请到 Finder 里自行删除。"
+            return l10n("%@\n%@。这是不可再生的高价值数据，", file.path, file.classification.label)
+                 + l10n("随手迁不提供一键清理；确认确实不需要时请到 Finder 里自行删除。")
         }
         if file.classification.systemManaged {
-            return "这是系统管理的数据，随手迁不建议也不允许从这里清理。"
+            return l10n("这是系统管理的数据，随手迁不建议也不允许从这里清理。")
         }
-        return "\(file.path)\n分类：\(file.classification.label)。清理会移入废纸篓，可随时恢复。"
+        return l10n("%@\n分类：%@。清理会移入废纸篓，可随时恢复。", file.path, file.classification.label)
     }
 
     private func confirmRecycleBigFile(_ file: BigFileItem) async {
         let alert = NSAlert()
-        alert.messageText = "清理大文件"
-        alert.informativeText = "将把「\(file.name)」（\(file.sizeFormatted)）移入废纸篓，可随时恢复。请确认它不再需要。"
-        alert.addButton(withTitle: "移入废纸篓")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("清理大文件")
+        alert.informativeText = l10n("将把「%@」（%@）移入废纸篓，可随时恢复。请确认它不再需要。", file.name, file.sizeFormatted)
+        alert.addButton(withTitle: l10n("移入废纸篓"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         if await checker.recycleBigFile(file) {
             model.bigFiles.removeAll { $0.id == file.id }
@@ -241,16 +241,10 @@ extension HealthCheckView {
         guard !model.backups.isEmpty else { return }
         let totalBytes = model.backups.reduce(Int64(0)) { $0 + $1.sizeBytes }
         let alert = NSAlert()
-        alert.messageText = "清理全部 \(model.backups.count) 份备份？"
-        alert.informativeText = """
-        合计 \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))。\
-        这些是迁移应用时留的兜底副本，全部移入废纸篓（可恢复）。
-
-        若某个应用迁移后一直正常，它的备份确实可以清；但备份是出问题时唯一的退路，
-        不确定时建议只清「应用已卸载」的孤儿备份。
-        """
-        alert.addButton(withTitle: "全部移入废纸篓")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("清理全部 %lld 份备份？", model.backups.count)
+        alert.informativeText = l10n("\n        合计 %@。\n        这些是迁移应用时留的兜底副本，全部移入废纸篓（可恢复）。\n\n        若某个应用迁移后一直正常，它的备份确实可以清；但备份是出问题时唯一的退路，\n        不确定时建议只清「应用已卸载」的孤儿备份。\n        ", ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))
+        alert.addButton(withTitle: l10n("全部移入废纸篓"))
+        alert.addButton(withTitle: l10n("取消"))
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -278,8 +272,8 @@ extension HealthCheckView {
             }
             guard let app else {
                 let alert = NSAlert()
-                alert.messageText = "暂时找不到应用信息"
-                alert.informativeText = "请回到迁移页等左侧列表扫描完成后再试。"
+                alert.messageText = l10n("暂时找不到应用信息")
+                alert.informativeText = l10n("请回到迁移页等左侧列表扫描完成后再试。")
                 alert.runModal()
                 return
             }
@@ -295,9 +289,9 @@ extension HealthCheckView {
     var diskHealthSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "外置盘健康", systemImage: "heart.text.square")
+                SectionHeader(title: l10n("外置盘健康"), systemImage: "heart.text.square")
                 Spacer()
-                Text("SMART 自检；硬盘盒读不到时以体检为准")
+                Text(l10n("SMART 自检；硬盘盒读不到时以体检为准"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -327,13 +321,13 @@ extension HealthCheckView {
     private func diskHealthText(_ item: DiskHealthIssue) -> String {
         switch item.info.health {
         case .verified:
-            return "SMART 自检通过"
+            return l10n("SMART 自检通过")
         case .failing:
-            return "SMART 报警！盘可能即将损坏——请尽快把该盘上的应用迁回内置盘或另一块外置盘"
+            return l10n("SMART 报警！盘可能即将损坏——请尽快把该盘上的应用迁回内置盘或另一块外置盘")
         case .unsupported:
-            return "读不到 SMART（硬盘盒不支持），暂无异常信号"
+            return l10n("读不到 SMART（硬盘盒不支持），暂无异常信号")
         case .unknown:
-            return "未能探测"
+            return l10n("未能探测")
         }
     }
 
@@ -343,9 +337,9 @@ extension HealthCheckView {
     var speedAlertSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "实测速度异常", systemImage: "speedometer")
+                SectionHeader(title: l10n("实测速度异常"), systemImage: "speedometer")
                 Spacer()
-                Text("与该盘自己的历史测速对比")
+                Text(l10n("与该盘自己的历史测速对比"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -370,12 +364,12 @@ extension HealthCheckView {
     }
 
     private func speedAlertText(_ item: SpeedAlertIssue) -> String {
-        var text = "最近实测 \(Int(item.alert.latestMBps)) MB/s，只有历史基线"
-            + "（\(Int(item.alert.baselineMBps)) MB/s）的 \(item.alert.percentOfBaseline)%"
+        var text = l10n("最近实测 %lld MB/s，只有历史基线", Int(item.alert.latestMBps))
+            + l10n("（%lld MB/s）的 %lld%%", Int(item.alert.baselineMBps), item.alert.percentOfBaseline)
         if let at = item.measuredAt {
-            text += "（\(at.formatted(date: .abbreviated, time: .shortened)) 测得）"
+            text += l10n("（%@ 测得）", at.formatted(date: .abbreviated, time: .shortened))
         }
-        text += "。速度塌陷常是盘体故障前兆——请尽快备份数据，考虑更换盘体或硬盘盒"
+        text += l10n("。速度塌陷常是盘体故障前兆——请尽快备份数据，考虑更换盘体或硬盘盒")
         return text
     }
 
@@ -385,28 +379,28 @@ extension HealthCheckView {
     var lostVolumeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "失联的卷", systemImage: "externaldrive.badge.xmark")
+                SectionHeader(title: l10n("失联的卷"), systemImage: "externaldrive.badge.xmark")
                 Spacer()
-                Text("超过 90 天没再出现过的盘")
+                Text(l10n("超过 90 天没再出现过的盘"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
-            Text("这些盘上的应用可能已随盘丢失。可以清理指向它们的死链接，然后重装应用。")
+            Text(l10n("这些盘上的应用可能已随盘丢失。可以清理指向它们的死链接，然后重装应用。"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
             ForEach(model.lostVolumes) { vol in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("卷 \(vol.volumeUUID.prefix(8))…")
+                        Text(l10n("卷 %@…", String(vol.volumeUUID.prefix(8))))
                             .font(.system(size: 12, weight: .medium))
                         if let seen = vol.lastSeen {
-                            Text("最后出现 \(seen.formatted(date: .abbreviated, time: .omitted))")
+                            Text(l10n("最后出现 %@", seen.formatted(date: .abbreviated, time: .omitted)))
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
                         }
                         Spacer()
-                        Button("清理死链接") {
+                        Button(l10n("清理死链接")) {
                             confirmCleanupLostVolume(vol)
                         }
                         .controlSize(.small)
@@ -425,10 +419,10 @@ extension HealthCheckView {
 
     private func confirmCleanupLostVolume(_ vol: LostVolumeInfo) {
         let alert = NSAlert()
-        alert.messageText = "清理失联卷的死链接"
-        alert.informativeText = "将删除 \(vol.appNames.count) 条指向该卷的死链接并清理台账（\(vol.appNames.prefix(5).joined(separator: "、"))\(vol.appNames.count > 5 ? "…" : "")）。链接目标已不存在，删除是安全的；之后可重装这些应用。"
-        alert.addButton(withTitle: "清理")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("清理失联卷的死链接")
+        alert.informativeText = l10n("将删除 %lld 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。", vol.appNames.count, vol.appNames.prefix(5).joined(separator: "、"), vol.appNames.count > 5 ? "…" : "")
+        alert.addButton(withTitle: l10n("清理"))
+        alert.addButton(withTitle: l10n("取消"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             let cleaned = await OffPool.run { checker.cleanupLostVolume(uuid: vol.volumeUUID) }

@@ -77,7 +77,7 @@ struct MigrationExecutionView: View {
             }
 
             if MigrationExecutionPhase(servicePhase: task.phase) == .transfer {
-                Label("正在传输", systemImage: "arrow.left.arrow.right")
+                Label(l10n("正在传输"), systemImage: "arrow.left.arrow.right")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(MockTheme.accent)
             } else {
@@ -118,19 +118,19 @@ struct MigrationExecutionView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(title(task))，进度 \(Int(task.progress * 100))%")
+        .accessibilityLabel(l10n("%@，进度 %lld%%", title(task), Int(task.progress * 100)))
     }
 
     /// 取消控制：按下只置位 token 并等待服务返回最终文件状态，不清 appState.migrationTask。
     @ViewBuilder
     private func stopControl(_ task: MigrationTask) -> some View {
         if stopRequested || task.cancellationToken.isCancelled {
-            Label("正在请求停止，等待文件状态确认…", systemImage: "hourglass")
+            Label(l10n("正在请求停止，等待文件状态确认…"), systemImage: "hourglass")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
-                .help("等待迁移服务返回源位置与目标副本状态")
+                .help(l10n("等待迁移服务返回源位置与目标副本状态"))
         } else {
-            Button("取消迁移") {
+            Button(l10n("取消迁移")) {
                 stopRequested = true
                 task.cancellationToken.cancel()
                 AuditLog.append("用户取消迁移「\(task.app.name)」")
@@ -138,7 +138,7 @@ struct MigrationExecutionView: View {
             .buttonStyle(.borderless)
             .font(.system(size: 11))
             .foregroundColor(.red)
-            .help("请求迁移服务在安全检查点停止；最终结果会说明源文件与目标副本状态")
+            .help(l10n("请求迁移服务在安全检查点停止；最终结果会说明源文件与目标副本状态"))
         }
     }
 
@@ -156,10 +156,10 @@ struct MigrationExecutionView: View {
     private func title(_ task: MigrationTask) -> String {
         let name = task.app.name
         switch task.operation {
-        case .migrate: return "迁移 \(name)"
-        case .restore: return "回迁 \(name)"
-        case .uninstall: return "卸载 \(name)"
-        case .relocate: return "盘间迁移 \(name)"
+        case .migrate: return l10n("迁移 %@", name)
+        case .restore: return l10n("回迁 %@", name)
+        case .uninstall: return l10n("卸载 %@", name)
+        case .relocate: return l10n("盘间迁移 %@", name)
         }
     }
 
@@ -178,7 +178,7 @@ struct MigrationExecutionView: View {
 
     private func batchResultsBody(_ results: [MigrationBatchItemResult]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("本批逐项结果")
+            Text(l10n("本批逐项结果"))
                 .font(.system(size: 13, weight: .semibold))
             ForEach(results) { item in
                 VStack(alignment: .leading, spacing: 4) {
@@ -205,8 +205,8 @@ struct MigrationExecutionView: View {
             }
             let actions: [(title: String, action: () -> Void)] =
                 MigrationPlanPresentation.shouldOfferOpenAppsAction(for: results)
-                ? [("查看应用", onOpenApps), ("迁移历史", onShowHistory)]
-                : [("迁移历史", onShowHistory)]
+                ? [(l10n("查看应用"), onOpenApps), (l10n("迁移历史"), onShowHistory)]
+                : [(l10n("迁移历史"), onShowHistory)]
             outcomeActions(actions)
         }
         .padding(12)
@@ -215,25 +215,25 @@ struct MigrationExecutionView: View {
                 .fill(Color.primary.opacity(0.025))
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("本批逐项结果")
+        .accessibilityLabel(l10n("本批逐项结果"))
     }
 
     private func batchStatus(_ item: MigrationBatchItemResult)
         -> (title: String, symbol: String, color: Color) {
         switch item.status {
         case .pending:
-            return ("等待处理", "clock", .secondary)
+            return (l10n("等待处理"), "clock", .secondary)
         case .succeeded:
-            return ("已完成", "checkmark.circle.fill", MockTheme.healthGreen)
+            return (l10n("已完成"), "checkmark.circle.fill", MockTheme.healthGreen)
         case .failed:
             if item.outcome?.kind == .recoveryRequired {
-                return ("需要检查", "exclamationmark.triangle.fill", MockTheme.statOrange)
+                return (l10n("需要检查"), "exclamationmark.triangle.fill", MockTheme.statOrange)
             }
-            return ("失败", "xmark.octagon.fill", .red)
+            return (l10n("失败"), "xmark.octagon.fill", .red)
         case .cancelled:
-            return ("安全取消", "exclamationmark.triangle.fill", MockTheme.statOrange)
+            return (l10n("安全取消"), "exclamationmark.triangle.fill", MockTheme.statOrange)
         case .notStarted:
-            return ("未开始", "minus.circle", .secondary)
+            return (l10n("未开始"), "minus.circle", .secondary)
         }
     }
 
@@ -251,7 +251,7 @@ struct MigrationExecutionView: View {
                     .foregroundColor(MockTheme.healthGreen)
                 Spacer()
                 if let freed {
-                    Text("已释放 \(freed)")
+                    Text(l10n("已释放 %@", freed))
                         .font(.system(size: 15, weight: .semibold))
                         .monospacedDigit()
                         .foregroundColor(MockTheme.healthGreen)
@@ -260,10 +260,10 @@ struct MigrationExecutionView: View {
             Text(outcome.detail)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
-            outcomeActions([("查看应用", onOpenApps), ("迁移历史", onShowHistory)])
+            outcomeActions([(l10n("查看应用"), onOpenApps), (l10n("迁移历史"), onShowHistory)])
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(freed.map { "\(outcome.title)，已释放 \($0)" } ?? outcome.title)
+        .accessibilityLabel(freed.map { l10n("%@，已释放 %@", outcome.title, $0) } ?? outcome.title)
     }
 
     /// 取消终态：安全文案只由服务明确返回简单安全取消时生成；否则走恢复提示。
@@ -275,7 +275,7 @@ struct MigrationExecutionView: View {
             Text(outcome.detail)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
-            outcomeActions([("迁移历史", onShowHistory)])
+            outcomeActions([(l10n("迁移历史"), onShowHistory)])
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(outcome.title)：\(outcome.detail)")
@@ -292,8 +292,8 @@ struct MigrationExecutionView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
                 .textSelection(.enabled)
-            outcomeActions([("迁移历史", onShowHistory),
-                            ("关闭", { outcomeDismissed = true })])
+            outcomeActions([(l10n("迁移历史"), onShowHistory),
+                            (l10n("关闭"), { outcomeDismissed = true })])
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(outcome.title)：\(outcome.detail)")

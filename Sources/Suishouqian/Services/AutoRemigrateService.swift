@@ -80,10 +80,10 @@ enum AutoRemigrateService {
             if var task = state.migrationTask {
                 if result.success {
                     task.status = .completed
-                } else if result.cancelled && result.error == "已取消" {
+                } else if result.cancelled && result.error == l10n("已取消") {
                     task.status = .cancelled
                 } else {
-                    task.status = .failed(result.error ?? "未知错误")
+                    task.status = .failed(result.error ?? l10n("未知错误"))
                 }
                 state.migrationTask = task
             }

@@ -27,14 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let alert = NSAlert()
-        alert.messageText = "迁移正在进行中"
-        alert.informativeText = """
-        「\(state.migrationTask?.app.name ?? "")」正在\(state.migrationTask?.operation == .migrate ? "迁移" : "回迁")，\
-        现在强制退出可能留下半完成状态（原件和备份都在，可通过体检页恢复）。
-        建议等待完成，通常只需几十秒。
-        """
-        alert.addButton(withTitle: "等待完成（推荐）")
-        alert.addButton(withTitle: "强制退出")
+        alert.messageText = l10n("迁移正在进行中")
+        alert.informativeText = l10n("\n        「%@」正在%@，\n        现在强制退出可能留下半完成状态（原件和备份都在，可通过体检页恢复）。\n        建议等待完成，通常只需几十秒。\n        ", state.migrationTask?.app.name ?? "", state.migrationTask?.operation == .migrate ? l10n("迁移") : l10n("回迁"))
+        alert.addButton(withTitle: l10n("等待完成（推荐）"))
+        alert.addButton(withTitle: l10n("强制退出"))
         alert.alertStyle = .warning
 
         return alert.runModal() == .alertFirstButtonReturn ? .terminateCancel : .terminateNow
@@ -43,10 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Dock 菜单（右键 Dock 图标直达常用操作）
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        let menu = NSMenu(title: "随手迁")
+        let menu = NSMenu(title: l10n("随手迁"))
         let defs: [(title: String, tag: Int)] = [
-            ("立即扫描", 0), ("总览面板", 1), ("应用面板", 5), ("迁移面板", 2),
-            ("体检面板", 3), ("数据面板", 4), ("设置面板", 6),
+            (l10n("立即扫描"), 0), (l10n("总览面板"), 1), (l10n("应用面板"), 5), (l10n("迁移面板"), 2),
+            (l10n("体检面板"), 3), (l10n("数据面板"), 4), (l10n("设置面板"), 6),
         ]
         for (title, tag) in defs {
             let item = NSMenuItem(title: title,
@@ -94,14 +90,14 @@ struct SuishouqianApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}
-            CommandMenu("操作") {
-                Button("重新扫描应用") {
+            CommandMenu(l10n("操作")) {
+                Button(l10n("重新扫描应用")) {
                     Task { @MainActor in await appState.scanApps() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(appState.isScanning)
 
-                Button("搜索应用") {
+                Button(l10n("搜索应用")) {
                     // 侧边栏改版后应用列表是独立页面：先切过去再聚焦，
                     // async 让视图挂载完成后再发通知，否则通知会发空
                     appState.activePanel = .apps
@@ -113,24 +109,24 @@ struct SuishouqianApp: App {
 
                 Divider()
 
-                Button("总览面板") { appState.activePanel = .overview }
+                Button(l10n("总览面板")) { appState.activePanel = .overview }
                     .keyboardShortcut("0", modifiers: .command)
-                Button("迁移面板") { appState.activePanel = .migrate }
+                Button(l10n("迁移面板")) { appState.activePanel = .migrate }
                     .keyboardShortcut("1", modifiers: .command)
-                Button("体检面板") { appState.activePanel = .health }
+                Button(l10n("体检面板")) { appState.activePanel = .health }
                     .keyboardShortcut("2", modifiers: .command)
-                Button("数据面板") { appState.activePanel = .data }
+                Button(l10n("数据面板")) { appState.activePanel = .data }
                     .keyboardShortcut("3", modifiers: .command)
-                Button("应用面板") { appState.activePanel = .apps }
+                Button(l10n("应用面板")) { appState.activePanel = .apps }
                     .keyboardShortcut("4", modifiers: .command)
-                Button("设置面板") { appState.activePanel = .settings }
+                Button(l10n("设置面板")) { appState.activePanel = .settings }
                     .keyboardShortcut("5", modifiers: .command)
             }
             CommandGroup(replacing: .help) {
-                Button("关于随手迁") {
+                Button(l10n("关于随手迁")) {
                     NSApplication.shared.orderFrontStandardAboutPanel()
                 }
-                Button("检查更新...") {
+                Button(l10n("检查更新...")) {
                     updateManager.checkForUpdates()
                 }
             }
@@ -141,7 +137,7 @@ struct SuishouqianApp: App {
         }
 
         // v3.1 菜单栏常驻：实验开关，默认关闭；只读展示 + 打开/退出
-        MenuBarExtra("随手迁", systemImage: "externaldrive.fill", isInserted: $menuBarExtraEnabled) {
+        MenuBarExtra(l10n("随手迁"), systemImage: "externaldrive.fill", isInserted: $menuBarExtraEnabled) {
             MenuBarView()
                 .environmentObject(appState)
         }
@@ -404,7 +400,8 @@ class AppState: ObservableObject {
             for name in fresh {
                 // .app 是目录：attributesOfItem 的 .size 只有几十字节（目录条目本身），
                 // 拿它比 500MB 永远不成立——旧版提醒功能因此从未生效过。
-                // 必须递归量体积，且 du 要带 -L（这里应用可能是迁移后的软链接）。
+                // 必须递归量体积。已迁移应用的入口是软链接，由 directorySizeBytes
+                // 只解析路径各段；不能改回 du -L，否则包内回指链接会把体积算爆。
                 // du 是阻塞子进程：放 OffPool，不占协作线程池
                 let bytes = await OffPool.run {
                     AppScanner.directorySizeBytes(atPath: "/Applications/\(name)")
@@ -446,6 +443,13 @@ class AppState: ObservableObject {
         Task {
             // 高-4（2026-10-04 审计）：先认领崩溃遗留的 pending 数据迁移，
             // 再跑常规自愈（认领可能补建出链接，自愈接着能处理）
+            let crashNotes = await OffPool.run {
+                CrashJournal.shared.recover()
+            }
+            if !crashNotes.isEmpty {
+                notificationManager.notifyCrashRecovery(notes: crashNotes)
+                AuditLog.append("启动处理未完成的迁移/回迁：\(crashNotes.joined(separator: "；"))")
+            }
             let recovered = await OffPool.run {
                 bootDataMigrator.recoverPendingDataMigrations()
             }

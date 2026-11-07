@@ -48,12 +48,12 @@ struct ContentView: View {
         // 效果图：选中行是「浅紫底 + 紫图标/紫字」，系统 List 只能给实色 accent 胶囊，
         // 所以侧栏导航改自绘（按钮行 + 圆角浅紫底），行为与 List 选中等价。
         VStack(alignment: .leading, spacing: 9) {
-            sidebarRow("概览", icon: "chart.pie", panel: .overview)
-            sidebarRow("应用", icon: "square.grid.2x2", panel: .apps)
-            sidebarRow("迁移", icon: "arrow.left.arrow.right", panel: .migrate)
-            sidebarRow("体检", icon: "checkmark.shield", panel: .health)
-            sidebarRow("数据", icon: "cylinder", panel: .data)
-            sidebarRow("设置", icon: "gearshape", panel: .settings)
+            sidebarRow(l10n("概览"), icon: "chart.pie", panel: .overview)
+            sidebarRow(l10n("应用"), icon: "square.grid.2x2", panel: .apps)
+            sidebarRow(l10n("迁移"), icon: "arrow.left.arrow.right", panel: .migrate)
+            sidebarRow(l10n("体检"), icon: "checkmark.shield", panel: .health)
+            sidebarRow(l10n("数据"), icon: "cylinder", panel: .data)
+            sidebarRow(l10n("设置"), icon: "gearshape", panel: .settings)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -88,7 +88,7 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Text("可用 \(external.freeFormatted)")
+                Text(l10n("可用 %@", external.freeFormatted))
                     .font(.system(size: 11))
                     .monospacedDigit()
                     .foregroundColor(.secondary)
@@ -96,7 +96,7 @@ struct ContentView: View {
                 Image(systemName: "externaldrive.badge.exclamationmark")
                     .foregroundColor(.secondary)
                     .font(.system(size: 12))
-                Text("外置盘未连接")
+                Text(l10n("外置盘未连接"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Spacer()
@@ -104,7 +104,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, 4)
         .onTapGesture { appState.activePanel = .overview }
-        .help("查看磁盘详情与测速")
+        .help(l10n("查看磁盘详情与测速"))
     }
 
     /// 效果图紫：选中行高亮与图标着色统一用它
@@ -188,7 +188,7 @@ struct ContentView: View {
                         Image(systemName: "internaldrive.fill")
                             .foregroundColor(.blue)
                             .font(.system(size: 13))
-                        Text("内置磁盘")
+                        Text(l10n("内置磁盘"))
                             .font(.system(size: 13, weight: .medium))
                         Spacer()
                     }
@@ -210,7 +210,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     HStack {
                         Spacer()
-                        Text("已用 \(Int(builtin.usageRatio * 100))%")
+                        Text(l10n("已用 %lld%%", Int(builtin.usageRatio * 100)))
                             .font(.system(size: 11))
                             .monospacedDigit()
                             .foregroundColor(.secondary)
@@ -223,7 +223,7 @@ struct ContentView: View {
         .sidebarCardGlass(cornerRadius: Theme.Corner.card)
         .contentShape(Rectangle())
         .onTapGesture { appState.activePanel = .overview }
-        .help("查看磁盘详情与测速")
+        .help(l10n("查看磁盘详情与测速"))
     }
 
     // MARK: - 内容区
@@ -238,7 +238,7 @@ struct ContentView: View {
             case .settings:
                 // 设置页也走统一 mockPage 大白卡；底部统计条已按用户要求移除
                 VStack(alignment: .leading, spacing: 12) {
-                    MockPageTitle(text: "设置")
+                    MockPageTitle(text: l10n("设置"))
                         .padding(.horizontal, 24)
                         .padding(.top, 20)
                     SettingsView()

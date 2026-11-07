@@ -48,7 +48,7 @@ struct OverviewPanel: View {
                 }
 
                 if isChecking {
-                    Text("正在检查……")
+                    Text(l10n("正在检查……"))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 20)
@@ -78,7 +78,7 @@ struct OverviewPanel: View {
 
     private var titleRow: some View {
         HStack {
-            MockPageTitle(text: "概览")
+            MockPageTitle(text: l10n("概览"))
             if isChecking {
                 ProgressView().controlSize(.small)
             } else {
@@ -88,7 +88,8 @@ struct OverviewPanel: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("重新检查")
+                .help(l10n("重新检查"))
+                .accessibilityLabel(l10n("重新检查"))
             }
         }
     }
@@ -99,8 +100,8 @@ struct OverviewPanel: View {
             if let builtin = appState.builtinDrive {
                 diskCard(
                     icon: "internaldrive.fill", iconColor: MockTheme.accent,
-                    name: "内置磁盘",
-                    detail: "已用 \(Int(builtin.usageRatio * 100))% · \(usedText(builtin)) / \(builtin.totalFormatted)",
+                    name: l10n("内置磁盘"),
+                    detail: l10n("已用 %lld%% · %@ / %@", Int(builtin.usageRatio * 100), usedText(builtin), builtin.totalFormatted),
                     ratio: builtin.usageRatio, bar: MockTheme.builtinBar)
             }
             if let external = appState.externalDrive {
@@ -108,8 +109,8 @@ struct OverviewPanel: View {
             } else {
                 diskCard(
                     icon: "externaldrive.badge.exclamationmark", iconColor: .secondary,
-                    name: "外置盘未连接",
-                    detail: "接入后这里显示用量与剩余空间",
+                    name: l10n("外置盘未连接"),
+                    detail: l10n("接入后这里显示用量与剩余空间"),
                     ratio: 0, bar: MockTheme.externalBar)
             }
         }
@@ -149,7 +150,7 @@ struct OverviewPanel: View {
                     Text(drive.name)
                         .font(.system(size: 15, weight: .semibold))
                         .lineLimit(1)
-                    Text("已用 \(Int(drive.usageRatio * 100))% · \(usedText(drive)) / \(drive.totalFormatted)")
+                    Text(l10n("已用 %lld%% · %@ / %@", Int(drive.usageRatio * 100), usedText(drive), drive.totalFormatted))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .monospacedDigit()
@@ -167,7 +168,7 @@ struct OverviewPanel: View {
                             Image(systemName: "gauge.with.dots.needle.bottom.50percent")
                                 .font(.system(size: 11))
                         }
-                        Text(overviewSpeedRunning ? "测速中" : "测速")
+                        Text(overviewSpeedRunning ? l10n("测速中") : l10n("测速"))
                             .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundColor(.secondary)
@@ -177,7 +178,7 @@ struct OverviewPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(overviewSpeedRunning)
-                .help("实测外置盘读写速度（写入几百 MB，需几秒）")
+                .help(l10n("实测外置盘读写速度（写入几百 MB，需几秒）"))
             }
             MockUsageBar(ratio: drive.usageRatio, gradient: MockTheme.externalBar, height: 10)
             if let speed = overviewSpeedText {
@@ -199,8 +200,8 @@ struct OverviewPanel: View {
             await MainActor.run {
                 overviewSpeedRunning = false
                 overviewSpeedText = result.map {
-                    "写入 \(Int($0.writeMBps)) · 读取 \(Int($0.readMBps)) MB/s"
-                } ?? "测速失败（盘可能只读或已满）"
+                    l10n("写入 %lld · 读取 %lld MB/s", Int($0.writeMBps), Int($0.readMBps))
+                } ?? l10n("测速失败（盘可能只读或已满）")
                 // 与体检页 DiskBarView 的测速同口径：喂速度基线（塌陷告警靠样本）
                 if let result,
                    let uuid = appState.volumeStore.volumes
@@ -219,11 +220,11 @@ struct OverviewPanel: View {
         let savable = appState.apps.filter { $0.status == .normal }.reduce(0) { $0 + $1.size }
         return HStack(spacing: 16) {
             statCard(icon: "square.grid.2x2.fill", color: MockTheme.accent,
-                     value: "\(appState.apps.count)", unit: nil, label: "应用总数")
+                     value: "\(appState.apps.count)", unit: nil, label: l10n("应用总数"))
             statCard(icon: "arrow.up.right", color: MockTheme.statOrange,
-                     value: "\(offInternal)", unit: nil, label: "已迁移")
+                     value: "\(offInternal)", unit: nil, label: l10n("已迁移"))
             statCard(icon: "leaf.fill", color: MockTheme.healthGreen,
-                     value: Self.shortValue(savable), unit: Self.shortUnit(savable), label: "可省空间")
+                     value: Self.shortValue(savable), unit: Self.shortUnit(savable), label: l10n("可省空间"))
         }
     }
 
@@ -268,20 +269,20 @@ struct OverviewPanel: View {
                 .font(.system(size: 26))
                 .foregroundColor(MockTheme.healthGreen)
             VStack(alignment: .leading, spacing: 3) {
-                Text("健康评分")
+                Text(l10n("健康评分"))
                     .font(.system(size: 16, weight: .semibold))
-                Text(score.topAction ?? "系统运行良好，无异常")
+                Text(score.topAction ?? l10n("系统运行良好，无异常"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .lineLimit(2)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(score.score)分")
+                Text(l10n("%@分", score.score))
                     .font(.system(size: 30, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .foregroundColor(scoreColor(score.score))
-                Text("评级 \(score.grade)")
+                Text(l10n("评级 %@", score.grade))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
@@ -299,7 +300,7 @@ struct OverviewPanel: View {
         .hoverLift()
         .contentShape(Rectangle())
         .onTapGesture { appState.activePanel = .health }
-        .help("查看体检明细")
+        .help(l10n("查看体检明细"))
     }
 
     // MARK: - 建议动作模型
@@ -322,9 +323,9 @@ struct OverviewPanel: View {
         if brokenCount > 0 {
             out.append(ActionItem(
                 icon: "link.badge.plus", color: .red,
-                title: "\(brokenCount) 条断链",
-                detail: "链接指向的应用找不到了（卷在线但目标丢失），可在体检页修复或回迁",
-                targetPanel: .health, targetLabel: "去修复"))
+                title: l10n("%lld 条断链", brokenCount),
+                detail: l10n("链接指向的应用找不到了（卷在线但目标丢失），可在体检页修复或回迁"),
+                targetPanel: .health, targetLabel: l10n("去修复")))
         }
 
         if let drive = appState.externalDrive {
@@ -333,60 +334,60 @@ struct OverviewPanel: View {
             if !movable.isEmpty {
                 out.append(ActionItem(
                     icon: "arrow.up.arrow.down", color: .teal,
-                    title: "把 \(movable.count) 个内置盘应用搬到「\(drive.name)」",
-                    detail: "可腾出内置盘 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))",
-                    targetPanel: .migrate, targetLabel: "去迁移"))
+                    title: l10n("把 %lld 个内置盘应用搬到「%@」", movable.count, drive.name),
+                    detail: l10n("可腾出内置盘 %@", ByteCountFormatter.string(fromByteCount: savable, countStyle: .file)),
+                    targetPanel: .migrate, targetLabel: l10n("去迁移")))
             }
         }
 
         if !usageSuggestions.isEmpty {
             out.append(ActionItem(
                 icon: "speedometer", color: .orange,
-                title: "\(usageSuggestions.count) 个高频应用住在外置盘",
-                detail: "近 7 天经常启动却要靠外置盘，建议搬回内置盘",
-                targetPanel: .health, targetLabel: "去处理"))
+                title: l10n("%lld 个高频应用住在外置盘", usageSuggestions.count),
+                detail: l10n("近 7 天经常启动却要靠外置盘，建议搬回内置盘"),
+                targetPanel: .health, targetLabel: l10n("去处理")))
         }
 
         if !unusedApps.isEmpty {
             out.append(ActionItem(
                 icon: "moon.zzz", color: .indigo,
-                title: "\(unusedApps.count) 个外置盘应用长期未用",
-                detail: "超过 \(UnusedAppsCheck.unusedDays) 天没打开，搬回内置盘把盘面腾出来",
-                targetPanel: .health, targetLabel: "去处理"))
+                title: l10n("%lld 个外置盘应用长期未用", unusedApps.count),
+                detail: l10n("超过 %lld 天没打开，搬回内置盘把盘面腾出来", UnusedAppsCheck.unusedDays),
+                targetPanel: .health, targetLabel: l10n("去处理")))
         }
 
         if !launchAgents.isEmpty {
             out.append(ActionItem(
                 icon: "powerplug.fill", color: .orange,
-                title: "\(launchAgents.count) 条开机自启指向外置盘",
-                detail: "盘没插时这些自启会失败，守护项开机必失败",
-                targetPanel: .health, targetLabel: "去看看"))
+                title: l10n("%lld 条开机自启指向外置盘", launchAgents.count),
+                detail: l10n("盘没插时这些自启会失败，守护项开机必失败"),
+                targetPanel: .health, targetLabel: l10n("去看看")))
         }
 
         if spotlightIndexing == true {
             out.append(ActionItem(
                 icon: "magnifyingglass", color: .orange,
-                title: "Spotlight 正在索引外置盘",
-                detail: "搜索会混入外置副本，后台扫描白耗盘和电",
-                targetPanel: .health, targetLabel: "去关闭"))
+                title: l10n("Spotlight 正在索引外置盘"),
+                detail: l10n("搜索会混入外置副本，后台扫描白耗盘和电"),
+                targetPanel: .health, targetLabel: l10n("去关闭")))
         }
 
         if !backups.isEmpty {
             let bytes = backups.reduce(Int64(0)) { $0 + $1.sizeBytes }
             out.append(ActionItem(
                 icon: "clock.badge.exclamationmark", color: .orange,
-                title: "\(backups.count) 份迁移备份可清理",
-                detail: "孤儿或超过保留期，共 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))",
-                targetPanel: .health, targetLabel: "去清理"))
+                title: l10n("%lld 份迁移备份可清理", backups.count),
+                detail: l10n("孤儿或超过保留期，共 %@", ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)),
+                targetPanel: .health, targetLabel: l10n("去清理")))
         }
 
         if !residues.isEmpty {
             let bytes = residues.reduce(Int64(0)) { $0 + $1.sizeBytes }
             out.append(ActionItem(
                 icon: "trash.slash", color: .purple,
-                title: "\(residues.count) 项已卸载应用残留",
-                detail: "占着内置盘 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))，清理走废纸篓",
-                targetPanel: .health, targetLabel: "去清理"))
+                title: l10n("%lld 项已卸载应用残留", residues.count),
+                detail: l10n("占着内置盘 %@，清理走废纸篓", ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)),
+                targetPanel: .health, targetLabel: l10n("去清理")))
         }
 
         return out
@@ -428,9 +429,9 @@ struct OverviewPanel: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 32))
                 .foregroundStyle(MockTheme.accent)
-            Text("一切正常")
+            Text(l10n("一切正常"))
                 .font(.system(size: 13, weight: .semibold))
-            Text("没有待处理的事项。断链、备份、残留、自启、盘面都检查过了")
+            Text(l10n("没有待处理的事项。断链、备份、残留、自启、盘面都检查过了"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -553,7 +554,7 @@ struct OverviewPanel: View {
 
     private var timelineSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "最近操作", systemImage: "clock.arrow.circlepath")
+            SectionHeader(title: l10n("最近操作"), systemImage: "clock.arrow.circlepath")
             ForEach(recentOps) { entry in
                 HStack(spacing: 10) {
                     Image(systemName: Self.opIcon(entry.op))
@@ -577,7 +578,7 @@ struct OverviewPanel: View {
                     // 撤销：可行性实时重验过才亮（uninstall 走废纸篓特殊路径也在此列）
                     if let plan = undoPlans[entry.id], plan.feasible,
                        !entry.isUndone, !isUndoing {
-                        Button("撤销") { undo(entry) }
+                        Button(l10n("撤销")) { undo(entry) }
                             .controlSize(.small)
                             .buttonStyle(.bordered)
                             .help(plan.message)
@@ -604,25 +605,25 @@ struct OverviewPanel: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Time Machine 在重复备份外置盘应用")
+                Text(l10n("Time Machine 在重复备份外置盘应用"))
                     .font(.system(size: 13, weight: .medium))
-                Text("建议排除，省备份空间（已有三重保护，不影响恢复）")
+                Text(l10n("建议排除，省备份空间（已有三重保护，不影响恢复）"))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
-            .help("这些目录在备份盘上还有一整份副本。排除后省的是备份盘空间，"
-                + "不影响本机的快照、留底与台账三重保护")
+            .help(l10n("这些目录在备份盘上还有一整份副本。排除后省的是备份盘空间，")
+                + l10n("不影响本机的快照、留底与台账三重保护"))
 
             Spacer()
 
             if isExcludingTM {
                 ProgressView().controlSize(.small)
             } else {
-                Button("一键排除") { excludeTM(missing) }
+                Button(l10n("一键排除")) { excludeTM(missing) }
                     .controlSize(.small)
                     .buttonStyle(.bordered)
-                Button("不再提示") {
+                Button(l10n("不再提示")) {
                     tmDismissed = true
                     UserDefaults.standard.set(true, forKey: "tmExclusionDismissed")
                 }
@@ -641,8 +642,8 @@ struct OverviewPanel: View {
         Task {
             let ok = await TimeMachineCoordinator.authenticatedAddExclusions(missing)
             AuditLog.append(ok
-                ? "TM 排除：已为 \(missing.count) 个目录加入 Time Machine 排除"
-                : "TM 排除失败（未授权或 tmutil 出错），不影响任何数据")
+                ? l10n("TM 排除：已为 %lld 个目录加入 Time Machine 排除", missing.count)
+                : l10n("TM 排除失败（未授权或 tmutil 出错），不影响任何数据"))
             if ok { tmMissingDirs = nil } else { tmMissingDirs = missing }
             isExcludingTM = false
         }
@@ -734,7 +735,7 @@ struct OverviewPanel: View {
             }
 
             if var t = appState.migrationTask {
-                t.status = result.success ? .completed : .failed(result.error ?? "未知错误")
+                t.status = result.success ? .completed : .failed(result.error ?? l10n("未知错误"))
                 appState.migrationTask = t
             }
             if result.success {
@@ -768,8 +769,8 @@ struct OverviewPanel: View {
             OperationJournal.shared.markUndone(id: entry.id, by: undoID)
         } else {
             let alert = NSAlert()
-            alert.messageText = "撤销失败"
-            alert.informativeText = result.error ?? "未知原因"
+            alert.messageText = l10n("撤销失败")
+            alert.informativeText = result.error ?? l10n("未知原因")
             alert.runModal()
         }
         refreshTimeline()
@@ -798,13 +799,13 @@ struct OverviewPanel: View {
 
     private static func opLabel(_ op: JournalOperation) -> String {
         switch op {
-        case .migrate: return "迁移"
-        case .restore: return "回迁"
-        case .moveBack: return "搬回内置盘"
-        case .uninstall: return "卸载"
-        case .remigrate: return "重新迁移"
-        case .relocate: return "盘间迁移"
-        case .undo: return "撤销"
+        case .migrate: return l10n("迁移")
+        case .restore: return l10n("回迁")
+        case .moveBack: return l10n("搬回内置盘")
+        case .uninstall: return l10n("卸载")
+        case .remigrate: return l10n("重新迁移")
+        case .relocate: return l10n("盘间迁移")
+        case .undo: return l10n("撤销")
         }
     }
 

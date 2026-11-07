@@ -18,21 +18,21 @@ struct SpaceFreePlanSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                SectionHeader(title: "一键腾空间", systemImage: "wand.and.stars")
+                SectionHeader(title: l10n("一键腾空间"), systemImage: "wand.and.stars")
                 Spacer()
-                Button("取消") { dismiss() }
+                Button(l10n("取消")) { dismiss() }
                     .controlSize(.small)
             }
 
             HStack(spacing: 8) {
-                Text("把内置盘腾到剩余")
+                Text(l10n("把内置盘腾到剩余"))
                     .font(.system(size: 12))
                 TextField("40", value: $targetGB, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 64)
                 Text("GB")
                     .font(.system(size: 12))
-                Button("生成方案") { regenerate() }
+                Button(l10n("生成方案")) { regenerate() }
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
                     .disabled(isPlanning || appState.volumeStore.onlineVolumes.isEmpty)
@@ -46,14 +46,14 @@ struct SpaceFreePlanSheet: View {
                 if plan.moves.isEmpty {
                     let freeGB = (appState.builtinDrive?.freeSize ?? 0) / 1_073_741_824
                     if plan.targetMet, freeGB >= Int(targetGB) {
-                        Text("内置盘剩余 \(freeGB) GB，已经高于目标 \(Int(targetGB)) GB，无需腾空间。"
-                             + "想要更多余量，把目标改大后重新生成方案")
+                        Text(l10n("内置盘剩余 %@ GB，已经高于目标 %lld GB，无需腾空间。", freeGB, Int(targetGB))
+                             + l10n("想要更多余量，把目标改大后重新生成方案"))
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                             .padding(.vertical, 16)
                             .frame(maxWidth: .infinity)
                     } else {
-                        Text("没有可搬迁的候选（目标盘空间不足或所有应用都被排除了，见下方排除说明）")
+                        Text(l10n("没有可搬迁的候选（目标盘空间不足或所有应用都被排除了，见下方排除说明）"))
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                             .padding(.vertical, 16)
@@ -78,7 +78,7 @@ struct SpaceFreePlanSheet: View {
 
                 HStack {
                     Spacer()
-                    Button("按方案执行（\(selected.count) 个）") {
+                    Button(l10n("按方案执行（%lld 个）", selected.count)) {
                         executeSelected()
                     }
                     .buttonStyle(.borderedProminent)
@@ -86,8 +86,8 @@ struct SpaceFreePlanSheet: View {
                     .disabled(selected.isEmpty || appState.isMigrationActive)
                 }
             } else if !isPlanning {
-                Text("输入目标后点「生成方案」：引擎按体积 × 更新方式风险 × 使用频率排序，"
-                     + "自动挑出性价比最高的一批，被排除的应用都会说明原因")
+                Text(l10n("输入目标后点「生成方案」：引擎按体积 × 更新方式风险 × 使用频率排序，")
+                     + l10n("自动挑出性价比最高的一批，被排除的应用都会说明原因"))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
@@ -107,13 +107,13 @@ struct SpaceFreePlanSheet: View {
                 .foregroundColor(plan.targetMet ? .green : .orange)
                 .font(.system(size: 12))
             if plan.moves.isEmpty {
-                Text("没有纳入方案的应用")
+                Text(l10n("没有纳入方案的应用"))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             } else {
                 Text(plan.targetMet
-                     ? "预计腾出 \(freed)，达标；约需 \(max(minutes, 1)) 分钟（串行逐个搬，每步都有校验与备份）"
-                     : "预计只能腾出 \(freed)，未达标（候选不够或目标盘空间不足）")
+                     ? l10n("预计腾出 %@，达标；约需 %lld 分钟（串行逐个搬，每步都有校验与备份）", freed, max(minutes, 1))
+                     : l10n("预计只能腾出 %@，未达标（候选不够或目标盘空间不足）", freed))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
@@ -147,7 +147,7 @@ struct SpaceFreePlanSheet: View {
     }
 
     private func excludedSection(_ excluded: [MigrationPlanner.ExcludedApp]) -> some View {
-        DisclosureGroup("\(excluded.count) 个应用不参与方案（点开看原因）", isExpanded: $showExcluded) {
+        DisclosureGroup(l10n("%lld 个应用不参与方案（点开看原因）", excluded.count), isExpanded: $showExcluded) {
             ForEach(excluded, id: \.app.bundleName) { item in
                 HStack(alignment: .top, spacing: 6) {
                     Text(item.app.name)

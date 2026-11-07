@@ -12,9 +12,9 @@ struct MigrationHistoryView: View {
         VStack(spacing: 0) {
             // 标题栏
             HStack {
-                MockPageTitle(text: "迁移历史")
+                MockPageTitle(text: l10n("迁移历史"))
                 Spacer()
-                Button("关闭") { dismiss() }
+                Button(l10n("关闭")) { dismiss() }
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)
             }
@@ -32,9 +32,9 @@ struct MigrationHistoryView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 44))
                         .foregroundColor(.secondary.opacity(0.5))
-                    Text("暂无迁移记录")
+                    Text(l10n("暂无迁移记录"))
                         .font(.system(size: 15, weight: .medium))
-                    Text("迁移或回迁应用后，这里会显示完整时间线")
+                    Text(l10n("迁移或回迁应用后，这里会显示完整时间线"))
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }
@@ -108,8 +108,8 @@ struct MigrationHistoryView: View {
 
     private func dayFormatted(_ day: Date) -> String {
         let cal = Calendar.current
-        if cal.isDateInToday(day) { return "今天" }
-        if cal.isDateInYesterday(day) { return "昨天" }
+        if cal.isDateInToday(day) { return l10n("今天") }
+        if cal.isDateInYesterday(day) { return l10n("昨天") }
         let fmt = DateFormatter()
         fmt.dateFormat = "M月d日 EEEE"
         fmt.locale = Locale(identifier: "zh_CN")
@@ -152,21 +152,21 @@ struct MigrationHistoryView: View {
 
             // 状态
             if entry.isUndone {
-                Text("已撤销")
+                Text(l10n("已撤销"))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(Color.primary.opacity(0.06)))
             } else if !entry.isOK {
-                Text("失败")
+                Text(l10n("失败"))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.red)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(Color.red.opacity(0.1)))
             } else {
-                Text("成功")
+                Text(l10n("成功"))
                     .font(.system(size: 11))
                     .foregroundColor(MockTheme.healthGreen)
                     .padding(.horizontal, 8)
@@ -204,13 +204,13 @@ struct MigrationHistoryView: View {
 
     private func opText(_ op: JournalOperation) -> String {
         switch op {
-        case .migrate: return "迁移到外置盘"
-        case .restore: return "回迁到内置盘"
-        case .moveBack: return "搬回内置盘"
-        case .uninstall: return "卸载"
-        case .remigrate: return "重新迁移"
-        case .relocate: return "盘间迁移"
-        case .undo: return "撤销操作"
+        case .migrate: return l10n("迁移到外置盘")
+        case .restore: return l10n("回迁到内置盘")
+        case .moveBack: return l10n("搬回内置盘")
+        case .uninstall: return l10n("卸载")
+        case .remigrate: return l10n("重新迁移")
+        case .relocate: return l10n("盘间迁移")
+        case .undo: return l10n("撤销操作")
         }
     }
 }

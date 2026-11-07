@@ -1,0 +1,1163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>自动恢复 %lld 个：%@%@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Automatically moved %#@count@ back: %@%@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>%lld 个失败：%@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ failed: %@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>%lld 个跳过（App Store 应用/正在运行）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ skipped (App Store or still running)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>检测到「%@」，%lld 个应用可迁移，预计节省 %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>“%@” connected. %#@count@ can move, about %@ to free</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key> 等 %lld 个</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string> and %#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld more</string>
+			<key>other</key>
+			<string>%lld more</string>
+		</dict>
+	</dict>
+	<key> 等 %lld 条</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string> and %#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld more</string>
+			<key>other</key>
+			<string>%lld more</string>
+		</dict>
+	</dict>
+	<key>仅剩 %@。%lld 个应用可迁移到外置硬盘，预计腾出 %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%@ free. %#@count@ can move, about %@ to free</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>已用 %lld%%</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@pct@ used</string>
+		<key>pct</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld%%</string>
+			<key>other</key>
+			<string>%lld%%</string>
+		</dict>
+	</dict>
+	<key>近 7 天只用了 %lld 次</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Launched only %#@count@ in the last 7 days</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld time</string>
+			<key>other</key>
+			<string>%lld times</string>
+		</dict>
+	</dict>
+	<key>近 7 天用了 %lld 次（%@链路可承受）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Launched %#@count@ in the last 7 days (%@ is fast enough)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld time</string>
+			<key>other</key>
+			<string>%lld times</string>
+		</dict>
+	</dict>
+	<key>近 %lld 天经常启动，却要靠外置盘才能打开（随手迁运行时的启动才会记账）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Launched often in the last %#@days@, but it only opens when the external drive is connected (only launches while Suishouqian is running are recorded)</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>近 %lld 天启动 %lld 次 · %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>In the last %#@days@, launched %#@times@ · %@</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+		<key>times</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld time</string>
+			<key>other</key>
+			<string>%lld times</string>
+		</dict>
+	</dict>
+	<key>超过 %lld 天没打开，占着盘面却想不起来用</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Not opened in %#@days@, but it’s still taking space</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>上次打开 %lld 天前 · %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Last opened %#@days@ · %@</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day ago</string>
+			<key>other</key>
+			<string>%lld days ago</string>
+		</dict>
+	</dict>
+	<key>%@，进度 %lld%%</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%@, %#@pct@</string>
+		<key>pct</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld%%</string>
+			<key>other</key>
+			<string>%lld%%</string>
+		</dict>
+	</dict>
+	<key>写入 %lld · 读取 %lld MB/s</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Write %#@write@ · Read %#@read@ MB/s</string>
+		<key>write</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld</string>
+			<key>other</key>
+			<string>%lld</string>
+		</dict>
+		<key>read</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld</string>
+			<key>other</key>
+			<string>%lld</string>
+		</dict>
+	</dict>
+	<key>共 %lld 个应用，确认无误后才会开始</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@. Nothing starts until you confirm.</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>孤儿备份（应用已不在）· %lld 天前</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Orphaned backup (the app is gone) · %#@days@</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day ago</string>
+			<key>other</key>
+			<string>%lld days ago</string>
+		</dict>
+	</dict>
+	<key>超过保留期 · %lld 天前</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Past the retention period · %#@days@</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day ago</string>
+			<key>other</key>
+			<string>%lld days ago</string>
+		</dict>
+	</dict>
+	<key>共 %lld 条待清理备份</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ to clean up</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld backup</string>
+			<key>other</key>
+			<string>%lld backups</string>
+		</dict>
+	</dict>
+	<key>备份可清理（孤儿或超过 %lld 天）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Backups you can remove (orphaned, or older than %#@days@)</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>%@ · %lld 天前%@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%@ · %#@days@%@</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day ago</string>
+			<key>other</key>
+			<string>%lld days ago</string>
+		</dict>
+	</dict>
+	<key>将把 %lld 项残留（共 %@）逐项移入废纸篓。它们都不隶属于任何已安装的应用。</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ (%@ total) will be moved to the Trash one by one. No installed app claims them.</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld leftover</string>
+			<key>other</key>
+			<string>%lld leftovers</string>
+		</dict>
+	</dict>
+	<key>大文件 TOP%lld</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Largest file</string>
+			<key>other</key>
+			<string>Largest files, top %lld</string>
+		</dict>
+	</dict>
+	<key>清理全部 %lld 份备份？</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Move this backup to the Trash?</string>
+			<key>other</key>
+			<string>Move all %lld backups to the Trash?</string>
+		</dict>
+	</dict>
+	<key>最近实测 %lld MB/s，只有历史基线</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Latest test was %#@speed@ MB/s, only a fraction of the baseline</string>
+		<key>speed</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld</string>
+			<key>other</key>
+			<string>%lld</string>
+		</dict>
+	</dict>
+	<key>（%lld MB/s）的 %lld%%</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>(%#@speed@ MB/s) %#@pct@</string>
+		<key>speed</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld</string>
+			<key>other</key>
+			<string>%lld</string>
+		</dict>
+		<key>pct</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld%%</string>
+			<key>other</key>
+			<string>%lld%%</string>
+		</dict>
+	</dict>
+	<key>其中 %lld 个是 App Store 应用</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld of them is an App Store app</string>
+			<key>other</key>
+			<string>%lld of them are App Store apps</string>
+		</dict>
+	</dict>
+	<key>
+        %@%@。
+
+        它们更适合用行内的「纯搬迁」（不留链接）：不留链接时 App Store 更新会就地写到
+        外置盘上（本机实测），搬迁不会被撤销。而这里的一键迁移用的是「留链接」，
+        更新有可能把链接换成真目录。
+
+        其余 %lld 个可以正常一键迁移。
+        </key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%@%@.
+
+These are better moved with “Move Without Link” on the row. Without a link, the App Store updates the copy on the external drive in place (confirmed locally), so the move isn’t undone. Move All leaves a link, and an update might replace that link with a real folder.
+
+The other %#@rest@.</string>
+		<key>rest</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app can use Move All</string>
+			<key>other</key>
+			<string>%lld apps can use Move All</string>
+		</dict>
+	</dict>
+	<key>跳过这 %lld 个，迁移其余</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Skip this %lld app and move the rest</string>
+			<key>other</key>
+			<string>Skip these %lld apps and move the rest</string>
+		</dict>
+	</dict>
+	<key>全部回迁（%lld 个）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Move All Back (%#@count@)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>%lld 个待迁移</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ waiting to move</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>%lld 个已迁移</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ already moved</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>批量迁移完成：%lld 个全部成功</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Batch finished: the app succeeded</string>
+			<key>other</key>
+			<string>Batch finished: all %lld apps succeeded</string>
+		</dict>
+	</dict>
+	<key>批量迁移结束：%lld 成功 / %lld 失败</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Batch finished: %#@ok@, %#@bad@</string>
+		<key>ok</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app succeeded</string>
+			<key>other</key>
+			<string>%lld apps succeeded</string>
+		</dict>
+		<key>bad</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app failed</string>
+			<key>other</key>
+			<string>%lld apps failed</string>
+		</dict>
+	</dict>
+	<key>
+            将逐项迁回（共 %lld 项，约 %@）：
+            · 链接迁移应用 %lld 个
+            · 外置盘原住民应用 %lld 个
+            · 数据目录（含自选）%lld 个
+
+            正在运行的应用会被跳过并在最后汇报。全部成功后可选择清掉盘上的随手迁目录。
+            </key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Each item will be moved back (%#@total@, about %@):
+· %#@linked@
+· %#@native@
+· %#@folders@
+
+Apps that are running are skipped and listed at the end. When everything succeeds, you can remove Suishouqian’s folders from the drive.</string>
+		<key>total</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld item</string>
+			<key>other</key>
+			<string>%lld items</string>
+		</dict>
+		<key>linked</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app moved with a link</string>
+			<key>other</key>
+			<string>%lld apps moved with a link</string>
+		</dict>
+		<key>native</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app that lives on the external drive</string>
+			<key>other</key>
+			<string>%lld apps that live on the external drive</string>
+		</dict>
+		<key>folders</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld data folder (including ones you chose)</string>
+			<key>other</key>
+			<string>%lld data folders (including ones you chose)</string>
+		</dict>
+	</dict>
+	<key>全部迁回完成（%lld 项）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Move back finished (%#@count@)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld item</string>
+			<key>other</key>
+			<string>%lld items</string>
+		</dict>
+	</dict>
+	<key>迁回完成，但有 %lld 项未成功</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Move back finished, but %#@count@ didn’t succeed</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld item</string>
+			<key>other</key>
+			<string>%lld items</string>
+		</dict>
+	</dict>
+	<key>上次修复：%lld 条</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Last repair: %#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld link</string>
+			<key>other</key>
+			<string>%lld links</string>
+		</dict>
+	</dict>
+	<key>已按迁移台账自动自愈 %lld 条（卷改名/换挂载点）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ from the move log (the volume was renamed or remounted)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld link was repaired</string>
+			<key>other</key>
+			<string>%lld links were repaired</string>
+		</dict>
+	</dict>
+	<key>已选 %lld 个（%@）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ (%@)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld item selected</string>
+			<key>other</key>
+			<string>%lld items selected</string>
+		</dict>
+	</dict>
+	<key>仅显示最大的 30 个，共 %lld 个</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Showing the largest 30 of %#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>发现 %lld 项残留数据，共 %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Found %#@count@, %@ total</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld leftover</string>
+			<key>other</key>
+			<string>%lld leftovers</string>
+		</dict>
+	</dict>
+	<key>内置盘剩余 %@ GB，已经高于目标 %lld GB，无需腾空间。</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%@ GB is already free on the internal drive, which is more than the %#@goal@ goal. Nothing to move.</string>
+		<key>goal</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld GB</string>
+			<key>other</key>
+			<string>%lld GB</string>
+		</dict>
+	</dict>
+	<key>按方案执行（%lld 个）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Run the Plan (%#@count@)</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>%lld 个应用不参与方案（点开看原因）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app isn’t in the plan (click for the reason)</string>
+			<key>other</key>
+			<string>%lld apps aren’t in the plan (click for the reason)</string>
+		</dict>
+	</dict>
+	<key>已用 %lld%% · %@ / %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@pct@ used · %@ / %@</string>
+		<key>pct</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld%%</string>
+			<key>other</key>
+			<string>%lld%%</string>
+		</dict>
+	</dict>
+	<key>%lld 条断链</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld broken link</string>
+			<key>other</key>
+			<string>%lld broken links</string>
+		</dict>
+	</dict>
+	<key>把 %lld 个内置盘应用搬到「%@」</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Move %#@count@ from the internal drive to “%@”</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>%lld 个高频应用住在外置盘</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app you use often lives on an external drive</string>
+			<key>other</key>
+			<string>%lld apps you use often live on an external drive</string>
+		</dict>
+	</dict>
+	<key>%lld 个外置盘应用长期未用</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app on an external drive hasn’t been used in a long time</string>
+			<key>other</key>
+			<string>%lld apps on external drives haven’t been used in a long time</string>
+		</dict>
+	</dict>
+	<key>超过 %lld 天没打开，搬回内置盘把盘面腾出来</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Not opened in %#@days@. Move it back and free the drive.</string>
+		<key>days</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>%lld 条开机自启指向外置盘</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld login item points at an external drive</string>
+			<key>other</key>
+			<string>%lld login items point at an external drive</string>
+		</dict>
+	</dict>
+	<key>%lld 份迁移备份可清理</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ can be removed</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld move backup</string>
+			<key>other</key>
+			<string>%lld move backups</string>
+		</dict>
+	</dict>
+	<key>%lld 项已卸载应用残留</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ from uninstalled apps</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld leftover</string>
+			<key>other</key>
+			<string>%lld leftovers</string>
+		</dict>
+	</dict>
+	<key>TM 排除：已为 %lld 个目录加入 Time Machine 排除</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Time Machine: excluded %#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld folder</string>
+			<key>other</key>
+			<string>%lld folders</string>
+		</dict>
+	</dict>
+	<key>将删除 %lld 条指向该卷的死链接并清理台账（%@%@）。链接目标已不存在，删除是安全的；之后可重装这些应用。</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ to this volume will be removed, and the log will be updated (%@%@). The targets are already gone, so deleting the links is safe. You can reinstall the apps afterward.</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld dead link</string>
+			<key>other</key>
+			<string>%lld dead links</string>
+		</dict>
+	</dict>
+	<key>%lld 条修不好的断链</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ couldn’t be repaired</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld broken link</string>
+			<key>other</key>
+			<string>%lld broken links</string>
+		</dict>
+	</dict>
+	<key>%lld 块存有应用的盘处于离线状态</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld drive that holds apps is offline</string>
+			<key>other</key>
+			<string>%lld drives that hold apps are offline</string>
+		</dict>
+	</dict>
+	<key>%lld 条迁移被更新顶掉（回归）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld move was undone by an app update</string>
+			<key>other</key>
+			<string>%lld moves were undone by an app update</string>
+		</dict>
+	</dict>
+	<key>%lld 处数据两地分居（需对账）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld data folder exists in two places and needs a decision</string>
+			<key>other</key>
+			<string>%lld data folders exist in two places and need a decision</string>
+		</dict>
+	</dict>
+	<key>%lld 条备份孤儿/超龄</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld backup is orphaned or past the retention period</string>
+			<key>other</key>
+			<string>%lld backups are orphaned or past the retention period</string>
+		</dict>
+	</dict>
+	<key>%lld 项卸载残留</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ from uninstalled apps</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld leftover</string>
+			<key>other</key>
+			<string>%lld leftovers</string>
+		</dict>
+	</dict>
+	<key>先处理：%@，可回 %lld 分</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Start with %@. That can restore %#@points@</string>
+		<key>points</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld point</string>
+			<key>other</key>
+			<string>%lld points</string>
+		</dict>
+	</dict>
+	<key>预计腾出 %@，达标；约需 %lld 分钟（串行逐个搬，每步都有校验与备份）</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>About %@ would be freed, which meets the goal. About %#@mins@, one app at a time, with a check and a backup for each.</string>
+		<key>mins</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld minute</string>
+			<key>other</key>
+			<string>%lld minutes</string>
+		</dict>
+	</dict>
+	<key>已跳过全部 %lld 个 App Store 应用，没有需要迁移的应用</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@. Nothing else needs to move.</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>Skipped %lld App Store app</string>
+			<key>other</key>
+			<string>Skipped all %lld App Store apps</string>
+		</dict>
+	</dict>
+</dict>
+</plist>
