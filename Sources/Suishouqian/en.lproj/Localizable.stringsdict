@@ -1159,5 +1159,21 @@ Apps that are running are skipped and listed at the end. When everything succeed
 			<string>Skipped all %lld App Store apps</string>
 		</dict>
 	</dict>
+	<key>%lld%%</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@n@</string>
+		<key>n</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld%%</string>
+			<key>other</key>
+			<string>%lld%%</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

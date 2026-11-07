@@ -7,22 +7,42 @@ struct GlobalTaskCapsule: View {
 
     var body: some View {
         if let task = appState.migrationTask, !task.status.isTerminal {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(task.currentFile.isEmpty ? task.app.name : task.currentFile)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-                    .frame(maxWidth: 220)
+            HStack(spacing: 14) {
+                ZStack {
+                    UsageRing(ratio: task.progress, colors: Studio.ringBlue, lineWidth: 4)
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "externaldrive")
+                        .font(.caption2)
+                        .foregroundStyle(Studio.blue)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(l10n("迁移进行中…"))
+                        .font(.subheadline.weight(.semibold))
+                    Text(task.currentFile.isEmpty ? task.app.name : task.currentFile)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                GeometryReader { geo in
+                    Capsule().fill(Color.primary.opacity(0.08))
+                        .overlay(alignment: .leading) {
+                            Capsule()
+                                .fill(LinearGradient(colors: Studio.ringBlue, startPoint: .leading, endPoint: .trailing))
+                                .frame(width: max(8, geo.size.width * task.progress))
+                        }
+                }
+                .frame(height: 8)
+                Text(l10n("%lld%%", Int(task.progress * 100)))
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            // macOS 27：悬浮瞬态表面用真玻璃（低版本自动回退材质）
-            .liquidGlassCapsule(tint: Color.accentColor.opacity(0.25))
-            // 进行中：轻微呼吸，"活着"的暗示；出现/消失用弹簧过渡
-            .breathe(range: 0.75...1.0, duration: 1.4)
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .liquidGlassCapsule(tint: Studio.blue.opacity(0.12))
             .onTapGesture { appState.activePanel = .migrate }
             .help(l10n("正在处理，点击查看进度"))
+            .accessibilityLabel(l10n("迁移进行中…"))
         }
     }
 }

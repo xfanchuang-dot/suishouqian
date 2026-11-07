@@ -104,7 +104,15 @@ struct HealthCheckView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(alignment: .center, spacing: 16) {
+                let total = max(summary.healthy + summary.offline + summary.broken, 1)
+                ZStack {
+                    UsageRing(ratio: Double(summary.healthy) / Double(total), colors: Studio.ringTeal, lineWidth: 8)
+                        .frame(width: 72, height: 72)
+                    Text(l10n("%lld%%", Int(Double(summary.healthy) / Double(total) * 100)))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                }
                 MockPageTitle(text: l10n("体检"))
                 Spacer()
                 if model.isChecking {

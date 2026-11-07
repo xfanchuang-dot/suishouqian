@@ -8,30 +8,22 @@ import SwiftUI
 //   主按钮蓝→紫渐变胶囊；健康横幅浅绿渐变；用量条蓝→紫（内置）/绿（外置）。
 
 enum MockTheme {
-    /// 主紫（与侧栏选中色一致）
-    static let accent = Color(red: 0.44, green: 0.36, blue: 0.93)
-    /// 主按钮渐变：蓝 → 紫
+    /// 跟随系统强调色，深浅色都由系统负责对比度。
+    static let accent = Color.accentColor
     static let primaryGradient = LinearGradient(
-        colors: [Color(red: 0.23, green: 0.51, blue: 0.96),
-                 Color(red: 0.55, green: 0.36, blue: 0.93)],
+        colors: [Color.accentColor, Color.accentColor.opacity(0.75)],
         startPoint: .leading, endPoint: .trailing)
-    /// 用量条：内置盘 蓝→紫
     static let builtinBar = LinearGradient(
-        colors: [Color(red: 0.23, green: 0.51, blue: 0.96),
-                 Color(red: 0.55, green: 0.36, blue: 0.93)],
+        colors: [Color.accentColor.opacity(0.85), Color.accentColor],
         startPoint: .leading, endPoint: .trailing)
-    /// 用量条：外置盘 绿
     static let externalBar = LinearGradient(
-        colors: [Color(red: 0.20, green: 0.78, blue: 0.55),
-                 Color(red: 0.13, green: 0.70, blue: 0.47)],
+        colors: [Color.green.opacity(0.75), Color.green],
         startPoint: .leading, endPoint: .trailing)
-    /// 健康横幅：浅绿渐变底
     static let healthBanner = LinearGradient(
-        colors: [Color(red: 0.90, green: 0.98, blue: 0.94),
-                 Color(red: 0.85, green: 0.96, blue: 0.90)],
+        colors: [Color.green.opacity(0.16), Color.green.opacity(0.08)],
         startPoint: .leading, endPoint: .trailing)
-    static let healthGreen = Color(red: 0.13, green: 0.70, blue: 0.45)
-    static let statOrange = Color(red: 0.96, green: 0.62, blue: 0.20)
+    static let healthGreen = Color.green
+    static let statOrange = Color.orange
 
     enum Corner {
         static let page: CGFloat = 18     // 内容大白卡
@@ -47,17 +39,6 @@ private struct MockPageModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: MockTheme.Corner.page, style: .continuous)
-                    // 深色模式自适应：浅色白 / 深色深灰（写死 Color.white 深色下瞎眼）
-                    .fill(Color(NSColor.controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.05), radius: 20, y: 8)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: MockTheme.Corner.page, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.04))
-            )
-            .padding(14)
     }
 }
 
@@ -68,16 +49,7 @@ private struct MockCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(
-                RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous)
-                    // 深色模式自适应
-                    .fill(Color(NSColor.controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.05), radius: 12, y: 4)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: MockTheme.Corner.card, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.05))
-            )
+            .studioCard()
     }
 }
 
@@ -133,12 +105,13 @@ struct MockIconSquare: View {
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: size * 0.45, weight: .semibold))
-            .foregroundColor(.white)
+            .font(.system(size: size * 0.42, weight: .medium))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(color)
             .frame(width: size, height: size)
             .background(
-                RoundedRectangle(cornerRadius: MockTheme.Corner.iconSquare, style: .continuous)
-                    .fill(color.gradient)
+                color.opacity(0.14),
+                in: RoundedRectangle(cornerRadius: MockTheme.Corner.iconSquare, style: .continuous)
             )
     }
 }
@@ -212,25 +185,19 @@ struct MockGradientButton: View {
             HStack(spacing: 8) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .semibold))
                 }
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 30)
-            .padding(.vertical, 13)
-            .background(
-                Capsule().fill(enabled ? MockTheme.primaryGradient
-                                       : LinearGradient(colors: [Color.primary.opacity(0.2),
-                                                                 Color.primary.opacity(0.2)],
-                                                        startPoint: .leading, endPoint: .trailing))
-            )
-            .shadow(color: MockTheme.accent.opacity(enabled ? 0.35 : 0), radius: 12, y: 5)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .background(Capsule().fill(LinearGradient(colors: Studio.ringBlue,
+                                                      startPoint: .leading, endPoint: .trailing)))
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .pressScale()
+        .opacity(enabled ? 1 : 0.45)
     }
 }
 

@@ -68,11 +68,9 @@ struct DataPanelView: View {
         let externalUsed = appState.externalDrive.map { $0.totalSize - $0.freeSize } ?? 0
         let otherBytes = max(externalUsed - backupBytes - dataBytes, 0)
         let segments = [
-            MockSegment(label: l10n("迁移备份"), bytes: backupBytes,
-                        color: Color(red: 0.23, green: 0.51, blue: 0.96)),
-            MockSegment(label: l10n("应用数据"), bytes: dataBytes, color: MockTheme.accent),
-            MockSegment(label: l10n("其他数据"), bytes: otherBytes,
-                        color: Color(red: 0.20, green: 0.78, blue: 0.55)),
+            MockSegment(label: l10n("迁移备份"), bytes: backupBytes, color: .accentColor),
+            MockSegment(label: l10n("应用数据"), bytes: dataBytes, color: .orange),
+            MockSegment(label: l10n("其他数据"), bytes: otherBytes, color: .green),
         ]
         return VStack(alignment: .leading, spacing: 14) {
             MockSegmentedBar(segments: segments)
@@ -88,6 +86,8 @@ struct DataPanelView: View {
                 Spacer()
             }
         }
+        .padding(16)
+        .studioCard()
     }
 
     // MARK: - 备份记录（效果图行样式：图标方块 + 标题/副标题 + 大小 + 箭头）
@@ -100,16 +100,8 @@ struct DataPanelView: View {
                 Spacer()
                 if !backupIssues.isEmpty {
                     Button(l10n("清理残留")) { appState.activePanel = .health }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(Color(red: 0.90, green: 0.35, blue: 0.45))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule().strokeBorder(
-                                Color(red: 0.90, green: 0.35, blue: 0.45).opacity(0.6),
-                                lineWidth: 1)
-                        )
-                        .buttonStyle(.plain)
+                        .buttonStyle(.bordered)
+                        .tint(.red)
                         .help(l10n("去体检页清理（破坏性操作全软件只保留一个入口）"))
                 }
             }
