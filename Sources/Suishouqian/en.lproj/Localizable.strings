@@ -1,4 +1,4 @@
-/* Generated from Localizable.xcstrings. English plurals: Localizable.stringsdict. */
+/* UI strings. English plurals: Localizable.stringsdict. */
 "迁移完成" = "Move complete";
 "「%@」已迁移到外置硬盘，节省 %@" = "“%@” is now on an external drive. Freed %@";
 "自动恢复 %lld 个：%@%@" = "Automatically moved %lld apps back: %@%@";

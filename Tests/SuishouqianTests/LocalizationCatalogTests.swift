@@ -4,15 +4,46 @@ import XCTest
 /// 字符串目录：每个界面 key 都有简体中文和英文，占位符一致，源码里的 l10n 没有漏网。
 final class LocalizationCatalogTests: XCTestCase {
 
-    private func catalog() throws -> [String: Any] {
-        let url = URL(fileURLWithPath: #filePath)
+    private func stringsFile(_ language: String) -> URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/Suishouqian/Localizable.xcstrings")
-        let data = try Data(contentsOf: url)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        return json?["strings"] as? [String: Any] ?? [:]
+            .appendingPathComponent("Sources/Suishouqian/\(language).lproj/Localizable.strings")
+    }
+
+    /// 读 `.strings`。运行时和测试都以这份文件为准，不再读 String Catalog。
+    private func loadStrings(language: String) throws -> [String: String] {
+        let text = try String(contentsOf: stringsFile(language), encoding: .utf8)
+        var table: [String: String] = [:]
+        var index = text.startIndex
+        while index < text.endIndex {
+            guard text[index] == "\"" else {
+                index = text.index(after: index)
+                continue
+            }
+            let key = try parseStringsLiteral(text, from: text.index(after: index))
+            var cursor = key.end
+            while cursor < text.endIndex, text[cursor].isWhitespace {
+                cursor = text.index(after: cursor)
+            }
+            guard cursor < text.endIndex, text[cursor] == "=" else {
+                index = key.end
+                continue
+            }
+            cursor = text.index(after: cursor)
+            while cursor < text.endIndex, text[cursor].isWhitespace {
+                cursor = text.index(after: cursor)
+            }
+            guard cursor < text.endIndex, text[cursor] == "\"" else {
+                index = key.end
+                continue
+            }
+            let value = try parseStringsLiteral(text, from: text.index(after: cursor))
+            table[key.value] = value.value
+            index = value.end
+        }
+        return table
     }
 
     private func sourceKeys() throws -> Set<String> {
@@ -82,30 +113,24 @@ final class LocalizationCatalogTests: XCTestCase {
     }
 
     func testEveryKeyHasChineseAndEnglish() throws {
-        let strings = try catalog()
-        XCTAssertGreaterThan(strings.count, 500)
-        for (key, value) in strings {
-            let entry = value as? [String: Any]
-            let locs = entry?["localizations"] as? [String: Any]
-            let zh = locs?["zh-Hans"] as? [String: Any]
-            let en = locs?["en"] as? [String: Any]
-            let zhText = (zh?["stringUnit"] as? [String: Any])?["value"] as? String
-            let enText = (en?["stringUnit"] as? [String: Any])?["value"] as? String
+        let zh = try loadStrings(language: "zh-Hans")
+        let en = try loadStrings(language: "en")
+        XCTAssertGreaterThan(zh.count, 500)
+        XCTAssertEqual(Set(zh.keys), Set(en.keys), "中英文 key 集合必须一致")
+        for (key, zhText) in zh {
             XCTAssertEqual(zhText, key, "简体中文必须保留原文：\(key.prefix(40))")
-            XCTAssertNotNil(enText, "缺少英文：\(key.prefix(40))")
-            XCTAssertFalse(enText?.isEmpty ?? true)
-            if let enText {
-                XCTAssertEqual(specifiers(key), specifiers(enText), "占位符不一致：\(key.prefix(40))")
-            }
+            let enText = try XCTUnwrap(en[key], "缺少英文：\(key.prefix(40))")
+            XCTAssertFalse(enText.isEmpty)
+            XCTAssertEqual(specifiers(key), specifiers(enText), "占位符不一致：\(key.prefix(40))")
         }
     }
 
     func testSourceKeysAreAllInTheCatalog() throws {
-        let strings = try catalog()
+        let strings = try loadStrings(language: "zh-Hans")
         let keys = try sourceKeys()
         XCTAssertFalse(keys.isEmpty)
         let missing = keys.subtracting(strings.keys)
-        XCTAssertEqual(missing, [], "源码里的 l10n key 没有进目录：\(missing.prefix(8))")
+        XCTAssertEqual(missing, [], "源码里的 l10n key 没有进 .lproj：\(missing.prefix(8))")
     }
 
     func testEnglishLookupFollowsLocaleOverride() {

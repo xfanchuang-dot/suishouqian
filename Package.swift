@@ -19,7 +19,8 @@ let package = Package(
             path: "Sources/Suishouqian",
             resources: [
                 .process("Assets.xcassets"),
-                .process("Localizable.xcstrings"),
+                // 文案只来自 .lproj。String Catalog 会再编译出同名 Localizable.strings，
+                // 和新工具链里的 .lproj 拷贝撞车（Multiple commands produce）。
                 .process("en.lproj"),
                 .process("zh-Hans.lproj"),
             ]
