@@ -108,12 +108,12 @@ enum MigrationPlanPresentation {
         backupDrive: DriveInfo?
     ) -> MigrationPlanState {
         guard !request.items.isEmpty else {
-            return .blocked(reasons: ["没有可迁移的应用"])
+            return .blocked(reasons: [l10n("没有可迁移的应用")])
         }
 
         let invalid = request.items.filter { $0.app.status != .normal }
         guard invalid.isEmpty else {
-            return .blocked(reasons: invalid.map { "「\($0.app.name)」当前不可迁移" })
+            return .blocked(reasons: invalid.map { l10n("「%@」当前不可迁移", $0.app.name) })
         }
 
         var resolved: [(MigrationPlanRequestItem, DriveInfo)] = []
@@ -121,7 +121,7 @@ enum MigrationPlanPresentation {
             if let requested = item.requestedDestination {
                 guard let live = currentDrive(matching: requested, among: availableDrives) else {
                     return .blocked(reasons: [
-                        "选定目标盘「\(requested.name)」已断开，不能按原方案迁移"
+                        l10n("选定目标盘「%@」已断开，不能按原方案迁移", requested.name)
                     ])
                 }
                 resolved.append((item, live))
@@ -151,8 +151,8 @@ enum MigrationPlanPresentation {
 
             if destination.freeSize < capacity.destinationBytes {
                 let message = capacity.backupIsOnDestination
-                    ? "目标盘「\(destination.name)」空间不足以容纳两份空间（副本与同盘留底），需要 \(bytes(capacity.destinationBytes))，可用 \(bytes(destination.freeSize))"
-                    : "目标盘「\(destination.name)」空间不足，需要 \(bytes(capacity.destinationBytes))，可用 \(bytes(destination.freeSize))"
+                    ? l10n("目标盘「%@」空间不足以容纳两份空间（副本与同盘留底），需要 %@，可用 %@", destination.name, bytes(capacity.destinationBytes), bytes(destination.freeSize))
+                    : l10n("目标盘「%@」空间不足，需要 %@，可用 %@", destination.name, bytes(capacity.destinationBytes), bytes(destination.freeSize))
                 return .blocked(reasons: [message])
             }
 
@@ -162,7 +162,7 @@ enum MigrationPlanPresentation {
             } else if let liveBackupDrive, let backupBytes = capacity.backupBytes {
                 if liveBackupDrive.freeSize < backupBytes {
                     return .blocked(reasons: [
-                        "备份盘「\(liveBackupDrive.name)」空间不足，需要 \(bytes(backupBytes))，可用 \(bytes(liveBackupDrive.freeSize))"
+                        l10n("备份盘「%@」空间不足，需要 %@，可用 %@", liveBackupDrive.name, bytes(backupBytes), bytes(liveBackupDrive.freeSize))
                     ])
                 }
                 backupPlacement = .alternateVolume(
@@ -181,8 +181,8 @@ enum MigrationPlanPresentation {
             // 批准了也必然被拦，提前在这里说明，避免"可确认但不可执行"。
             guard destination.volumeUUID != nil else {
                 return .blocked(reasons: [
-                    "无法读取目标盘「\(destination.name)」的卷身份（UUID），"
-                        + "无法保证迁移写到审阅时的同一块盘。请重新插拔硬盘并重新扫描后再试。"
+                    l10n("无法读取目标盘「%@」的卷身份（UUID），", destination.name)
+                        + l10n("无法保证迁移写到审阅时的同一块盘。请重新插拔硬盘并重新扫描后再试。")
                 ])
             }
 
@@ -208,14 +208,14 @@ enum MigrationPlanPresentation {
             let reasons = insufficientBudgets.map { budget -> String in
                 let role: String
                 if budget.isDestination && budget.isBackup {
-                    role = "目标盘与备份盘（同一卷）"
+                    role = l10n("目标盘与备份盘（同一卷）")
                 } else if budget.isDestination {
-                    role = "目标盘"
+                    role = l10n("目标盘")
                 } else {
-                    role = "备份盘"
+                    role = l10n("备份盘")
                 }
-                return "\(role)「\(budget.name)」空间不足：整份计划需要 \(bytes(budget.requiredBytes))，"
-                    + "可用 \(bytes(budget.freeBytes))"
+                return l10n("%@「%@」空间不足：整份计划需要 %@，", role, budget.name, bytes(budget.requiredBytes))
+                    + l10n("可用 %@", bytes(budget.freeBytes))
             }
             return .blocked(reasons: reasons)
         }
@@ -239,13 +239,13 @@ enum MigrationPlanPresentation {
     }
 
     static func destinationIdentityFailure(for item: MigrationPlanItem) -> MigrationOutcome {
-        let reviewedIdentity = item.destinationVolumeUUID ?? "未能读取"
+        let reviewedIdentity = item.destinationVolumeUUID ?? l10n("未能读取")
         return MigrationOutcome(
             kind: .failure,
-            title: "目标盘身份已变化，未开始迁移",
-            detail: "「\(item.name)」的目标路径 \(item.destinationPath) 与审阅时选择的卷身份不一致，"
-                + "或当前无法读取卷 UUID（审阅时：\(reviewedIdentity)）。本项未开始，未改动任何文件；"
-                + "请重新扫描并重新审阅目标盘。",
+            title: l10n("目标盘身份已变化，未开始迁移"),
+            detail: l10n("「%@」的目标路径 %@ 与审阅时选择的卷身份不一致，", item.name, item.destinationPath)
+                + l10n("或当前无法读取卷 UUID（审阅时：%@）。本项未开始，未改动任何文件；", reviewedIdentity)
+                + l10n("请重新扫描并重新审阅目标盘。"),
             spaceSaved: 0)
     }
 
@@ -278,41 +278,41 @@ enum MigrationPlanPresentation {
     /// was cleaned only for the exact service result that proves that path.
     static func outcome(result: AppMigrator.MigrationResult, appName: String) -> MigrationOutcome {
         if result.cancelled {
-            if !result.success, result.error == "已取消" {
+            if !result.success, result.error == l10n("已取消") {
                 return MigrationOutcome(
                     kind: .cancelled,
-                    title: "迁移已安全取消",
-                    detail: "「\(appName)」的迁移已安全停止：源应用未动，外置盘上的半截副本已清理。",
+                    title: l10n("迁移已安全取消"),
+                    detail: l10n("「%@」的迁移已安全停止：源应用未动，外置盘上的半截副本已清理。", appName),
                     spaceSaved: result.spaceSaved)
             }
             return MigrationOutcome(
                 kind: .recoveryRequired,
-                title: "需要检查迁移状态",
-                detail: "「\(appName)」的迁移返回取消状态，但未能确认源位置与副本清理结果："
-                    + "\(result.error ?? "服务未提供恢复说明")。请先按提示检查并恢复文件，再继续操作。",
+                title: l10n("需要检查迁移状态"),
+                detail: l10n("「%@」的迁移返回取消状态，但未能确认源位置与副本清理结果：", appName)
+                    + l10n("%@。请先按提示检查并恢复文件，再继续操作。", result.error ?? l10n("服务未提供恢复说明")),
                 spaceSaved: result.spaceSaved)
         }
         if result.success {
             guard result.spaceSaved > 0 else {
                 return MigrationOutcome(
                     kind: .success,
-                    title: "操作已完成",
-                    detail: "「\(appName)」操作已完成；当前没有可确认的释放空间数据。",
+                    title: l10n("操作已完成"),
+                    detail: l10n("「%@」操作已完成；当前没有可确认的释放空间数据。", appName),
                     spaceSaved: result.spaceSaved)
             }
             let freed = ByteCountFormatter.string(
                 fromByteCount: result.spaceSaved, countStyle: .file)
             return MigrationOutcome(
                 kind: .success,
-                title: "迁移完成",
-                detail: "「\(appName)」已迁移到外置盘，内置盘释放了 \(freed)。",
+                title: l10n("迁移完成"),
+                detail: l10n("「%@」已迁移到外置盘，内置盘释放了 %@。", appName, freed),
                 spaceSaved: result.spaceSaved)
         }
         return MigrationOutcome(
             kind: .failure,
-            title: "迁移未完成",
-            detail: "「\(appName)」迁移未完成：\(result.error ?? "未知错误")。"
-                + "请到应用列表确认当前状态后重试。",
+            title: l10n("迁移未完成"),
+            detail: l10n("「%@」迁移未完成：%@。", appName, result.error ?? l10n("未知错误"))
+                + l10n("请到应用列表确认当前状态后重试。"),
             spaceSaved: result.spaceSaved)
     }
 
@@ -323,28 +323,28 @@ enum MigrationPlanPresentation {
         case .completed:
             let operation: String
             switch task.operation {
-            case .restore: operation = "回迁"
-            case .migrate: operation = "迁移"
-            case .uninstall: operation = "卸载"
-            case .relocate: operation = "盘间迁移"
+            case .restore: operation = l10n("回迁")
+            case .migrate: operation = l10n("迁移")
+            case .uninstall: operation = l10n("卸载")
+            case .relocate: operation = l10n("盘间迁移")
             }
             return MigrationOutcome(
-                kind: .success, title: "\(operation)操作已完成",
-                detail: "任务已报告完成。", spaceSaved: 0)
+                kind: .success, title: l10n("%@操作已完成", operation),
+                detail: l10n("任务已报告完成。"), spaceSaved: 0)
         case .failed(let error):
             return MigrationOutcome(
-                kind: .failure, title: "操作未完成",
-                detail: "任务失败：\(error)", spaceSaved: 0)
+                kind: .failure, title: l10n("操作未完成"),
+                detail: l10n("任务失败：%@", error), spaceSaved: 0)
         case .cancelled:
             return MigrationOutcome(
-                kind: .recoveryRequired, title: "需要检查迁移状态",
-                detail: "任务已结束，但没有服务结果可确认源位置与目标盘状态。"
-                    + "请先检查文件和目标盘，再继续操作。",
+                kind: .recoveryRequired, title: l10n("需要检查迁移状态"),
+                detail: l10n("任务已结束，但没有服务结果可确认源位置与目标盘状态。")
+                    + l10n("请先检查文件和目标盘，再继续操作。"),
                 spaceSaved: 0)
         case .preparing, .copying, .verifying, .linking:
             return MigrationOutcome(
-                kind: .recoveryRequired, title: "未收到任务结果",
-                detail: "任务已经结束，但没有可确认的完成或恢复结果。请检查应用列表和目标盘。",
+                kind: .recoveryRequired, title: l10n("未收到任务结果"),
+                detail: l10n("任务已经结束，但没有可确认的完成或恢复结果。请检查应用列表和目标盘。"),
                 spaceSaved: 0)
         }
     }

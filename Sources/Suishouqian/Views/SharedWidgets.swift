@@ -22,7 +22,7 @@ struct GlobalTaskCapsule: View {
             .breathe(range: 0.75...1.0, duration: 1.4)
             .transition(.opacity.combined(with: .scale(scale: 0.9)))
             .onTapGesture { appState.activePanel = .migrate }
-            .help("正在处理，点击查看进度")
+            .help(l10n("正在处理，点击查看进度"))
         }
     }
 }
@@ -33,9 +33,9 @@ enum VolumeOfflineBanner {
 
     static func message(for volumeName: String?) -> String {
         if let volumeName {
-            return "「\(volumeName)」未连接，插回后自动恢复"
+            return l10n("「%@」未连接，插回后自动恢复", volumeName)
         }
-        return "未检测到外置硬盘，插入后自动识别"
+        return l10n("未检测到外置硬盘，插入后自动识别")
     }
 
     static func systemImage(for volumeName: String?) -> String {

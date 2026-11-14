@@ -1,19 +1,20 @@
 import SwiftUI
 
-// MARK: - 设计系统（macOS 27 Golden Gate 语法）
+// MARK: - 设计系统
 //
-// Golden Gate 精修 Liquid Glass：圆角收紧（12→10，不再夸张）、
-// 顶部高光（specular highlight）+ 底部加深（darker edge）营造玻璃纵深、
-// 投影更柔更散（拒绝反复描边解释层级）。
+// 卡片视觉已并入效果图皮肤（与 MockDesign.swift 的 MockCardModifier 同一套：
+// r16 圆角 + 发丝描边 + 柔影），全应用只剩一套卡片语言。
+// 品牌色与渐变统一由 MockTheme 提供。
 
 enum Theme {
     // 品牌色与渐变统一由 MockTheme 提供（baseline-ui 审计：旧蓝青渐变已退役，
     // 全应用唯一强调色 = MockTheme.accent 紫）
 
-    /// macOS 27 统一圆角：卡片 10，图标容器 8，小徽章 7
+    /// 统一圆角（已与 MockTheme.Corner 合并到效果图皮肤一套体系）：
+    /// 卡片 16、图标容器 10、小徽章 7
     enum Corner {
-        static let card: CGFloat = 10
-        static let iconBox: CGFloat = 8
+        static let card: CGFloat = 16
+        static let iconBox: CGFloat = 10
         static let badge: CGFloat = 7
     }
 }
@@ -64,9 +65,9 @@ struct StatusPill: View {
     }
 }
 
-/// 卡片背景：macOS 27 语法——收紧圆角 + 玻璃高光边缘 + 柔化投影。
-/// 顶部 0.5pt 高光（浅色模式白/深色模式亦白，低透明度即玻璃边），
-/// 底部轻微加深，投影更散（radius 8, y 2）不再用生硬小投影。
+/// 卡片背景：与效果图皮肤（MockCardModifier）同一套视觉——
+/// r16 圆角 + 发丝描边 + 柔影。两套卡片体系已合并（2026-11 界面整洁度优化）：
+/// 旧 Golden Gate 渐变描边退役，cardStyle/mockCard 只剩 padding 差异。
 struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -74,21 +75,11 @@ struct CardStyle: ViewModifier {
             .background(
                 RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
                     .fill(Color(NSColor.controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
+                    .shadow(color: .black.opacity(0.05), radius: 12, y: 4)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(0.45),
-                                .white.opacity(0.08),
-                                .black.opacity(0.08)
-                            ],
-                            startPoint: .top, endPoint: .bottom
-                        ),
-                        lineWidth: 0.5
-                    )
+                    .strokeBorder(Color.primary.opacity(0.05))
             )
     }
 }
@@ -193,10 +184,10 @@ struct MigrationStageNode: View {
 
     private var accessibilityState: String {
         switch state {
-        case .pending: return "未开始"
-        case .active: return "进行中"
-        case .done: return "已完成"
-        case .stopped: return "已停止"
+        case .pending: return l10n("未开始")
+        case .active: return l10n("进行中")
+        case .done: return l10n("已完成")
+        case .stopped: return l10n("已停止")
         }
     }
 }

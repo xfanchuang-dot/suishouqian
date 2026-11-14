@@ -48,12 +48,12 @@ struct ContentView: View {
         // 效果图：选中行是「浅紫底 + 紫图标/紫字」，系统 List 只能给实色 accent 胶囊，
         // 所以侧栏导航改自绘（按钮行 + 圆角浅紫底），行为与 List 选中等价。
         VStack(alignment: .leading, spacing: 9) {
-            sidebarRow("概览", icon: "chart.pie", panel: .overview)
-            sidebarRow("应用", icon: "square.grid.2x2", panel: .apps)
-            sidebarRow("迁移", icon: "arrow.left.arrow.right", panel: .migrate)
-            sidebarRow("体检", icon: "checkmark.shield", panel: .health)
-            sidebarRow("数据", icon: "cylinder", panel: .data)
-            sidebarRow("设置", icon: "gearshape", panel: .settings)
+            sidebarRow(l10n("概览"), icon: "chart.pie", panel: .overview)
+            sidebarRow(l10n("应用"), icon: "square.grid.2x2", panel: .apps)
+            sidebarRow(l10n("迁移"), icon: "arrow.left.arrow.right", panel: .migrate)
+            sidebarRow(l10n("体检"), icon: "checkmark.shield", panel: .health)
+            sidebarRow(l10n("数据"), icon: "cylinder", panel: .data)
+            sidebarRow(l10n("设置"), icon: "gearshape", panel: .settings)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -88,7 +88,7 @@ struct ContentView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Text("可用 \(external.freeFormatted)")
+                Text(l10n("可用 %@", external.freeFormatted))
                     .font(.system(size: 11))
                     .monospacedDigit()
                     .foregroundColor(.secondary)
@@ -96,7 +96,7 @@ struct ContentView: View {
                 Image(systemName: "externaldrive.badge.exclamationmark")
                     .foregroundColor(.secondary)
                     .font(.system(size: 12))
-                Text("外置盘未连接")
+                Text(l10n("外置盘未连接"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                 Spacer()
@@ -104,11 +104,8 @@ struct ContentView: View {
         }
         .padding(.horizontal, 4)
         .onTapGesture { appState.activePanel = .overview }
-        .help("查看磁盘详情与测速")
+        .help(l10n("查看磁盘详情与测速"))
     }
-
-    /// 效果图紫：选中行高亮与图标着色统一用它
-    private static let sidebarAccent = Color(red: 0.44, green: 0.36, blue: 0.93)
 
     /// 侧边栏行：未选中＝细线灰图标+深色字；选中＝浅紫圆角底+fill 图标+紫字。
     /// 用户反馈放大：图标 17pt、文字 15pt、行内上下 9pt、左右 12pt
@@ -121,18 +118,18 @@ struct ContentView: View {
                 Image(systemName: icon)
                     .symbolVariant(selected ? .fill : .none)
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundColor(selected ? Self.sidebarAccent : .secondary)
+                    .foregroundColor(selected ? MockTheme.accent : .secondary)
                     .frame(width: 24, alignment: .center)
                 Text(title)
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
-                    .foregroundColor(selected ? Self.sidebarAccent : .primary)
+                    .foregroundColor(selected ? MockTheme.accent : .primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             // 选中行：macOS 26+ 动态液化玻璃（紫色、随指针/背景实时折射）；
             // 低版本回退静态浅紫底。未选中行保持透明。
-            .modifier(SidebarSelectionBackground(selected: selected, accent: Self.sidebarAccent))
+            .modifier(SidebarSelectionBackground(selected: selected, accent: MockTheme.accent))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -188,7 +185,7 @@ struct ContentView: View {
                         Image(systemName: "internaldrive.fill")
                             .foregroundColor(.blue)
                             .font(.system(size: 13))
-                        Text("内置磁盘")
+                        Text(l10n("内置磁盘"))
                             .font(.system(size: 13, weight: .medium))
                         Spacer()
                     }
@@ -210,7 +207,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
                     HStack {
                         Spacer()
-                        Text("已用 \(Int(builtin.usageRatio * 100))%")
+                        Text(l10n("已用 %lld%%", Int(builtin.usageRatio * 100)))
                             .font(.system(size: 11))
                             .monospacedDigit()
                             .foregroundColor(.secondary)
@@ -223,7 +220,7 @@ struct ContentView: View {
         .sidebarCardGlass(cornerRadius: Theme.Corner.card)
         .contentShape(Rectangle())
         .onTapGesture { appState.activePanel = .overview }
-        .help("查看磁盘详情与测速")
+        .help(l10n("查看磁盘详情与测速"))
     }
 
     // MARK: - 内容区
@@ -238,7 +235,7 @@ struct ContentView: View {
             case .settings:
                 // 设置页也走统一 mockPage 大白卡；底部统计条已按用户要求移除
                 VStack(alignment: .leading, spacing: 12) {
-                    MockPageTitle(text: "设置")
+                    MockPageTitle(text: l10n("设置"))
                         .padding(.horizontal, 24)
                         .padding(.top, 20)
                     SettingsView()
@@ -248,12 +245,13 @@ struct ContentView: View {
                 .mockPage()
             case .health:
                 // 体检页与其他页统一：同样浮在大白卡上（此前是唯一裸在灰底的页，
-                // 页间切换容器跳变）。磁盘横条（SMART 圆点/测速/离线卡）保留在卡顶
+                // 页间切换容器跳变）。边距与其他页同为 28/24（此前 20/16 会导致
+                // 页间切换时内容左边缘跳动）。磁盘横条（SMART 圆点/测速/离线卡）保留在卡顶
                 VStack(spacing: 14) {
                     DiskBarView()
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                    HealthCheckView().padding(.horizontal, 20)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 24)
+                    HealthCheckView().padding(.horizontal, 28)
                 }
                 .mockPage()
             case .overview:
@@ -300,6 +298,11 @@ struct ContentView: View {
                 appState.activePanel = .migrate
             }
             .environmentObject(appState)
+        }
+        // Pro 升级/激活：锁定卡与各页面入口都只置 showProUpgrade，统一在这里开一扇门
+        .sheet(isPresented: $appState.showProUpgrade) {
+            ProUpgradeSheet()
+                .environmentObject(appState)
         }
     }
 

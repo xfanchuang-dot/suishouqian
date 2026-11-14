@@ -389,6 +389,15 @@ final class RegressionFixTests: XCTestCase {
                        hundredGB * 2 + hundredGB / 20)
     }
 
+    /// 不留备份的路径（skipBackup、盘间迁移）只需要一份 + 5%，不能按两份把操作拒绝掉。
+    func testRequiredSingleCopyBytesOmitsBackup() {
+        XCTAssertEqual(AppMigrator.requiredSingleCopyBytes(appSize: 0), 0)
+        XCTAssertEqual(AppMigrator.requiredSingleCopyBytes(appSize: 1_000), 1_050)
+        let hundredGB: Int64 = 100 * 1_073_741_824
+        XCTAssertEqual(AppMigrator.requiredSingleCopyBytes(appSize: hundredGB),
+                       hundredGB + hundredGB / 20)
+    }
+
     /// 硬护栏：源与目标是同一位置时，迁移必须直接拒绝。
     /// copyWithDitto 的第一步是 removeItem(dst)，若 dst 就是应用自身，等于把应用删掉。
     func testMigrateRefusesWhenSourceIsTheTarget() async throws {
@@ -497,6 +506,8 @@ final class RegressionFixTests: XCTestCase {
         XCTAssertEqual(args.count, 6, "sh -c 脚本 + $0 + 卷路径 + 应用路径")
         XCTAssertEqual(args[4], tricky, "卷路径必须以原样经 argv 传入，而不是拼进脚本")
         XCTAssertTrue(args[2].contains("$1"), "脚本从 argv 取路径")
+        XCTAssertTrue(args[2].contains("grep -v \"^$$\""),
+                      "pgrep -f 会命中 sh -c 自己的命令行，必须排除当前 shell，否则插盘永远不会 open")
         XCTAssertTrue(args[2].contains("tr -c"), "状态文件必须按卷区分，否则换盘后边沿检测失效")
     }
 }

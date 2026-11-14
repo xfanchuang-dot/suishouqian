@@ -29,7 +29,7 @@ struct HealthCheckView: View {
 
                 // ── 需要行动：应用/盘处于问题状态，各分区都有修复或恢复动作 ──
                 if hasActionItems {
-                    groupHeader("需要行动", systemImage: "exclamationmark.circle.fill",
+                    groupHeader(l10n("需要行动"), systemImage: "exclamationmark.circle.fill",
                                 tint: .orange)
                         .entrance(delay: 0.08)
                     if !model.regressions.isEmpty { regressionSection.entrance(delay: 0.1) }
@@ -44,7 +44,7 @@ struct HealthCheckView: View {
 
                 // ── 仅供参考：顾问建议与机会，不是问题状态 ──
                 if hasReferenceItems {
-                    groupHeader("仅供参考", systemImage: "info.circle.fill", tint: .secondary)
+                    groupHeader(l10n("仅供参考"), systemImage: "info.circle.fill", tint: .secondary)
                         .entrance(delay: 0.22)
                     if !model.usageSuggestions.isEmpty { usageSection.entrance(delay: 0.24) }
                     if !model.unusedApps.isEmpty { unusedSection.entrance(delay: 0.26) }
@@ -105,20 +105,20 @@ struct HealthCheckView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                MockPageTitle(text: "体检")
+                MockPageTitle(text: l10n("体检"))
                 Spacer()
                 if model.isChecking {
                     HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("扫描中...")
+                        Text(l10n("扫描中..."))
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                     }
                     .breathe()
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 } else {
-                    Button("重新扫描") {
+                    Button(l10n("重新扫描")) {
                         runCheck()
                         model.computeUsage(apps: appState.apps)
                     }
@@ -146,11 +146,11 @@ struct HealthCheckView: View {
         VStack(alignment: .leading, spacing: 10) {
             let s = summary
             HStack(spacing: 8) {
-                StatusPill("\(s.healthy) 正常", systemImage: "checkmark.circle.fill", color: .green)
+                StatusPill(l10n("%@ 正常", s.healthy), systemImage: "checkmark.circle.fill", color: .green)
                     .entrance(delay: 0, distance: 8)
-                StatusPill("\(s.offline) 硬盘未连接", systemImage: "externaldrive.badge.exclamationmark", color: s.offline > 0 ? .orange : .secondary)
+                StatusPill(l10n("%@ 硬盘未连接", s.offline), systemImage: "externaldrive.badge.exclamationmark", color: s.offline > 0 ? .orange : .secondary)
                     .entrance(delay: 0.05, distance: 8)
-                StatusPill("\(s.broken) 断链", systemImage: "link.badge.plus", color: s.broken > 0 ? .red : .secondary)
+                StatusPill(l10n("%@ 断链", s.broken), systemImage: "link.badge.plus", color: s.broken > 0 ? .red : .secondary)
                     .entrance(delay: 0.1, distance: 8)
             }
             .animation(reduceMotion ? nil : Motion.snappy, value: s.healthy + s.offline + s.broken)
@@ -159,20 +159,20 @@ struct HealthCheckView: View {
                 Button {
                     repairAll()
                 } label: {
-                    Label("一键修复断链", systemImage: "wand.and.stars")
+                    Label(l10n("一键修复断链"), systemImage: "wand.and.stars")
                 }
                 .controlSize(.small)
                 .buttonStyle(.borderedProminent)
             }
 
             if repairedCount > 0 {
-                Text("上次修复：\(repairedCount) 条")
+                Text(l10n("上次修复：%lld 条", repairedCount))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
 
             if model.healedCount > 0 {
-                Text("已按迁移台账自动自愈 \(model.healedCount) 条（卷改名/换挂载点）")
+                Text(l10n("已按迁移台账自动自愈 %lld 条（卷改名/换挂载点）", model.healedCount))
                     .font(.system(size: 10))
                     .foregroundColor(.green)
             }
@@ -201,7 +201,7 @@ struct HealthCheckView: View {
             Spacer()
 
             if link.state == .broken {
-                Button("修复") { repairOne(link) }
+                Button(l10n("修复")) { repairOne(link) }
                     .controlSize(.small)
             }
         }
@@ -213,9 +213,9 @@ struct HealthCheckView: View {
             symbol: "checkmark.seal.fill",
             accentSymbols: ["sparkles", "shield.checkerboard"],
             gradient: [.green, .teal],
-            title: "一切正常",
-            subtitle: "没有发现断链或可清理的备份",
-            actionTitle: "重新体检",
+            title: l10n("一切正常"),
+            subtitle: l10n("没有发现断链或可清理的备份"),
+            actionTitle: l10n("重新体检"),
             action: { runCheck() },
             reduceMotion: reduceMotion,
             imageName: "empty-health"
@@ -242,23 +242,13 @@ struct HealthCheckView: View {
         //（实测：VS Code 的更新进程写外置盘被系统权限拒绝，旧版移走、新版没写入）
         if let failure = checker.recoverVanishedTarget(link) {
             let alert = NSAlert()
-            alert.messageText = "修复失败"
-            alert.informativeText = """
-            在所有已挂载硬盘上都没有找到「\(link.appName)」，更新缓存里也没有可恢复的新版本。
-
-            \(failure)。请插入对应硬盘、重新安装该应用，或手动回迁。
-            """
+            alert.messageText = l10n("修复失败")
+            alert.informativeText = l10n("\n            在所有已挂载硬盘上都没有找到「%@」，更新缓存里也没有可恢复的新版本。\n\n            %@。请插入对应硬盘、重新安装该应用，或手动回迁。\n            ", link.appName, failure)
             alert.runModal()
         } else {
             let alert = NSAlert()
-            alert.messageText = "已从更新缓存恢复「\(link.appName.replacingOccurrences(of: ".app", with: ""))」"
-            alert.informativeText = """
-            这个应用的更新曾中途失败（更新进程写外置盘被系统权限拒绝，应用本体被移走了）。\
-            已把更新缓存里的新版本放回原位，链接已接通。
-
-            提示：这类失败与"迁移/纯搬迁"无关，是更新器写外置盘缺权限；\
-            若再次发生，可先回迁内置盘完成更新，再迁移出去。
-            """
+            alert.messageText = l10n("已从更新缓存恢复「%@」", link.appName.replacingOccurrences(of: ".app", with: ""))
+            alert.informativeText = l10n("\n            这个应用的更新曾中途失败（更新进程写外置盘被系统权限拒绝，应用本体被移走了）。\n            已把更新缓存里的新版本放回原位，链接已接通。\n\n            提示：这类失败与\"迁移/纯搬迁\"无关，是更新器写外置盘缺权限；\n            若再次发生，可先回迁内置盘完成更新，再迁移出去。\n            ")
             alert.runModal()
             runCheck()
         }

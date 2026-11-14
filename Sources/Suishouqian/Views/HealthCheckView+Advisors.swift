@@ -10,9 +10,9 @@ extension HealthCheckView {
     var usageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "高频应用 · 建议搬回内置盘", systemImage: "speedometer")
+                SectionHeader(title: l10n("高频应用 · 建议搬回内置盘"), systemImage: "speedometer")
                 Spacer()
-                Text("近 \(LaunchUsageTracker.suggestDays) 天经常启动，却要靠外置盘才能打开（随手迁运行时的启动才会记账）")
+                Text(l10n("近 %lld 天经常启动，却要靠外置盘才能打开（随手迁运行时的启动才会记账）", LaunchUsageTracker.suggestDays))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -31,15 +31,15 @@ extension HealthCheckView {
                     Text(sug.app.name)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
-                    Text("近 \(sug.days) 天启动 \(sug.count) 次 · \(sug.app.sizeFormatted)")
+                    Text(l10n("近 %lld 天启动 %lld 次 · %@", sug.days, sug.count, sug.app.sizeFormatted))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("搬回内置盘") { moveBackExternal(sug.app) }
+                    Button(l10n("搬回内置盘")) { moveBackExternal(sug.app) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                         .disabled(appState.isMigrationActive || appState.externalDrive == nil)
-                        .help("搬回后应用就在内置盘本地，不再依赖外置盘")
+                        .help(l10n("搬回后应用就在内置盘本地，不再依赖外置盘"))
                 }
                 .padding(.vertical, 2)
             }
@@ -53,9 +53,9 @@ extension HealthCheckView {
     var unusedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "长期未用 · 外置盘", systemImage: "moon.zzz")
+                SectionHeader(title: l10n("长期未用 · 外置盘"), systemImage: "moon.zzz")
                 Spacer()
-                Text("超过 \(UnusedAppsCheck.unusedDays) 天没打开，占着盘面却想不起来用")
+                Text(l10n("超过 %lld 天没打开，占着盘面却想不起来用", UnusedAppsCheck.unusedDays))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -74,20 +74,20 @@ extension HealthCheckView {
                     Text(info.app.name)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
-                    Text("上次打开 \(info.daysSinceUse) 天前 · \(info.app.sizeFormatted)")
+                    Text(l10n("上次打开 %lld 天前 · %@", info.daysSinceUse, info.app.sizeFormatted))
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button("搬回内置盘") { moveBackExternal(info.app) }
+                    Button(l10n("搬回内置盘")) { moveBackExternal(info.app) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                         .disabled(appState.isMigrationActive || appState.externalDrive == nil)
-                        .help("既然不常用，搬回内置盘把外置盘空间腾出来")
+                        .help(l10n("既然不常用，搬回内置盘把外置盘空间腾出来"))
                 }
                 .padding(.vertical, 2)
             }
 
-            Text("数据来自系统记录的最近使用时间。若关闭了这块盘的 Spotlight 索引，系统会停止记账，此处以后将不再出现建议。")
+            Text(l10n("数据来自系统记录的最近使用时间。若关闭了这块盘的 Spotlight 索引，系统会停止记账，此处以后将不再出现建议。"))
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
         }
@@ -99,9 +99,9 @@ extension HealthCheckView {
     var launchAgentSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "开机自启指向外置盘", systemImage: "powerplug.fill")
+                SectionHeader(title: l10n("开机自启指向外置盘"), systemImage: "powerplug.fill")
                 Spacer()
-                Text("盘没插时这些自启会失败，守护项更是开机必失败")
+                Text(l10n("盘没插时这些自启会失败，守护项更是开机必失败"))
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -125,24 +125,24 @@ extension HealthCheckView {
                     Text(item.verdict.text)
                         .font(.system(size: 11))
                         .foregroundColor(item.verdict.severe ? .red : .orange)
-                    Menu("处理") {
-                        Button("在 Finder 中显示配置文件") {
+                    Menu(l10n("处理")) {
+                        Button(l10n("在 Finder 中显示配置文件")) {
                             NSWorkspace.shared.activateFileViewerSelecting(
                                 [URL(fileURLWithPath: item.plistPath)])
                         }
-                        Button("打开系统设置 · 登录项") {
+                        Button(l10n("打开系统设置 · 登录项")) {
                             if let url = URL(string:
                                 "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
                                 NSWorkspace.shared.open(url)
                             }
                         }
-                        Button("拷贝配置路径") {
+                        Button(l10n("拷贝配置路径")) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(item.plistPath, forType: .string)
                         }
                     }
                     .controlSize(.small)
-                    .help("随手迁不代改别人的启动配置：可在登录项设置里关闭，或在 Finder 里自行处理")
+                    .help(l10n("随手迁不代改别人的启动配置：可在登录项设置里关闭，或在 Finder 里自行处理"))
                 }
                 .padding(.vertical, 2)
             }
@@ -154,13 +154,13 @@ extension HealthCheckView {
     var spotlightSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "Spotlight 正在索引外置盘", systemImage: "magnifyingglass")
+                SectionHeader(title: l10n("Spotlight 正在索引外置盘"), systemImage: "magnifyingglass")
                 Spacer()
-                Button("复制关闭命令") { copySpotlightCommand() }
+                Button(l10n("复制关闭命令")) { copySpotlightCommand() }
                     .controlSize(.small)
             }
 
-            Text("搜索应用名时外置盘副本会和内置入口一起出现（两个结果点哪个看运气），后台持续扫描也白耗盘和电。关掉这块盘的索引是外置 SSD 的标准养护；代价是盘上的东西不再出现在 Spotlight 搜索里。")
+            Text(l10n("搜索应用名时外置盘副本会和内置入口一起出现（两个结果点哪个看运气），后台持续扫描也白耗盘和电。关掉这块盘的索引是外置 SSD 的标准养护；代价是盘上的东西不再出现在 Spotlight 搜索里。"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
@@ -169,7 +169,7 @@ extension HealthCheckView {
                 if isTogglingSpotlight {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button("关闭这块盘的索引（需管理员授权）") { toggleSpotlight(false) }
+                    Button(l10n("关闭这块盘的索引（需管理员授权）")) { toggleSpotlight(false) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
@@ -182,17 +182,17 @@ extension HealthCheckView {
     var spotlightOffSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                SectionHeader(title: "Spotlight 索引已关闭", systemImage: "checkmark.seal")
+                SectionHeader(title: l10n("Spotlight 索引已关闭"), systemImage: "checkmark.seal")
                 Spacer()
                 if isTogglingSpotlight {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button("恢复索引") { toggleSpotlight(true) }
+                    Button(l10n("恢复索引")) { toggleSpotlight(true) }
                         .controlSize(.small)
-                        .help("恢复后这块盘重新参与 Spotlight 搜索（会重新全盘扫描一段时间）")
+                        .help(l10n("恢复后这块盘重新参与 Spotlight 搜索（会重新全盘扫描一段时间）"))
                 }
             }
-            Text("这块盘不参与 Spotlight 搜索，不再被后台扫描（省电护盘）。想恢复随时点上面的按钮。")
+            Text(l10n("这块盘不参与 Spotlight 搜索，不再被后台扫描（省电护盘）。想恢复随时点上面的按钮。"))
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
         }
@@ -242,10 +242,10 @@ extension HealthCheckView {
                 // 应用已回内置盘：长期未用分区立即摘掉它，不等下次体检
                 model.removeUnused(appPath: app.path)
             } else if var t = state.migrationTask {
-                t.status = .failed(result.error ?? "未知错误")
+                t.status = .failed(result.error ?? l10n("未知错误"))
                 state.migrationTask = t
                 state.notificationManager.notifyMigrationFailed(
-                    appName: app.name, error: result.error ?? "未知错误")
+                    appName: app.name, error: result.error ?? l10n("未知错误"))
             }
             // 应用已不在外置盘，重新对账——它应当从建议列表里消失
             model.computeUsage(apps: state.apps)
@@ -259,13 +259,13 @@ extension HealthCheckView {
     func toggleSpotlight(_ enable: Bool) {
         guard let drive = appState.externalDrive?.mountPoint, !isTogglingSpotlight else { return }
         let alert = NSAlert()
-        alert.messageText = enable ? "恢复这块盘的 Spotlight 索引？"
-                                   : "关闭这块盘的 Spotlight 索引？"
+        alert.messageText = enable ? l10n("恢复这块盘的 Spotlight 索引？")
+                                   : l10n("关闭这块盘的 Spotlight 索引？")
         alert.informativeText = enable
-            ? "恢复后 Spotlight 会重新扫描整块盘（期间盘会持续读写），盘上内容重新可被搜索。"
-            : "关闭后，这块盘上的内容不再出现在 Spotlight 搜索结果里，搜索也不再混入外置盘副本；后台扫描停止。想恢复随时可以再来这里操作。"
-        alert.addButton(withTitle: enable ? "恢复索引" : "关闭索引")
-        alert.addButton(withTitle: "取消")
+            ? l10n("恢复后 Spotlight 会重新扫描整块盘（期间盘会持续读写），盘上内容重新可被搜索。")
+            : l10n("关闭后，这块盘上的内容不再出现在 Spotlight 搜索结果里，搜索也不再混入外置盘副本；后台扫描停止。想恢复随时可以再来这里操作。")
+        alert.addButton(withTitle: enable ? l10n("恢复索引") : l10n("关闭索引"))
+        alert.addButton(withTitle: l10n("取消"))
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
@@ -281,10 +281,10 @@ extension HealthCheckView {
                 model.spotlightIndexing = enable
                 // 用户主动改了系统行为，进操作台账
                 AuditLog.append("Spotlight 索引已\(enable ? "恢复" : "关闭")：\(drive)")
-            } else if result.error != "已取消授权" {
+            } else if result.error != l10n("已取消授权") {
                 let alert = NSAlert()
-                alert.messageText = "没能修改索引设置"
-                alert.informativeText = result.error ?? "未知错误"
+                alert.messageText = l10n("没能修改索引设置")
+                alert.informativeText = result.error ?? l10n("未知错误")
                 alert.runModal()
             }
         }

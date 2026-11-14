@@ -67,6 +67,8 @@ jobs:
 
       - name: 构建 + 签名 + 打 DMG（--dist-only：不装进 /Applications、不启动）
         run: |
+          # release 构建。build.sh 会把 “Multiple commands produce / duplicate output file”
+          # 当成失败，避免 String Catalog 和 .lproj 各写一份 Localizable.strings。
           bash build.sh --dist-only
           bash scripts/package_dmg.sh --no-build
 

@@ -5,6 +5,7 @@
 // 用法:
 //   swift scripts/license_tool.swift keygen [--out <私钥路径>]
 //   swift scripts/license_tool.swift issue --email <邮箱> [--expiry YYYY-MM-DD] [--tier pro] [--key <私钥路径>]
+//   swift scripts/license_tool.swift pool --batch <批次> --count <数量> [--expiry YYYY-MM-DD] [--key <私钥路径>]
 //   swift scripts/license_tool.swift verify <许可证> [--pub <公钥base64>]
 //
 // 密钥去向（沿用 scripts/sparkle_keys.sh 的惯例）:
@@ -159,6 +160,9 @@ func issue(_ args: Args) {
         fail("到期日必须是 YYYY-MM-DD，收到: \(expiry)")
     }
     let tier = args.flag("tier") ?? "pro"
+    guard tier == "pro" else {
+        fail("层级只接受 pro（与 App 内功能门控一致），收到: \(tier)")
+    }
 
     let payload = "\(emailClean)|\(expiry)|\(tier)"
     let payloadData = Data(payload.utf8)
@@ -186,8 +190,54 @@ func issue(_ args: Args) {
     """.utf8))
 }
 
-func verify(_ args: Args) {
-    guard let license = args.positional.first else {
+/// 批量签发许可证池（供 xios.uk 订单系统自动发放）。
+///
+/// 身份位用 `pro-<批次>-<序号>@xios.uk`：订单系统不持有私钥，只从池里取一张；
+/// 买家真实邮箱存在订单记录里，不写进许可证。stdout 一行一张，直接粘到后台导入。
+func pool(_ args: Args) {
+    guard let batch = args.flag("batch") else {
+        fail("缺少 --batch。用法: pool --batch <批次> --count <数量>")
+    }
+    let cleanBatch = batch.filter { $0.isLetter || $0.isNumber || $0 == "-" }
+    guard !cleanBatch.isEmpty, cleanBatch == batch, batch.count <= 32 else {
+        fail("批次只能包含字母、数字和 -，且不超过 32 字符，收到: \(batch)")
+    }
+    guard let countText = args.flag("count"), let count = Int(countText),
+          (1...5000).contains(count) else {
+        fail("--count 必须是 1...5000 的整数")
+    }
+    let expiry = args.flag("expiry") ?? defaultExpiry
+    guard payloadDateFormatter.date(from: expiry) != nil else {
+        fail("到期日必须是 YYYY-MM-DD，收到: \(expiry)")
+    }
+
+    let key = loadPrivateKey(args)
+    var licenses: [String] = []
+    for index in 1...count {
+        let email = String(format: "pro-%@-%04d@xios.uk", cleanBatch, index)
+        let payload = "\(email)|\(expiry)|pro"
+        let payloadData = Data(payload.utf8)
+        guard let signature = try? key.signature(for: payloadData) else {
+            fail("第 \(index) 张签名失败")
+        }
+        guard key.publicKey.isValidSignature(signature, for: payloadData) else {
+            fail("第 \(index) 张自检失败")
+        }
+        licenses.append(payloadData.base64EncodedString() + "." + signature.base64EncodedString())
+    }
+
+    for license in licenses { print(license) }
+    FileHandle.standardError.write(Data("""
+    ✅ 已签发 \(count) 张（全部自检通过）
+       批次: \(cleanBatch)
+       到期: \(expiry)（含当日）
+       身份: pro-\(cleanBatch)-XXXX@xios.uk
+    把上面 \(count) 行整段复制，粘贴到 xios.uk 管理后台「导入库存」。
+
+    """.utf8))
+}
+
+func verify(_ args: Args) {    guard let license = args.positional.first else {
         fail("用法: verify <许可证字符串> [--pub <公钥base64>]")
     }
     let pubB64: String
@@ -238,6 +288,7 @@ func usage() {
 
       swift scripts/license_tool.swift keygen [--out <私钥路径>]
       swift scripts/license_tool.swift issue --email <邮箱> [--expiry YYYY-MM-DD] [--tier pro] [--key <私钥路径>]
+      swift scripts/license_tool.swift pool --batch <批次> --count <数量> [--expiry YYYY-MM-DD] [--key <私钥路径>]
       swift scripts/license_tool.swift verify <许可证> [--pub <公钥base64>]
 
     私钥默认: \(defaultKeyPath)
@@ -251,6 +302,7 @@ let args = Args(Array(CommandLine.arguments.dropFirst()))
 switch args.command {
 case "keygen":  keygen(args)
 case "issue":   issue(args)
+case "pool":    pool(args)
 case "verify":  verify(args)
 case "help", "--help", "-h": usage()
 default:

@@ -57,10 +57,10 @@ enum LinkTier: String, Codable {
 
     var label: String {
         switch self {
-        case .thunderbolt: return "雷电"
+        case .thunderbolt: return l10n("雷电")
         case .usb3: return "USB 3"
         case .usb2: return "USB 2"
-        case .unknown: return "未知链路"
+        case .unknown: return l10n("未知链路")
         }
     }
 }

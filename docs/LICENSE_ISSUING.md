@@ -11,7 +11,7 @@
 > 许可证由 Ed25519 签名离线校验，不联网、不收集数据。
 
 ```
-你的私钥（本机，绝密）  ──签名──▶  许可证字符串  ──爱发电私信──▶  买家粘贴进 App
+你的私钥（本机，绝密）  ──签名──▶  许可证字符串  ──xios.uk 订单系统──▶  买家粘贴进 App
                                                                     │
                                         App 内嵌公钥 ──离线验签──────┘
 ```
@@ -21,6 +21,13 @@
 - **不绑机器**：许可证只含邮箱，买家换 Mac 直接把同一串粘过去即可，不需要"迁移授权"。
 - **取舍**：开源 App 的客户端校验防君子不防小人（改二进制就能绕过）。
   这是刻意的取舍——换来的是 0 成本 + 0 隐私风险 + 完全离线可用。
+- **7 天试用不需要签发**：App 内「免费试用 7 天」由用户显式开始，本地记录
+  `proTrial.startedAt.v1`，一次性、到期自动回免费。买家想先试试，让他点试用即可。
+- **功能门控**：权益判断统一走 `ProEntitlement`（Pro 许可证 > 试用 > 免费），
+  版本化备份与智能迁移建议为 Pro；迁移/回迁/体检/备份等既有能力不因 Pro 而缩减。
+- **自动发货用预生成池**：`license_tool pool` 在本机离线批量签发（身份位
+  `pro-<批次>-<序号>@xios.uk`），整段导入 xios.uk 管理后台；**服务器不持有私钥**。
+  买家邮箱只存在订单记录里。完整流程见 [PURCHASE.md](PURCHASE.md)。
 
 ## 1. 密钥在哪，怎么备份
 
@@ -56,6 +63,9 @@ swift scripts/license_tool.swift verify '<粘贴许可证>'
 ```bash
 # 指定到期日（默认 2099-12-31，即买断）
 swift scripts/license_tool.swift issue --email a@b.com --expiry 2027-12-31
+
+# 批量签发许可证池（自动发货用；stdout 一行一张，粘到 xios.uk 后台）
+swift scripts/license_tool.swift pool --batch 20261114 --count 50
 
 # 用非默认位置的私钥
 swift scripts/license_tool.swift issue --email a@b.com --key /path/to/private_key.txt

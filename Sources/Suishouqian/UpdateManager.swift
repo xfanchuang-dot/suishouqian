@@ -10,7 +10,7 @@ import Sparkle
 /// 返回 `nil` 表示可达；否则返回一句能直接摆给用户看的失败原因。
 private func probeUpdateFeed(_ feed: String) async -> String? {
     guard let url = URL(string: feed) else {
-        return "更新源地址不合法：\(feed)"
+        return l10n("更新源地址不合法：%@", feed)
     }
     var request = URLRequest(url: url)
     request.httpMethod = "HEAD"
@@ -20,21 +20,17 @@ private func probeUpdateFeed(_ feed: String) async -> String? {
     do {
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            return "更新源返回了非 HTTP 响应。"
+            return l10n("更新源返回了非 HTTP 响应。")
         }
         if http.statusCode == 404 {
-            return """
-            更新源返回 404：\(feed)
-            最常见的原因是仓库为私有（Sparkle 拉 feed 时不带任何凭证，GitHub 对匿名请求\
-            一律返回 404），或者还没有发布过任何正式 Release。两种情况 Sparkle 都拿不到 appcast。
-            """
+            return l10n("\n            更新源返回 404：%@\n            最常见的原因是仓库为私有（Sparkle 拉 feed 时不带任何凭证，GitHub 对匿名请求\n            一律返回 404），或者还没有发布过任何正式 Release。两种情况 Sparkle 都拿不到 appcast。\n            ", feed)
         }
         if !(200..<300).contains(http.statusCode) {
-            return "更新源返回 HTTP \(http.statusCode)。"
+            return l10n("更新源返回 HTTP %@。", http.statusCode)
         }
         return nil
     } catch {
-        return "无法连接更新源：\(error.localizedDescription)"
+        return l10n("无法连接更新源：%@", error.localizedDescription)
     }
 }
 
@@ -101,14 +97,8 @@ final class UpdateManager: ObservableObject {
     func checkForUpdates() {
         guard channelIsConfigured else {
             presentNotice(
-                title: "自动更新尚未启用",
-                body: """
-                当前安装包里没有更新公钥（Info.plist 的 SUPublicEDKey），\
-                所以无法校验更新包。
-
-                公钥来自仓库根目录的 sparkle_public_key.txt，由 build.sh 在构建时写入。
-                用 bash build.sh 重新构建安装即可带上；在此之前，升级方式就是重新构建。
-                """
+                title: l10n("自动更新尚未启用"),
+                body: l10n("\n                当前安装包里没有更新公钥（Info.plist 的 SUPublicEDKey），\n                所以无法校验更新包。\n\n                公钥来自仓库根目录的 sparkle_public_key.txt，由 build.sh 在构建时写入。\n                用 bash build.sh 重新构建安装即可带上；在此之前，升级方式就是重新构建。\n                ")
             )
             return
         }
@@ -122,12 +112,8 @@ final class UpdateManager: ObservableObject {
 
             if let failure {
                 self.presentNotice(
-                    title: "更新源暂时不可用",
-                    body: """
-                    \(failure)
-
-                    这不影响当前版本的使用。也可以到项目的 Releases 页面手动下载新版安装包。
-                    """
+                    title: l10n("更新源暂时不可用"),
+                    body: l10n("\n                    %@\n\n                    这不影响当前版本的使用。也可以到项目的 Releases 页面手动下载新版安装包。\n                    ", failure)
                 )
                 return
             }
@@ -144,7 +130,7 @@ final class UpdateManager: ObservableObject {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = body
-        alert.addButton(withTitle: "知道了")
+        alert.addButton(withTitle: l10n("知道了"))
         alert.runModal()
     }
 }

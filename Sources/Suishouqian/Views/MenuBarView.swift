@@ -7,16 +7,16 @@ struct MenuBarView: View {
 
     var body: some View {
         if let builtin = appState.builtinDrive {
-            Text("内置盘：可用 \(builtin.freeFormatted)")
+            Text(l10n("内置盘：可用 %@", builtin.freeFormatted))
                 .font(.system(size: 12))
         }
         ForEach(appState.volumeStore.onlineVolumes) { vol in
-            Text("\(vol.displayName)：可用 \(vol.info.freeFormatted)")
+            Text(l10n("%@：可用 %@", vol.displayName, vol.info.freeFormatted))
                 .font(.system(size: 12))
         }
         Divider()
-        Button("打开随手迁") { showMainWindow() }
-        Button("退出随手迁") { NSApp.terminate(nil) }
+        Button(l10n("打开随手迁")) { showMainWindow() }
+        Button(l10n("退出随手迁")) { NSApp.terminate(nil) }
             .task {
                 await appState.volumeStore.refresh()
             }

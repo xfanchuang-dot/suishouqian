@@ -9,6 +9,12 @@ struct MigrationPanel: View {
     @State private var showPlanSheet = false
     @State private var showHistory = false
     private let dataMigrator = DataMigrator()
+
+    // 智能迁移建议（Pro）
+    @StateObject private var licenseManager = LicenseManager.shared
+    @State private var recommendations: [SmartRecommendation] = []
+    @State private var adviceScanning = false
+    @State private var adviceLoaded = false
     
     var body: some View {
         // 冷静控制台版：唯一主操作（实色 accent 胶囊）+ 状态卡 + 底部任务统计条
@@ -19,7 +25,7 @@ struct MigrationPanel: View {
                 VStack(spacing: 20) {
                     // 页标题（与其他页统一：MockPageTitle 26pt 大标题）
                     HStack {
-                        MockPageTitle(text: "迁移")
+                        MockPageTitle(text: l10n("迁移"))
                         Spacer()
                     }
                     .padding(.top, 4)
@@ -28,7 +34,7 @@ struct MigrationPanel: View {
                     // 点击后先进全局计划评审 Sheet，看到完整计划并「确认并开始」才执行
                     if !movableApps.isEmpty && appState.externalDrive != nil {
                         PrimaryActionButton(
-                            title: "生成安全计划",
+                            title: l10n("生成安全计划"),
                             systemImage: "doc.text.magnifyingglass",
                             enabled: !appState.isMigrationActive) {
                             migrateAll()
@@ -55,6 +61,9 @@ struct MigrationPanel: View {
                         emptyState
                     }
 
+                    // 智能迁移建议（Pro）：排序 + 理由 + 一键计划；未解锁显示锁定卡
+                    smartAdviceSection
+
                     if let summary = batchSummary {
                         Text(summary)
                             .font(.system(size: 11))
@@ -67,19 +76,19 @@ struct MigrationPanel: View {
                     // 唯一主操作；「盘要退休」保留橙色文字以携带既有警告语义
                     if !appState.apps.isEmpty && appState.externalDrive != nil {
                         HStack(spacing: 10) {
-                            Button("迁移历史") { showHistory = true }
+                            Button(l10n("迁移历史")) { showHistory = true }
                                 .secondaryCommand()
                             if !migratedApps.isEmpty {
-                                Button("全部回迁（\(migratedApps.count) 个）") { restoreAll() }
+                                Button(l10n("全部回迁（%lld 个）", migratedApps.count)) { restoreAll() }
                                     .secondaryCommand()
                             }
-                            Button("一键腾空间…") { showPlanSheet = true }
+                            Button(l10n("一键腾空间…")) { showPlanSheet = true }
                                 .secondaryCommand()
                                 .disabled(appState.volumeStore.onlineVolumes.isEmpty)
-                                .help("告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由")
-                            Button("盘要退休…") { retireWizard() }
+                                .help(l10n("告诉它想腾出多少空间，引擎自动挑出性价比最高的一批应用并给出理由"))
+                            Button(l10n("盘要退休…")) { retireWizard() }
                                 .secondaryCommand(tint: MockTheme.statOrange)
-                                .help("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘")
+                                .help(l10n("换盘、卖盘、盘快不行了？把这块盘上由随手迁管理的内容全部迁回内置盘"))
                         }
                         .buttonStyle(.borderless)
                         .monospacedDigit()
@@ -112,14 +121,174 @@ struct MigrationPanel: View {
         .onChange(of: appState.approvedMigrationPlan?.id) { _, _ in consumeApprovedPlan() }
     }
 
+    // MARK: - 智能迁移建议（Pro）
+
+    @ViewBuilder
+    private var smartAdviceSection: some View {
+        if licenseManager.entitlement.isActive {
+            unlockedAdviceCard
+        } else {
+            ProLockedCard(
+                icon: "wand.and.stars",
+                title: l10n("智能迁移建议（Pro）"),
+                detail: l10n("按占用空间 × 闲置时长排序，附上理由，一键生成迁移计划；最近 14 天用过的不会被推荐。"),
+                note: adviceTeaser)
+                .onAppear { loadAdvice() }
+        }
+    }
+
+    /// 免费态钩子：不跑 mdls，只用体积算一句"值多少"
+    private var adviceTeaser: String? {
+        let candidates = SmartAdvice.candidates(appState.apps)
+        guard !candidates.isEmpty else { return nil }
+        let bytes = candidates.reduce(Int64(0)) { $0 + $1.size }
+        return l10n("内置盘还有 %lld 个应用（共 %@）适合迁出。", candidates.count,
+                    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+    }
+
+    private var unlockedAdviceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(MockTheme.accent)
+                Text(l10n("智能迁移建议"))
+                    .font(.system(size: 14, weight: .semibold))
+                if let days = licenseManager.trialDaysLeft {
+                    StatusPill(l10n("试用剩 %lld 天", days), color: MockTheme.statOrange)
+                }
+                Spacer()
+                Button { loadAdvice(force: true) } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(adviceScanning)
+                .help(l10n("重新分析使用记录"))
+            }
+
+            if adviceScanning {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(l10n("正在分析使用记录…"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 6)
+            } else if recommendations.isEmpty {
+                Text(adviceLoaded
+                     ? l10n("没有值得优先搬走的应用：要么都不大，要么最近 14 天都用过。")
+                     : l10n("应用列表还在扫描中…"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(Array(recommendations.prefix(SmartAdvice.displayLimit))) { rec in
+                    adviceRow(rec)
+                }
+                HStack(spacing: 8) {
+                    Text(l10n("共 %lld 个 · 可腾出 %@", recommendations.count,
+                              ByteCountFormatter.string(
+                                fromByteCount: SmartAdvice.totalSavings(recommendations),
+                                countStyle: .file)))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                    Spacer()
+                    Button(l10n("按建议生成计划")) {
+                        appState.migrationPlanRequest =
+                            MigrationPlanRequest(apps: recommendations.map(\.app))
+                    }
+                    .controlSize(.small)
+                    .disabled(appState.isMigrationActive)
+                }
+                .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .mockCard()
+        .onAppear { loadAdvice() }
+        .onChange(of: licenseManager.entitlement) { _, status in
+            if status.isActive { loadAdvice(force: true) }
+        }
+    }
+
+    private func adviceRow(_ rec: SmartRecommendation) -> some View {
+        HStack(spacing: 10) {
+            if let icon = rec.app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 22, height: 22)
+                    .cornerRadius(5)
+            } else {
+                Image(systemName: "app.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .frame(width: 22)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(rec.app.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text(rec.reasons.joined(separator: " · "))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(rec.sizeText)
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func loadAdvice(force: Bool = false) {
+        guard licenseManager.entitlement.isActive else {
+            recommendations = []
+            return
+        }
+        guard !adviceScanning else { return }
+        guard force || !adviceLoaded else { return }
+        let apps = appState.apps
+        let candidates = SmartAdvice.candidates(apps)
+        guard !candidates.isEmpty else {
+            recommendations = []
+            adviceLoaded = true
+            return
+        }
+        adviceScanning = true
+        // 只把 Sendable 的键值对交给 OffPool（AppItem 含 NSImage，不跨线程捕获）
+        let scanItems: [(id: String, path: String)] = candidates.map {
+            ($0.bundleID ?? $0.path, $0.path)
+        }
+        Task {
+            let lastUsed = await OffPool.run { () -> [String: Date] in
+                var result: [String: Date] = [:]
+                for item in scanItems {
+                    if let date = UnusedAppsCheck.lastUsedDate(atPath: item.path) {
+                        result[item.id] = date
+                    }
+                }
+                return result
+            }
+            await MainActor.run {
+                recommendations = SmartAdvice.rank(apps: apps, lastUsed: lastUsed)
+                adviceScanning = false
+                adviceLoaded = true
+            }
+        }
+    }
+
     // 旧 taskCard 已移除（Task 3 Step 4）：无法完全委托给 MigrationExecutionView
     // （进度条、取消控制、状态呈现整体迁入执行视图），按计划整卡替换。
 
     private func bottomItems(movable: [AppItem], migrated: [AppItem]) -> [String] {
         let savable = movable.reduce(0) { $0 + $1.size }
-        var items = ["\(movable.count) 个待迁移", "\(migrated.count) 个已迁移"]
+        var items = [l10n("%lld 个待迁移", movable.count), l10n("%lld 个已迁移", migrated.count)]
         if savable > 0 {
-            items.append("可释放 \(ByteCountFormatter.string(fromByteCount: savable, countStyle: .file))")
+            items.append(l10n("可释放 %@", ByteCountFormatter.string(fromByteCount: savable, countStyle: .file)))
         }
         return items
     }
@@ -138,8 +307,8 @@ struct MigrationPanel: View {
                 accentSymbols: ["arrow.right", "sparkles"],
                 // Task 5：插画氛围光改用唯一强调色的低饱和紫对，去掉蓝→青竞争性渐变
                 gradient: [MockTheme.accent, MockTheme.accent.opacity(0.6)],
-                title: "把大应用搬到外置硬盘",
-                subtitle: "去「应用」页面挑选，点击「迁移」释放内置盘空间",
+                title: l10n("把大应用搬到外置硬盘"),
+                subtitle: l10n("去「应用」页面挑选，点击「迁移」释放内置盘空间"),
                 reduceMotion: reduceMotion,
                 imageName: "empty-migrate"
             )
@@ -150,7 +319,7 @@ struct MigrationPanel: View {
                            systemImage: VolumeOfflineBanner.systemImage(for: nil),
                            color: .orange)
             } else {
-                StatusPill("外置硬盘已连接，可以开始迁移",
+                StatusPill(l10n("外置硬盘已连接，可以开始迁移"),
                            systemImage: "checkmark.circle.fill",
                            color: .green)
             }
@@ -171,7 +340,7 @@ struct MigrationPanel: View {
         guard let targets = MigrationAdvisor.resolveBatch(movableApps) else { return }
         let skipped = movableApps.count - targets.count
         guard !targets.isEmpty else {
-            batchSummary = "已跳过全部 \(skipped) 个 App Store 应用，没有需要迁移的应用"
+            batchSummary = l10n("已跳过全部 %lld 个 App Store 应用，没有需要迁移的应用", skipped)
             return
         }
 
@@ -204,16 +373,16 @@ struct MigrationPanel: View {
                   app.status == .normal else {
                 let outcome = MigrationOutcome(
                     kind: .failure,
-                    title: "计划已过期，未开始迁移",
-                    detail: "「\(item.name)」在计划批准后已不可迁移"
-                        + "（可能已被迁移、正在运行或列表已重新扫描），"
-                        + "本批迁移未开始，未改动任何文件。请重新发起迁移。",
+                    title: l10n("计划已过期，未开始迁移"),
+                    detail: l10n("「%@」在计划批准后已不可迁移", item.name)
+                        + l10n("（可能已被迁移、正在运行或列表已重新扫描），")
+                        + l10n("本批迁移未开始，未改动任何文件。请重新发起迁移。"),
                     spaceSaved: 0)
                 appState.recordMigrationOutcome(outcome, taskID: nil)
                 appState.recordBatchOutcome(outcome, itemID: item.id)
                 appState.markPendingBatchItemsNotStarted()
                 appState.finishReviewedPlanBatch()
-                batchSummary = "计划已过期，未开始迁移；本批其余条目未开始"
+                batchSummary = l10n("计划已过期，未开始迁移；本批其余条目未开始")
                 return
             }
             freshApps.append((item, app))
@@ -289,7 +458,7 @@ struct MigrationPanel: View {
                 if result.cancelled {
                     if var current = appState.migrationTask {
                         current.status = outcome.kind == .cancelled
-                            ? .cancelled : .failed(result.error ?? "需要检查迁移状态")
+                            ? .cancelled : .failed(result.error ?? l10n("需要检查迁移状态"))
                         appState.migrationTask = current
                     }
                     interruption = (app.name, outcome)
@@ -308,11 +477,11 @@ struct MigrationPanel: View {
                     // 普通失败：记录后继续剩余条目（与既有批量行为一致）
                     failCount += 1
                     if var t = appState.migrationTask {
-                        t.status = .failed(result.error ?? "未知错误")
+                        t.status = .failed(result.error ?? l10n("未知错误"))
                         appState.migrationTask = t
                     }
                     appState.notificationManager.notifyMigrationFailed(
-                        appName: app.name, error: result.error ?? "未知错误")
+                        appName: app.name, error: result.error ?? l10n("未知错误"))
                 }
             }
 
@@ -320,17 +489,17 @@ struct MigrationPanel: View {
                 appState.markPendingBatchItemsNotStarted()
                 let state: String
                 if interruption.outcome.kind == .cancelled {
-                    state = "已安全取消"
-                } else if interruption.outcome.title.contains("目标盘身份") {
-                    state = "目标盘身份变化，已阻止"
+                    state = l10n("已安全取消")
+                } else if interruption.outcome.title.contains(l10n("目标盘身份")) {
+                    state = l10n("目标盘身份变化，已阻止")
                 } else {
-                    state = "需要检查恢复"
+                    state = l10n("需要检查恢复")
                 }
-                batchSummary = "「\(interruption.name)」\(state)，本批剩余条目未开始"
+                batchSummary = l10n("「%@」%@，本批剩余条目未开始", interruption.name, state)
             } else {
                 batchSummary = failCount == 0
-                    ? "批量迁移完成：\(okCount) 个全部成功"
-                    : "批量迁移结束：\(okCount) 成功 / \(failCount) 失败"
+                    ? l10n("批量迁移完成：%lld 个全部成功", okCount)
+                    : l10n("批量迁移结束：%lld 成功 / %lld 失败", okCount, failCount)
             }
             appState.migrationTask = nil
             await appState.scanApps()
@@ -340,7 +509,7 @@ struct MigrationPanel: View {
     private func recordBlockedReviewedItem(_ outcome: MigrationOutcome, item: MigrationPlanItem) {
         appState.recordMigrationOutcome(outcome, taskID: nil)
         appState.recordBatchOutcome(outcome, itemID: item.id)
-        batchSummary = "目标盘身份已变化或不可用，计划未开始"
+        batchSummary = l10n("目标盘身份已变化或不可用，计划未开始")
     }
     
     private func restoreAll() {
@@ -370,7 +539,7 @@ struct MigrationPanel: View {
 
                 if var current = appState.migrationTask {
                     current.status = result.success
-                        ? .completed : .failed(result.error ?? "未知错误")
+                        ? .completed : .failed(result.error ?? l10n("未知错误"))
                     appState.migrationTask = current
                 }
                 if result.success {
@@ -378,7 +547,7 @@ struct MigrationPanel: View {
                         appName: app.name, spaceSaved: result.spaceSaved)
                 } else {
                     appState.notificationManager.notifyMigrationFailed(
-                        appName: app.name, error: result.error ?? "未知错误")
+                        appName: app.name, error: result.error ?? l10n("未知错误"))
                 }
             }
 
@@ -407,8 +576,8 @@ struct MigrationPanel: View {
             let totalCount = migratedApps.count + nativeApps.count + dataItems.count
             guard totalCount > 0 else {
                 let alert = NSAlert()
-                alert.messageText = "这块盘上没有随手迁管理的内容"
-                alert.informativeText = "没有链接应用、外置盘原住民或已迁移的数据目录需要迁回。"
+                alert.messageText = l10n("这块盘上没有随手迁管理的内容")
+                alert.informativeText = l10n("没有链接应用、外置盘原住民或已迁移的数据目录需要迁回。")
                 alert.runModal()
                 return
             }
@@ -421,24 +590,17 @@ struct MigrationPanel: View {
             // 内置盘放不下就不开始：逐项迁移各自的预检也都在，这里先给总量判断
             guard builtinFree > totalBytes else {
                 let alert = NSAlert()
-                alert.messageText = "内置盘空间不够"
-                alert.informativeText = "全部迁回约需 \(totalText)，内置盘可用仅 \(ByteCountFormatter.string(fromByteCount: builtinFree, countStyle: .file))。请先清理内置盘或改用更大的盘。"
+                alert.messageText = l10n("内置盘空间不够")
+                alert.informativeText = l10n("全部迁回约需 %@，内置盘可用仅 %@。请先清理内置盘或改用更大的盘。", totalText, ByteCountFormatter.string(fromByteCount: builtinFree, countStyle: .file))
                 alert.runModal()
                 return
             }
 
             let confirm = NSAlert()
-            confirm.messageText = "把「\(drive.name)」上的内容全部迁回内置盘？"
-            confirm.informativeText = """
-            将逐项迁回（共 \(totalCount) 项，约 \(totalText)）：
-            · 链接迁移应用 \(migratedApps.count) 个
-            · 外置盘原住民应用 \(nativeApps.count) 个
-            · 数据目录（含自选）\(dataItems.count) 个
-
-            正在运行的应用会被跳过并在最后汇报。全部成功后可选择清掉盘上的随手迁目录。
-            """
-            confirm.addButton(withTitle: "开始迁回")
-            confirm.addButton(withTitle: "取消")
+            confirm.messageText = l10n("把「%@」上的内容全部迁回内置盘？", drive.name)
+            confirm.informativeText = l10n("\n            将逐项迁回（共 %lld 项，约 %@）：\n            · 链接迁移应用 %lld 个\n            · 外置盘原住民应用 %lld 个\n            · 数据目录（含自选）%lld 个\n\n            正在运行的应用会被跳过并在最后汇报。全部成功后可选择清掉盘上的随手迁目录。\n            ", totalCount, totalText, migratedApps.count, nativeApps.count, dataItems.count)
+            confirm.addButton(withTitle: l10n("开始迁回"))
+            confirm.addButton(withTitle: l10n("取消"))
             confirm.alertStyle = .warning
             guard confirm.runModal() == .alertFirstButtonReturn else { return }
 
@@ -446,7 +608,7 @@ struct MigrationPanel: View {
             var done = 0
 
             // 任务占位：让顶部进度区显示"（i/N）正在处理谁"
-            let taskApp = AppItem(name: "盘要退休", bundleName: "retire.task",
+            let taskApp = AppItem(name: l10n("盘要退休"), bundleName: "retire.task",
                                   path: drive.mountPoint, version: nil,
                                   size: totalBytes, isSymlink: false,
                                   symlinkTarget: nil, icon: nil)
@@ -465,12 +627,12 @@ struct MigrationPanel: View {
                     appState.migrationTask = task
                 }
                 let r = await op()
-                if !r.success { failures.append((name, r.error ?? "未知错误")) }
+                if !r.success { failures.append((name, r.error ?? l10n("未知错误"))) }
             }
 
             for app in migratedApps {
                 await runRestore(app.name) { [weak appState] in
-                    guard let appState else { return (false, "状态丢失") }
+                    guard let appState else { return (false, l10n("状态丢失")) }
                     let r = await appState.migrator.restore(
                         app: app, from: drive.mountPoint,
                         phaseProgress: { update in
@@ -488,7 +650,7 @@ struct MigrationPanel: View {
             }
             for app in nativeApps {
                 await runRestore(app.name) { [weak appState] in
-                    guard let appState else { return (false, "状态丢失") }
+                    guard let appState else { return (false, l10n("状态丢失")) }
                     let r = await appState.migrator.moveBackToInternal(
                         app: app, drivePath: drive.mountPoint,
                         phaseProgress: { update in
@@ -506,7 +668,7 @@ struct MigrationPanel: View {
             }
             for item in dataItems {
                 await runRestore(item.title) { [weak appState] in
-                    guard let appState else { return (false, "状态丢失") }
+                    guard let appState else { return (false, l10n("状态丢失")) }
                     let r = await appState.dataMigrator.restoreData(
                         item: item, drivePath: drive.mountPoint) { pct, file in
                             Task { @MainActor in
@@ -523,10 +685,10 @@ struct MigrationPanel: View {
             if failures.isEmpty {
                 AuditLog.append("盘退休：\(totalCount) 项全部迁回「\(drive.name)」")
                 let clean = NSAlert()
-                clean.messageText = "全部迁回完成（\(totalCount) 项）"
-                clean.informativeText = "要把盘上的随手迁目录也清掉吗？（迁移备份与外置数据正本，共两类目录；确认盘上没有你还需要的其他文件后再清）"
-                clean.addButton(withTitle: "清掉随手迁目录")
-                clean.addButton(withTitle: "保留")
+                clean.messageText = l10n("全部迁回完成（%lld 项）", totalCount)
+                clean.informativeText = l10n("要把盘上的随手迁目录也清掉吗？（迁移备份与外置数据正本，共两类目录；确认盘上没有你还需要的其他文件后再清）")
+                clean.addButton(withTitle: l10n("清掉随手迁目录"))
+                clean.addButton(withTitle: l10n("保留"))
                 clean.alertStyle = .warning
                 if clean.runModal() == .alertFirstButtonReturn {
                     let checker = HealthChecker()
@@ -540,16 +702,16 @@ struct MigrationPanel: View {
                         if !(await checker.recycleToTrash(dir)) { notTrashed.append(dir) }
                     }
                     AuditLog.append(notTrashed.isEmpty
-                        ? "盘退休：随手迁目录已入废纸篓"
-                        : "盘退休：部分目录未能入废纸篓（\(notTrashed.joined(separator: "、"))）")
+                        ? l10n("盘退休：随手迁目录已入废纸篓")
+                        : l10n("盘退休：部分目录未能入废纸篓（%@）", notTrashed.joined(separator: "、")))
                 }
             } else {
                 let list = failures.prefix(8)
                     .map { "· \($0.name)：\($0.reason)" }
                     .joined(separator: "\n")
                 let alert = NSAlert()
-                alert.messageText = "迁回完成，但有 \(failures.count) 项未成功"
-                alert.informativeText = "\(list)\n\n多半是应用正在运行——退出后再跑一次「盘要退休」即可补齐。"
+                alert.messageText = l10n("迁回完成，但有 %lld 项未成功", failures.count)
+                alert.informativeText = l10n("%@\n\n多半是应用正在运行——退出后再跑一次「盘要退休」即可补齐。", list)
                 alert.runModal()
             }
         }

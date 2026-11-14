@@ -102,7 +102,16 @@ echo "[1/6] 编译（${ARCHS}）..."
 # --disable-sandbox：SwiftPM 会给自己套一层 sandbox-exec，在受限执行环境（本机是
 # 自动化沙箱，外置盘上也复现过）里直接报 `sandbox-exec: sandbox_apply: Operation
 # not permitted`，manifest 编译阶段就挂。关掉的是 SwiftPM 自己那层，不是系统沙箱。
-swift build "${SWIFT_ARGS[@]}"
+# 较新的 Swift 把「同一路径写两次」当成错误；旧工具链有时只警告但仍退出 0。
+# 两种都要拦住，否则 String Catalog 和 .lproj 会各生成一份 Localizable.strings。
+BUILD_LOG="$(mktemp)"
+swift build "${SWIFT_ARGS[@]}" 2>&1 | tee "$BUILD_LOG"
+if grep -E -q "Multiple commands produce|duplicate output file" "$BUILD_LOG"; then
+    echo "错误: 资源产物路径冲突（String Catalog 与 .lproj 不能同时生成 Localizable.strings）"
+    rm -f "$BUILD_LOG"
+    exit 1
+fi
+rm -f "$BUILD_LOG"
 
 # 3. Copy binary
 # 产物定位用 SwiftPM 自己报的 bin-path，不用 `find | head -1`——多架构构建时 .build 下

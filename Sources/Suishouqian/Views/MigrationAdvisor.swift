@@ -15,21 +15,13 @@ enum MigrationAdvisor {
         guard !appStoreApps.isEmpty else { return apps }
 
         let names = appStoreApps.prefix(5).map(\.name).joined(separator: "、")
-        let more = appStoreApps.count > 5 ? " 等 \(appStoreApps.count) 个" : ""
+        let more = appStoreApps.count > 5 ? l10n(" 等 %lld 个", appStoreApps.count) : ""
         let alert = NSAlert()
-        alert.messageText = "其中 \(appStoreApps.count) 个是 App Store 应用"
-        alert.informativeText = """
-        \(names)\(more)。
-
-        它们更适合用行内的「纯搬迁」（不留链接）：不留链接时 App Store 更新会就地写到\
-        外置盘上（本机实测），搬迁不会被撤销。而这里的一键迁移用的是「留链接」，\
-        更新有可能把链接换成真目录。
-
-        其余 \(apps.count - appStoreApps.count) 个可以正常一键迁移。
-        """
-        alert.addButton(withTitle: "跳过这 \(appStoreApps.count) 个，迁移其余")
-        alert.addButton(withTitle: "全部迁移（留链接）")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("其中 %lld 个是 App Store 应用", appStoreApps.count)
+        alert.informativeText = l10n("\n        %@%@。\n\n        它们更适合用行内的「纯搬迁」（不留链接）：不留链接时 App Store 更新会就地写到\n        外置盘上（本机实测），搬迁不会被撤销。而这里的一键迁移用的是「留链接」，\n        更新有可能把链接换成真目录。\n\n        其余 %lld 个可以正常一键迁移。\n        ", names, more, apps.count - appStoreApps.count)
+        alert.addButton(withTitle: l10n("跳过这 %lld 个，迁移其余", appStoreApps.count))
+        alert.addButton(withTitle: l10n("全部迁移（留链接）"))
+        alert.addButton(withTitle: l10n("取消"))
         alert.alertStyle = .informational
 
         switch alert.runModal() {

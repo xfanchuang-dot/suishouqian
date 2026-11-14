@@ -18,8 +18,8 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 迁移完成通知
     func notifyMigrationComplete(appName: String, spaceSaved: Int64) {
         send(
-            title: "迁移完成",
-            body: "「\(appName)」已迁移到外置硬盘，节省 \(ByteCountFormatter.string(fromByteCount: spaceSaved, countStyle: .file))",
+            title: l10n("迁移完成"),
+            body: l10n("「%@」已迁移到外置硬盘，节省 %@", appName, ByteCountFormatter.string(fromByteCount: spaceSaved, countStyle: .file)),
             sound: .default
         )
     }
@@ -28,17 +28,17 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     func notifyAutoRemigrate(succeeded: [String], failed: [String], skipped: [String]) {
         var parts: [String] = []
         if !succeeded.isEmpty {
-            parts.append("自动恢复 \(succeeded.count) 个：\(succeeded.prefix(3).joined(separator: "、"))\(succeeded.count > 3 ? "…" : "")")
+            parts.append(l10n("自动恢复 %lld 个：%@%@", succeeded.count, succeeded.prefix(3).joined(separator: "、"), succeeded.count > 3 ? "…" : ""))
         }
         if !failed.isEmpty {
-            parts.append("\(failed.count) 个失败：\(failed.prefix(3).joined(separator: "、"))")
+            parts.append(l10n("%lld 个失败：%@", failed.count, failed.prefix(3).joined(separator: "、")))
         }
         if !skipped.isEmpty {
-            parts.append("\(skipped.count) 个跳过（App Store 应用/正在运行）")
+            parts.append(l10n("%lld 个跳过（App Store 应用/正在运行）", skipped.count))
         }
         guard !parts.isEmpty else { return }
         send(
-            title: "升级顶掉已自动恢复",
+            title: l10n("升级顶掉已自动恢复"),
             body: parts.joined(separator: "；"),
             sound: .default
         )
@@ -48,8 +48,8 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// "已迁移到外置硬盘"，而卸载恰恰是把它从盘上拿走
     func notifyUninstalled(appName: String) {
         send(
-            title: "卸载完成",
-            body: "「\(appName)」已卸载，应用与备份在废纸篓里，反悔可拖回",
+            title: l10n("卸载完成"),
+            body: l10n("「%@」已卸载，应用与备份在废纸篓里，反悔可拖回", appName),
             sound: .default
         )
     }
@@ -57,8 +57,8 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 迁移失败通知
     func notifyMigrationFailed(appName: String, error: String) {
         send(
-            title: "迁移失败",
-            body: "「\(appName)」迁移失败：\(error)",
+            title: l10n("迁移失败"),
+            body: l10n("「%@」迁移失败：%@", appName, error),
             sound: .defaultCritical
         )
     }
@@ -67,13 +67,13 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     func notifyExternalDriveConnected(driveName: String, movableCount: Int, totalSavable: Int64) {
         let body: String
         if movableCount > 0 {
-            body = "检测到「\(driveName)」，\(movableCount) 个应用可迁移，预计节省 \(ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))"
+            body = l10n("检测到「%@」，%lld 个应用可迁移，预计节省 %@", driveName, movableCount, ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file))
         } else {
-            body = "检测到外置硬盘「\(driveName)」"
+            body = l10n("检测到外置硬盘「%@」", driveName)
         }
         
         send(
-            title: "外置硬盘已连接",
+            title: l10n("外置硬盘已连接"),
             body: body,
             sound: nil
         )
@@ -82,8 +82,8 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 外置盘拔出通知
     func notifyExternalDriveDisconnected(driveName: String) {
         send(
-            title: "外置硬盘已断开",
-            body: "「\(driveName)」已断开连接，已迁移的应用暂时不可用",
+            title: l10n("外置硬盘已断开"),
+            body: l10n("「%@」已断开连接，已迁移的应用暂时不可用", driveName),
             sound: nil
         )
     }
@@ -91,21 +91,31 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 拔盘时仍有已迁移应用在运行的提醒
     func notifyUnmountWithRunningApps(driveName: String, appNames: [String]) {
         let list = appNames.prefix(5).joined(separator: "、")
-        let more = appNames.count > 5 ? " 等 \(appNames.count) 个" : ""
+        let more = appNames.count > 5 ? l10n(" 等 %lld 个", appNames.count) : ""
         send(
-            title: "外置硬盘已拔出，仍有应用在运行",
-            body: "\(list)\(more) 正在外置盘上运行，强制使用可能异常，建议尽快保存并退出",
+            title: l10n("外置硬盘已拔出，仍有应用在运行"),
+            body: l10n("%@%@ 正在外置盘上运行，强制使用可能异常，建议尽快保存并退出", list, more),
             sound: .default
+        )
+    }
+
+    /// 启动时处理了崩溃留下的迁移/回迁
+    func notifyCrashRecovery(notes: [String]) {
+        let list = notes.prefix(3).joined(separator: "；")
+        send(
+            title: l10n("未完成的迁移已处理"),
+            body: list,
+            sound: nil
         )
     }
 
     /// 断链自愈完成提示（按台账卷 UUID 重写链接，卷改名也能接上）
     func notifyLinksHealed(appNames: [String]) {
         let list = appNames.prefix(5).joined(separator: "、")
-        let more = appNames.count > 5 ? " 等 \(appNames.count) 条" : ""
+        let more = appNames.count > 5 ? l10n(" 等 %lld 条", appNames.count) : ""
         send(
-            title: "断链已自动修复",
-            body: "硬盘已连接（卷名可能变过），按迁移台账自动接上：\(list)\(more)",
+            title: l10n("断链已自动修复"),
+            body: l10n("硬盘已连接（卷名可能变过），按迁移台账自动接上：%@%@", list, more),
             sound: nil
         )
     }
@@ -113,8 +123,8 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 新装大应用提醒（防复发：新住户主动问要不要搬）
     func notifyNewLargeAppInstalled(name: String, size: Int64) {
         send(
-            title: "检测到新安装的大应用",
-            body: "「\(name)」占用 \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))，要迁移到外置硬盘吗？",
+            title: l10n("检测到新安装的大应用"),
+            body: l10n("「%@」占用 %@，要迁移到外置硬盘吗？", name, ByteCountFormatter.string(fromByteCount: size, countStyle: .file)),
             sound: nil
         )
     }
@@ -125,11 +135,11 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
         let body: String
         if movableCount > 0 {
             let savable = ByteCountFormatter.string(fromByteCount: totalSavable, countStyle: .file)
-            body = "仅剩 \(freeText)。\(movableCount) 个应用可迁移到外置硬盘，预计腾出 \(savable)"
+            body = l10n("仅剩 %@。%lld 个应用可迁移到外置硬盘，预计腾出 %@", freeText, movableCount, savable)
         } else {
-            body = "仅剩 \(freeText)，建议清理大文件或检查废纸篓"
+            body = l10n("仅剩 %@，建议清理大文件或检查废纸篓", freeText)
         }
-        send(title: "内置盘空间不足", body: body, sound: .default)
+        send(title: l10n("内置盘空间不足"), body: body, sound: .default)
     }
 
     private func send(title: String, body: String, sound: UNNotificationSound?) {
@@ -154,10 +164,10 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 拔盘保护：弹出被拦下（有应用正从该盘运行）
     func notifyEjectBlocked(driveName: String, appNames: [String]) {
         let list = appNames.prefix(5).joined(separator: "、")
-        let more = appNames.count > 5 ? " 等 \(appNames.count) 个" : ""
+        let more = appNames.count > 5 ? l10n(" 等 %lld 个", appNames.count) : ""
         send(
-            title: "拔盘保护：已拦下「\(driveName)」的弹出",
-            body: "\(list)\(more) 正从该盘运行，现在拔盘会当场崩溃。退出这些应用后再弹出",
+            title: l10n("拔盘保护：已拦下「%@」的弹出", driveName),
+            body: l10n("%@%@ 正从该盘运行，现在拔盘会当场崩溃。退出这些应用后再弹出", list, more),
             sound: .default
         )
     }
@@ -165,8 +175,8 @@ final class NotificationManager: ObservableObject, @unchecked Sendable {
     /// 拔盘保护：弹出被拦下（迁移任务正在搬走该卷上的应用）
     func notifyEjectBlockedWhileBusy(driveName: String) {
         send(
-            title: "拔盘保护：已拦下「\(driveName)」的弹出",
-            body: "迁移任务正在搬走该盘上的应用，中途拔盘会留下半截副本。等任务结束后再弹出",
+            title: l10n("拔盘保护：已拦下「%@」的弹出", driveName),
+            body: l10n("迁移任务正在搬走该盘上的应用，中途拔盘会留下半截副本。等任务结束后再弹出"),
             sound: .default
         )
     }

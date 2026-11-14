@@ -22,11 +22,24 @@ struct SettingsView: View {
     /// 升级顶掉自动重迁（opt-in，默认关）
     @AppStorage(AutoRemigrateService.enabledKey) private var autoRemigrate = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
-    @State private var tab: Tab = .permissions
+    @State private var tab: Tab = SettingsView.initialTab
     /// 权限状态缓存（进设置页时检测一次，避免每次 body 重算都打文件系统）
     @State private var fdaGranted: Bool?
 
-    enum Tab: Hashable { case permissions, general, backup, watch, about }
+    /// 无人值守截图通道（与 SSQ_PANEL 同款）：SSQ_SETTINGS_TAB=0..5 直接落到指定页签，
+    /// 方便自动化验收 Pro 页；正常启动恒为「权限」。
+    private static var initialTab: Tab {
+        switch ProcessInfo.processInfo.environment["SSQ_SETTINGS_TAB"] {
+        case "1": return .general
+        case "2": return .backup
+        case "3": return .watch
+        case "4": return .pro
+        case "5": return .about
+        default: return .permissions
+        }
+    }
+
+    enum Tab: Hashable { case permissions, general, backup, watch, pro, about }
 
     /// 检查更新用（懒启动：点按钮才拉 Sparkle，无启动开销；两实例各自持有无妨）
     @State private var updateManager = UpdateManager()
@@ -34,8 +47,8 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             MockCapsuleTabs(
-                tabs: [(.permissions, "权限"), (.general, "通用"), (.backup, "备份"),
-                       (.watch, "外置盘守护"), (.about, "关于")],
+                tabs: [(.permissions, l10n("权限")), (.general, l10n("通用")), (.backup, l10n("备份")),
+                       (.watch, l10n("外置盘守护")), (.pro, l10n("Pro")), (.about, l10n("关于"))],
                 selection: $tab)
 
             ScrollView {
@@ -45,12 +58,14 @@ struct SettingsView: View {
                     case .general: generalRows
                     case .backup: backupRows
                     case .watch: watchRows
+                    case .pro: ProUpgradeContent()
                     case .about: aboutRows
                     }
                 }
             }
         }
         .padding(4)
+        .onAppear { licenseManager.refreshEntitlement() }
         // ⚠️ 不做 onAppear 自动探测（v2.3.3 红线）：读 TCC 保护目录在未授予时会弹
         // 授权框，打开设置就弹=弹窗轰炸重演。默认「未知」，用户点「刷新状态」
         // 才真正探测一次——那一刻弹框是用户预期的、可点掉的
@@ -94,7 +109,7 @@ struct SettingsView: View {
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
-                Button("去授权") {
+                Button(l10n("去授权")) {
                     if let url = URL(string: settingsURL) {
                         NSWorkspace.shared.open(url)
                     }
@@ -115,9 +130,9 @@ struct SettingsView: View {
         }
         var label: String {
             switch self {
-            case .granted: return "已授予"
-            case .denied: return "未授予"
-            case .unknown: return "未知"
+            case .granted: return l10n("已授予")
+            case .denied: return l10n("未授予")
+            case .unknown: return l10n("未知")
             }
         }
     }
@@ -166,11 +181,11 @@ struct SettingsView: View {
         HStack(spacing: 8) {
             Image(systemName: "lock.shield.fill")
                 .foregroundColor(.blue)
-            Text("随手迁需要以下权限才能迁移、回迁和卸载应用。配一次，后面不再打扰。")
+            Text(l10n("随手迁需要以下权限才能迁移、回迁和卸载应用。配一次，后面不再打扰。"))
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
             Spacer()
-            Button("刷新状态") { refreshPermissionStatus() }
+            Button(l10n("刷新状态")) { refreshPermissionStatus() }
                 .controlSize(.small)
                 .buttonStyle(.plain)
                 .foregroundColor(.blue)
@@ -178,19 +193,19 @@ struct SettingsView: View {
         .padding(.vertical, 12)
         rowDivider
         permissionRow(
-            "完全磁盘访问权限",
-            "用于扫描桌面/文稿/下载的大文件。未授予时「扩展扫描」不可用，卸载也可能因权限不足失败（如截图中的错误）。",
+            l10n("完全磁盘访问权限"),
+            l10n("用于扫描桌面/文稿/下载的大文件。未授予时「扩展扫描」不可用，卸载也可能因权限不足失败（如截图中的错误）。"),
             status: fdaGranted.map { $0 ? .granted : .denied } ?? .unknown,
             settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
         rowDivider
         permissionRow(
-            "修改其他应用（App Management）",
-            "迁移/回迁/卸载都要改动 /Applications；不授予会反复弹「想要修改其他应用程序」。",
+            l10n("修改其他应用（App Management）"),
+            l10n("迁移/回迁/卸载都要改动 /Applications；不授予会反复弹「想要修改其他应用程序」。"),
             status: .unknown,  // 系统不提供 API 查询，只能引导用户手动确认
             settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppManagement")
         rowDivider
-        row("管理员密码",
-            "迁移系统自带 root 应用（如 Xcode 命令行工具）时仍会要一次管理员密码。这是安全设计，无法也不应绕过。") {
+        row(l10n("管理员密码"),
+            l10n("迁移系统自带 root 应用（如 Xcode 命令行工具）时仍会要一次管理员密码。这是安全设计，无法也不应绕过。")) {
             Image(systemName: "key.fill")
                 .foregroundColor(.secondary)
         }
@@ -200,32 +215,32 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var generalRows: some View {
-        switchRow("内置盘空间守卫",
-                  "内置盘可用空间低于 40GB 时提醒，并附上可迁移应用清单",
+        switchRow(l10n("内置盘空间守卫"),
+                  l10n("内置盘可用空间低于 40GB 时提醒，并附上可迁移应用清单"),
                   isOn: $spaceGuard)
         rowDivider
-        switchRow("新装大应用提醒",
-                  "发现新安装的 ≥500MB 应用时，提醒是否搬到外置硬盘",
+        switchRow(l10n("新装大应用提醒"),
+                  l10n("发现新安装的 ≥500MB 应用时，提醒是否搬到外置硬盘"),
                   isOn: $newAppReminder)
         rowDivider
-        switchRow("拔盘保护",
-                  "弹出外置盘前自动检查：有应用正从该盘运行、或迁移正在搬该盘时拦下弹出并提醒，其余弹出不打扰",
+        switchRow(l10n("拔盘保护"),
+                  l10n("弹出外置盘前自动检查：有应用正从该盘运行、或迁移正在搬该盘时拦下弹出并提醒，其余弹出不打扰"),
                   isOn: $ejectGuard) { on in
             AuditLog.append("拔盘保护开关：\(on ? "开" : "关")")
         }
         rowDivider
-        switchRow("系统通知",
-                  "迁移完成/失败、插拔盘、空间告警等通知的总开关",
+        switchRow(l10n("系统通知"),
+                  l10n("迁移完成/失败、插拔盘、空间告警等通知的总开关"),
                   isOn: $notifications)
         rowDivider
-        switchRow("升级顶掉后自动重新迁移",
-                  "应用自带更新器会把软链接换回真目录；开启后启动/插盘时自动检测并重迁（App Store 应用需手动）",
+        switchRow(l10n("升级顶掉后自动重新迁移"),
+                  l10n("应用自带更新器会把软链接换回真目录；开启后启动/插盘时自动检测并重迁（App Store 应用需手动）"),
                   isOn: $autoRemigrate) { on in
             AuditLog.append("自动重迁开关：\(on ? "开" : "关")")
         }
         rowDivider
-        switchRow("扩展扫描桌面/文稿/下载",
-                  "默认只扫「资源库」零权限弹窗；开启前请先在「权限」页签授予完全磁盘访问权限",
+        switchRow(l10n("扩展扫描桌面/文稿/下载"),
+                  l10n("默认只扫「资源库」零权限弹窗；开启前请先在「权限」页签授予完全磁盘访问权限"),
                   isOn: $bigFileExtended) { on in
             if on { confirmExtendedScan() }
         }
@@ -234,11 +249,11 @@ struct SettingsView: View {
     /// 开启扩展扫描前的知情确认（无法静默探测授权状态，用引导代替）
     private func confirmExtendedScan() {
         let alert = NSAlert()
-        alert.messageText = "开启前请先授予完全磁盘访问权限"
-        alert.informativeText = "请在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 中勾选「随手迁」，否则桌面/文稿/下载扫描不到内容，且可能反复弹授权框。"
-        alert.addButton(withTitle: "去授权")
-        alert.addButton(withTitle: "仍要开启")
-        alert.addButton(withTitle: "取消")
+        alert.messageText = l10n("开启前请先授予完全磁盘访问权限")
+        alert.informativeText = l10n("请在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 中勾选「随手迁」，否则桌面/文稿/下载扫描不到内容，且可能反复弹授权框。")
+        alert.addButton(withTitle: l10n("去授权"))
+        alert.addButton(withTitle: l10n("仍要开启"))
+        alert.addButton(withTitle: l10n("取消"))
         switch alert.runModal() {
         case .alertFirstButtonReturn:
             bigFileExtended = false
@@ -256,22 +271,22 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var backupRows: some View {
-        row("迁移前备份保留",
-            "每次迁移在外置盘 .suishouqian-backup 留底，超期后下次扫描自动清理；回迁成功即回收") {
+        row(l10n("迁移前备份保留"),
+            l10n("每次迁移在外置盘 .suishouqian-backup 留底，超期后下次扫描自动清理；回迁成功即回收")) {
             Picker("", selection: $backupDays) {
-                Text("7 天").tag(7)
-                Text("14 天").tag(14)
-                Text("30 天").tag(30)
-                Text("90 天").tag(90)
+                Text(l10n("7 天")).tag(7)
+                Text(l10n("14 天")).tag(14)
+                Text(l10n("30 天")).tag(30)
+                Text(l10n("90 天")).tag(90)
             }
             .pickerStyle(.menu)
             .frame(width: 110)
         }
         rowDivider
-        row("备份存放位置",
-            "放另一块外置盘：盘体物理损坏时应用与备份不同时丢失。只影响新备份；指定盘离线自动回退同盘") {
+        row(l10n("备份存放位置"),
+            l10n("放另一块外置盘：盘体物理损坏时应用与备份不同时丢失。只影响新备份；指定盘离线自动回退同盘")) {
             Picker("", selection: $backupVolume) {
-                Text("与应用同盘").tag("")
+                Text(l10n("与应用同盘")).tag("")
                 ForEach(appState.volumeStore.onlineVolumes) { vol in
                     Text(vol.displayName).tag(vol.id)
                 }
@@ -290,9 +305,9 @@ struct SettingsView: View {
             }
         }
         rowDivider
-        row("审计日志",
-            "迁移、回迁、卸载、修复、备份清理的全部操作记录，可回答「这个应用什么时候被动过」") {
-            Button("打开日志") {
+        row(l10n("审计日志"),
+            l10n("迁移、回迁、卸载、修复、备份清理的全部操作记录，可回答「这个应用什么时候被动过」")) {
+            Button(l10n("打开日志")) {
                 NSWorkspace.shared.activateFileViewerSelecting([AuditLog.currentLogURL])
             }
             .controlSize(.small)
@@ -303,10 +318,10 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var watchRows: some View {
-        switchRow("外置硬盘接入时自动打开随手迁",
+        switchRow(l10n("外置硬盘接入时自动打开随手迁"),
                   appState.externalDrive == nil && !daemonOn
-                    ? "插入外置硬盘后才能开启"
-                    : "仅在「未挂载 → 已挂载」瞬间唤起一次，应用已在运行时不重复打开",
+                    ? l10n("插入外置硬盘后才能开启")
+                    : l10n("仅在「未挂载 → 已挂载」瞬间唤起一次，应用已在运行时不重复打开"),
                   isOn: $daemonOn,
                   disabled: appState.externalDrive == nil && !daemonOn) { on in
             let ok: Bool
@@ -322,76 +337,42 @@ struct SettingsView: View {
             if ok != on { daemonOn = ok }  // 失败回弹到真实状态
         }
         rowDivider
-        row("当前外置硬盘",
-            appState.externalDrive.map { "\($0.name)（\($0.mountPoint)）" } ?? "未连接") {
+        row(l10n("当前外置硬盘"),
+            appState.externalDrive.map { "\($0.name)（\($0.mountPoint)）" } ?? l10n("未连接")) {
             Image(systemName: appState.externalDrive == nil
                   ? "externaldrive.badge.exclamationmark" : "externaldrive.fill")
                 .foregroundColor(appState.externalDrive == nil ? .secondary : .green)
         }
         rowDivider
-        switchRow("在菜单栏显示随手迁（实验）",
-                  "只显示各盘可用空间和打开/退出入口，不做后台轮询",
+        switchRow(l10n("在菜单栏显示随手迁（实验）"),
+                  l10n("只显示各盘可用空间和打开/退出入口，不做后台轮询"),
                   isOn: $menuBarExtra)
     }
 
-    // MARK: - 支持开发者
+    // MARK: - 支持开发者（已迁入「Pro」页签，这里保留状态入口）
 
     @StateObject private var licenseManager = LicenseManager.shared
-    @State private var licenseInput = ""
-    @State private var licenseMessage: String?
-    @State private var showLicenseField = false
 
     @ViewBuilder
-    private var supportDeveloperRow: some View {
+    private var proStatusRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "heart.fill")
-                    .foregroundColor(.red)
+                Image(systemName: licenseManager.isPro
+                      ? "checkmark.seal.fill" : "heart.fill")
+                    .foregroundColor(licenseManager.isPro ? MockTheme.healthGreen : .red)
                     .font(.system(size: 16))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("支持开发者")
+                    Text(l10n("Pro 与许可证"))
                         .font(.system(size: 15, weight: .semibold))
                     Text(licenseManager.isPro
-                         ? "Pro 已激活（\(licenseManager.licensedEmail ?? ""))，感谢支持！"
-                         : "随手迁是个人独立开发。¥29 解锁 Pro，支持持续更新。")
+                         ? l10n("Pro 已激活（%@），感谢支持！", licenseManager.licensedEmail ?? "")
+                         : l10n("¥29 买断：解锁版本化备份与智能迁移建议。"))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                if !licenseManager.isPro {
-                    Button("购买 Pro ¥29") {
-                        if let url = URL(string: "https://afdian.com/a/suishouqian") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
+                Button(l10n("管理")) { tab = .pro }
                     .controlSize(.small)
-                    Button(showLicenseField ? "收起" : "输入许可证") {
-                        showLicenseField.toggle()
-                    }
-                    .controlSize(.small)
-                }
-            }
-            if showLicenseField && !licenseManager.isPro {
-                HStack(spacing: 8) {
-                    TextField("粘贴许可证", text: $licenseInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                    Button("激活") {
-                        let result = licenseManager.activate(license: licenseInput)
-                        licenseMessage = result.message
-                        if result.ok {
-                            licenseInput = ""
-                            showLicenseField = false
-                        }
-                    }
-                    .controlSize(.small)
-                }
-                if let msg = licenseMessage {
-                    Text(msg)
-                        .font(.system(size: 11))
-                        .foregroundColor(licenseManager.isPro ? .green : .red)
-                }
             }
         }
         .padding(.vertical, 14)
@@ -413,12 +394,12 @@ struct SettingsView: View {
                 .frame(width: 64, height: 64)
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
             VStack(alignment: .leading, spacing: 4) {
-                Text("随手迁")
+                Text(l10n("随手迁"))
                     .font(.system(size: 18, weight: .bold))
-                Text("版本 \(Self.appVersion)")
+                Text(l10n("版本 %@", Self.appVersion))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
-                Text("把内置盘上的大应用安全搬到外置磁盘，释放空间")
+                Text(l10n("把内置盘上的大应用安全搬到外置磁盘，释放空间"))
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
@@ -426,22 +407,22 @@ struct SettingsView: View {
         }
         .padding(.vertical, 16)
         rowDivider
-        row("检查更新...",
-            "通过 Sparkle 更新通道检查新版本（未配置通道时会说明原因）") {
-            Button("检查") { updateManager.checkForUpdates() }
+        row(l10n("检查更新..."),
+            l10n("通过 Sparkle 更新通道检查新版本（未配置通道时会说明原因）")) {
+            Button(l10n("检查")) { updateManager.checkForUpdates() }
                 .buttonStyle(.bordered)
         }
         rowDivider
-        row("关于面板",
-            "系统标准的应用信息与版权面板") {
-            Button("打开") { NSApp.orderFrontStandardAboutPanel(nil) }
+        row(l10n("关于面板"),
+            l10n("系统标准的应用信息与版权面板")) {
+            Button(l10n("打开")) { NSApp.orderFrontStandardAboutPanel(nil) }
                 .buttonStyle(.bordered)
         }
         rowDivider
-        // 支持开发者：Pro 激活 + 打赏入口
-        supportDeveloperRow
+        // Pro 状态入口（购买/激活/管理已迁入「Pro」页签，避免同一功能两套 UI）
+        proStatusRow
         rowDivider
-        Text("© 2026 随手迁 · 为个人 Mac 打造的应用迁移工具")
+        Text(l10n("© 2026 随手迁 · 为个人 Mac 打造的应用迁移工具"))
             .font(.system(size: 11))
             .foregroundColor(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
