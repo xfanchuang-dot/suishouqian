@@ -1159,5 +1159,149 @@ Apps that are running are skipped and listed at the end. When everything succeed
 			<string>Skipped all %lld App Store apps</string>
 		</dict>
 	</dict>
+	<key>%lld 个版本</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld version</string>
+			<key>other</key>
+			<string>%lld versions</string>
+		</dict>
+	</dict>
+	<key>%lld 天未用</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ unused</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>共 %lld 个 · 可腾出 %@</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ · frees %@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld total</string>
+			<key>other</key>
+			<string>%lld total</string>
+		</dict>
+	</dict>
+	<key>内置盘还有 %lld 个应用（共 %@）适合迁出。</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Candidates on the internal disk: %#@count@ (total %@).</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld app</string>
+			<key>other</key>
+			<string>%lld apps</string>
+		</dict>
+	</dict>
+	<key>已为你保留 %lld 份历史版本，升级或试用后即可恢复。</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ kept. Upgrade or start the trial to restore them.</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld historical version</string>
+			<key>other</key>
+			<string>%lld historical versions</string>
+		</dict>
+	</dict>
+	<key>每个应用保留最近 %lld 个</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Keeps the latest %#@count@ per app</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld</string>
+			<key>other</key>
+			<string>%lld</string>
+		</dict>
+	</dict>
+	<key>试用中 · 剩 %lld 天</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Trial · %#@count@ left</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>试用剩 %lld 天</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ left in trial</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld day</string>
+			<key>other</key>
+			<string>%lld days</string>
+		</dict>
+	</dict>
+	<key>试用还剩 %lld 天，全部 Pro 功能已解锁；到期后自动回到免费版，不扣费。</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@ left; all Pro features are unlocked. It reverts to Free automatically—no charge.</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>lld</string>
+			<key>one</key>
+			<string>%lld trial day</string>
+			<key>other</key>
+			<string>%lld trial days</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

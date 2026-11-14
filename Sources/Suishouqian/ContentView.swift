@@ -107,9 +107,6 @@ struct ContentView: View {
         .help(l10n("查看磁盘详情与测速"))
     }
 
-    /// 效果图紫：选中行高亮与图标着色统一用它
-    private static let sidebarAccent = Color(red: 0.44, green: 0.36, blue: 0.93)
-
     /// 侧边栏行：未选中＝细线灰图标+深色字；选中＝浅紫圆角底+fill 图标+紫字。
     /// 用户反馈放大：图标 17pt、文字 15pt、行内上下 9pt、左右 12pt
     private func sidebarRow(_ title: String, icon: String, panel: Panel) -> some View {
@@ -121,18 +118,18 @@ struct ContentView: View {
                 Image(systemName: icon)
                     .symbolVariant(selected ? .fill : .none)
                     .font(.system(size: 17, weight: .regular))
-                    .foregroundColor(selected ? Self.sidebarAccent : .secondary)
+                    .foregroundColor(selected ? MockTheme.accent : .secondary)
                     .frame(width: 24, alignment: .center)
                 Text(title)
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
-                    .foregroundColor(selected ? Self.sidebarAccent : .primary)
+                    .foregroundColor(selected ? MockTheme.accent : .primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             // 选中行：macOS 26+ 动态液化玻璃（紫色、随指针/背景实时折射）；
             // 低版本回退静态浅紫底。未选中行保持透明。
-            .modifier(SidebarSelectionBackground(selected: selected, accent: Self.sidebarAccent))
+            .modifier(SidebarSelectionBackground(selected: selected, accent: MockTheme.accent))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -248,12 +245,13 @@ struct ContentView: View {
                 .mockPage()
             case .health:
                 // 体检页与其他页统一：同样浮在大白卡上（此前是唯一裸在灰底的页，
-                // 页间切换容器跳变）。磁盘横条（SMART 圆点/测速/离线卡）保留在卡顶
+                // 页间切换容器跳变）。边距与其他页同为 28/24（此前 20/16 会导致
+                // 页间切换时内容左边缘跳动）。磁盘横条（SMART 圆点/测速/离线卡）保留在卡顶
                 VStack(spacing: 14) {
                     DiskBarView()
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                    HealthCheckView().padding(.horizontal, 20)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 24)
+                    HealthCheckView().padding(.horizontal, 28)
                 }
                 .mockPage()
             case .overview:
@@ -300,6 +298,11 @@ struct ContentView: View {
                 appState.activePanel = .migrate
             }
             .environmentObject(appState)
+        }
+        // Pro 升级/激活：锁定卡与各页面入口都只置 showProUpgrade，统一在这里开一扇门
+        .sheet(isPresented: $appState.showProUpgrade) {
+            ProUpgradeSheet()
+                .environmentObject(appState)
         }
     }
 

@@ -5,17 +5,13 @@ import SwiftUI
 // 来源：数据/迁移/概览/设置/应用 五张效果图。视觉语言：
 //   灰窗底 + 内容区一张大白圆角卡（r=18，柔和投影）；
 //   卡片白底 r=16 + 发丝描边 + 柔影；主紫 #7060EC（与侧栏选中同源）；
-//   主按钮蓝→紫渐变胶囊；健康横幅浅绿渐变；用量条蓝→紫（内置）/绿（外置）。
+//   主按钮实色 accent 胶囊（Task 5 冷静控制台规范，蓝→紫渐变已退役）；
+//   健康横幅浅绿渐变；用量条蓝→紫（内置）/绿（外置）。
 
 enum MockTheme {
     /// 主紫（与侧栏选中色一致）
     static let accent = Color(red: 0.44, green: 0.36, blue: 0.93)
-    /// 主按钮渐变：蓝 → 紫
-    static let primaryGradient = LinearGradient(
-        colors: [Color(red: 0.23, green: 0.51, blue: 0.96),
-                 Color(red: 0.55, green: 0.36, blue: 0.93)],
-        startPoint: .leading, endPoint: .trailing)
-    /// 用量条：内置盘 蓝→紫
+    /// 用量条：内置盘 蓝→紫（数据可视化渐变，保留；主按钮已统一实色 accent）
     static let builtinBar = LinearGradient(
         colors: [Color(red: 0.23, green: 0.51, blue: 0.96),
                  Color(red: 0.55, green: 0.36, blue: 0.93)],
@@ -196,41 +192,6 @@ struct MockSegmentedBar: View {
         .frame(height: height)
         .clipShape(Capsule())
         .background(Capsule().fill(Color.primary.opacity(0.07)))
-    }
-}
-
-// MARK: - 主按钮：蓝→紫渐变胶囊（效果图「一键迁移全部」「重新扫描」）
-
-struct MockGradientButton: View {
-    let title: String
-    var systemImage: String? = nil
-    var enabled: Bool = true
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .semibold))
-                }
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 30)
-            .padding(.vertical, 13)
-            .background(
-                Capsule().fill(enabled ? MockTheme.primaryGradient
-                                       : LinearGradient(colors: [Color.primary.opacity(0.2),
-                                                                 Color.primary.opacity(0.2)],
-                                                        startPoint: .leading, endPoint: .trailing))
-            )
-            .shadow(color: MockTheme.accent.opacity(enabled ? 0.35 : 0), radius: 12, y: 5)
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .pressScale()
     }
 }
 

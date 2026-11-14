@@ -99,7 +99,7 @@ struct MigrationExecutionView: View {
                     .fill(Color.primary.opacity(0.08))
                     .overlay(alignment: .leading) {
                         Capsule()
-                            .fill(MockTheme.primaryGradient)
+                            .fill(MockTheme.accent)
                             .frame(width: max(8, geo.size.width * task.progress))
                     }
             }

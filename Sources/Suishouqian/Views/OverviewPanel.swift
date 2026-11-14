@@ -726,9 +726,9 @@ struct OverviewPanel: View {
                 result = await appState.migrator.relocate(
                     app: app, fromVolume: current, toVolume: origin,
                     phaseProgress: phaseProgress, progress: progress)
-            case .uninstall, .undo:
+            case .uninstall, .undo, .backupRestore:
                 // 不可达：uninstall 已在入口分流到 undoUninstallFromTrash，
-                // .undo 的按钮永不亮。留个防御兜底并说明原因
+                // .undo/.backupRestore 的撤销按钮永不亮。留个防御兜底并说明原因
                 appState.migrationTask = nil
                 isUndoing = false
                 return
@@ -794,6 +794,7 @@ struct OverviewPanel: View {
         case .remigrate: return "arrow.clockwise"
         case .relocate: return "externaldrive.connected.to.line.below"
         case .undo: return "arrow.uturn.backward.circle"
+        case .backupRestore: return "clock.arrow.circlepath"
         }
     }
 
@@ -806,6 +807,7 @@ struct OverviewPanel: View {
         case .remigrate: return l10n("重新迁移")
         case .relocate: return l10n("盘间迁移")
         case .undo: return l10n("撤销")
+        case .backupRestore: return l10n("恢复备份版本")
         }
     }
 

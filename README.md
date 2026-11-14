@@ -44,18 +44,19 @@
 
 | 免费版 | Pro 版 |
 |---|---|
-| 应用迁移 / 回迁 | 智能迁移建议 |
-| 健康体检（断链/备份/残留） | 版本化备份 |
-| 磁盘测速 / SMART 监控 | 多 Mac 配置同步 |
+| 应用迁移 / 回迁 | 智能迁移建议（按占用 × 闲置时长排序，一键生成计划） |
+| 健康体检（断链/备份/残留） | 版本化备份（每次迁移保留最近 5 个历史版本，可回滚） |
+| 磁盘测速 / SMART 监控 | 多 Mac 配置同步（**开发中**，上线后自动解锁） |
 | 迁移历史时间线 | 优先支持 |
 
-> **Pro 现状说明（诚实版）**：Pro 的三项功能（智能迁移建议 / 版本化备份 / 多 Mac 配置同步）
-> **仍在开发中**，当前版本激活 Pro 并不会扩大或限制免费功能的使用范围。
+> **Pro 现状说明（诚实版）**：**版本化备份**与**智能迁移建议**已上线；
+> **多 Mac 配置同步仍在开发中**。7 天全功能试用可先体验，到期不扣费、不自动续。
+> 免费版的迁移、回迁、体检、备份能力**不因 Pro 而缩减**。
 > ¥29 为**买断制**：一次付费，后续所有 Pro 功能上线后自动解锁，并优先获得支持。
 > 许可证离线 Ed25519 校验，不联网、不上传任何数据。
 > 签发机制与运维手册见 [docs/LICENSE_ISSUING.md](docs/LICENSE_ISSUING.md)。
 
-购买入口：[爱发电](https://afdian.com/a/suishouqian) —— ¥29 **一次性购买**（不是订阅，不会重复扣费）。
+购买入口：[xios.uk 购买页](https://xios.uk/suishouqian/buy/) —— ¥29 **一次性购买**（支付宝转账；确认到账后订单页自动发放许可证，通常 24h 内；不是订阅，不会重复扣费）。
 
 ## 安装
 
@@ -91,7 +92,7 @@ bash build.sh
 随手迁是个人独立开发，0 成本运营。如果它帮你省下了买大容量 Mac 的钱：
 
 - ⭐ 给个 Star，让更多人看到
-- 💰 [爱发电赞助](https://afdian.com/a/suishouqian)（¥29 解锁 Pro）
+- 💰 [网站购买 Pro](https://xios.uk/suishouqian/buy/)（¥29 解锁 Pro，支付宝转账）
 - 🐛 [提 Issue](https://github.com/xfanchuang-dot/suishouqian/issues) 帮我改进
 
 ## 许可证
@@ -156,7 +157,7 @@ bash build.sh
 > support. Licenses verify offline via Ed25519 — no network calls, no telemetry.
 
 - ⭐ Star this repo to help others discover it
-- 💰 [Sponsor](https://afdian.com/a/suishouqian) — ¥29 **one-time** for Pro (not a subscription, no recurring charge)
+- 💰 [Buy Pro](https://xios.uk/suishouqian/buy/) — ¥29 **one-time** for Pro (Alipay transfer; not a subscription, no recurring charge)
 - 🐛 [File issues](https://github.com/xfanchuang-dot/suishouqian/issues)
 
 ## License

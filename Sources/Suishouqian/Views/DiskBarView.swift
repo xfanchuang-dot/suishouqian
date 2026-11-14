@@ -182,26 +182,8 @@ struct DiskBarView: View {
                 speedRow(mount: drive.mountPoint)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Corner.card, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(0.45),
-                            .white.opacity(0.08),
-                            .black.opacity(0.08)
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    ),
-                    lineWidth: 0.5
-                )
-        )
+        // 卡壳与全应用统一（原为手写旧版渐变描边卡，与 CardStyle 双份维护）
+        .cardStyle()
     }
 
     // MARK: - 实测盘速（v2.12.0）

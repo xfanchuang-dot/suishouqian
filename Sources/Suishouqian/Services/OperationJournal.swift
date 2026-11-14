@@ -9,6 +9,7 @@ enum JournalOperation: String, Codable {
     case remigrate    // 更新回归后重新迁移
     case relocate     // 盘间迁移（params: fromUUID/toUUID）
     case undo         // 撤销（params.undoneID 指被撤销的条目）
+    case backupRestore // 恢复历史备份版本（Pro；params: versionPath）
 
     /// 逆操作（nil = 无常规逆操作：uninstall 走"从废纸篓恢复"特殊路径，
     /// undo 本身不再套娃——撤销链用 undoneBy 字段记，防止糊涂账）
@@ -21,6 +22,7 @@ enum JournalOperation: String, Codable {
         case .remigrate: return .restore
         case .relocate: return .relocate // 逆向盘间迁移（params 交换 from/to）
         case .undo: return nil
+        case .backupRestore: return nil  // 恢复前副本已进版本库，不设自动逆操作
         }
     }
 }
@@ -263,6 +265,11 @@ enum UndoPlanner {
 
         case .undo:
             return UndoPlan(feasible: false, message: l10n("撤销本身不需要再撤销"), inverseOp: nil)
+
+        case .backupRestore:
+            return UndoPlan(feasible: false,
+                            message: l10n("恢复备份版本不支持撤销（恢复前的副本已存入备份版本库）"),
+                            inverseOp: nil)
         }
     }
 }

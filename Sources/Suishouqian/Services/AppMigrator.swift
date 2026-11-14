@@ -660,6 +660,9 @@ class AppMigrator: @unchecked Sendable {
             progress(0.85, l10n("备份原件..."))
             try? fileManager.createDirectory(atPath: BackupLocations.backupRoot(for: drivePath),
                   withIntermediateDirectories: true)
+            // Pro 版本化备份：写入新备份前把上一份归档（免费用户 no-op）
+            archivePreviousBackupIfEntitled(backupPath: backupPath, appName: appName,
+                                            drivePath: drivePath)
         }
         
         // 检查是否需要管理员权限（/Applications 下的 root 所有文件）
@@ -912,6 +915,9 @@ class AppMigrator: @unchecked Sendable {
         if verified {
             phaseProgress(.init(phase: .backupAndSwitch, progress: 0.95, message: l10n("清理外置副本...")))
             try? fileManager.removeItem(atPath: externalPath)
+            // Pro：回迁成功要回收当前备份，回收前先归档为历史版本（免费 no-op）
+            archivePreviousBackupIfEntitled(backupPath: backupDir, appName: appName,
+                                            drivePath: drivePath)
             try? fileManager.removeItem(atPath: backupDir)
             MigrationManifest.shared.remove(appName: appName)
             AuditLog.append("回迁成功 \(appName)：已恢复到内置盘并清理外置副本")
@@ -1152,6 +1158,119 @@ class AppMigrator: @unchecked Sendable {
         guard (attrs[.type] as? FileAttributeType) == .typeSymbolicLink else { return true }
         guard let target = try? fileManager.destinationOfSymbolicLink(atPath: path) else { return false }
         return fileManager.fileExists(atPath: target)
+    }
+
+    // MARK: - 版本化备份（Pro）
+
+    /// 写入新备份 / 回收备份前，把上一份当前备份归档为历史版本。
+    /// 免费用户直接 no-op（`entitled == false`），备份路径与行为完全不变。
+    /// 归档失败只记审计，绝不影响正在进行的迁移。
+    private func archivePreviousBackupIfEntitled(backupPath: String, appName: String,
+                                                 drivePath: String) {
+        guard ProEntitlement.isEntitled(.versionedBackup) else { return }
+        let root = BackupLocations.backupRoot(for: drivePath)
+        _ = BackupVersionStore.archiveCurrentBackup(
+            backupPath: backupPath, appName: appName, in: root, entitled: true)
+    }
+
+    /// 把指定历史备份版本恢复到应用当前所在位置（Pro）。
+    ///
+    /// 安全链：应用必须已退出 → 当前副本**复制**进版本库（恢复前快照，不搬走）→
+    /// 版本复制到目标同卷临时目录 → Info.plist 校验 → 同卷 move 交换（失败移回）→ 清理。
+    /// 任何一步失败都保留原状；root 属主应用写回 /Applications 会失败并如实报错。
+    func restoreVersion(_ version: BackupVersion,
+                        for app: AppItem,
+                        phaseProgress: @escaping @Sendable (MigrationProgressUpdate) -> Void = { _ in },
+                        progress: @escaping @Sendable (Double, String) -> Void = { _, _ in }
+    ) async -> MigrationResult {
+        let targetPath: String
+        switch app.status {
+        case .migrated:
+            guard let target = app.symlinkTarget else {
+                return MigrationResult(success: false,
+                      error: l10n("未找到外置盘上的应用副本"), spaceSaved: 0)
+            }
+            targetPath = target
+        case .externalOnly, .normal:
+            targetPath = app.path
+        default:
+            return MigrationResult(success: false,
+                  error: l10n("应用正在迁移/回迁中，请稍后再恢复"), spaceSaved: 0)
+        }
+        guard fileManager.fileExists(atPath: version.path) else {
+            return MigrationResult(success: false,
+                  error: l10n("备份版本已不存在，可能已被清理"), spaceSaved: 0)
+        }
+        if let running = Self.runningAppName(matching: targetPath) {
+            return MigrationResult(success: false,
+                  error: l10n("「%@」正在运行，请先退出后再恢复", running), spaceSaved: 0)
+        }
+
+        phaseProgress(.init(phase: .preflight, progress: 0, message: l10n("正在预检恢复…")))
+
+        // 恢复前快照：复制（不是搬走）当前副本。交换成功前原件不能动。
+        if fileManager.fileExists(atPath: targetPath) {
+            phaseProgress(.init(phase: .backupAndSwitch, progress: 0.05,
+                                message: l10n("保存当前版本…")))
+            progress(0.05, l10n("保存当前版本…"))
+            let snapshot = BackupVersionStore.snapshot(
+                directory: targetPath, appName: app.bundleName,
+                in: version.root, mode: .copy)
+            guard snapshot != nil else {
+                return MigrationResult(success: false,
+                      error: l10n("无法保存当前版本（备份盘可能已满），已取消恢复，未改动任何文件"),
+                      spaceSaved: 0)
+            }
+        }
+
+        let suffix = UUID().uuidString
+        let tempPath = "\(targetPath).ssq-restore-\(suffix)"
+        let asidePath = "\(targetPath).ssq-old-\(suffix)"
+
+        phaseProgress(.init(phase: .copying, progress: 0.2, message: l10n("正在复制备份版本…")))
+        let copied = await copyWithDitto(from: version.path, to: tempPath) { p in
+            progress(0.2 + p * 0.65, l10n("正在复制备份版本…"))
+        }
+        guard copied else {
+            try? fileManager.removeItem(atPath: tempPath)
+            return MigrationResult(success: false,
+                  error: l10n("备份版本复制失败（盘可能已满或只读）"), spaceSaved: 0)
+        }
+        // 只认真正的应用包，防止历史目录被别的东西污染后覆盖掉好副本
+        guard fileManager.fileExists(atPath: "\(tempPath)/Contents/Info.plist") else {
+            try? fileManager.removeItem(atPath: tempPath)
+            return MigrationResult(success: false,
+                  error: l10n("备份版本不是可用的应用包，已取消恢复"), spaceSaved: 0)
+        }
+
+        phaseProgress(.init(phase: .backupAndSwitch, progress: 0.9, message: l10n("正在替换…")))
+        progress(0.9, l10n("正在替换…"))
+        let hadTarget = fileManager.fileExists(atPath: targetPath)
+        do {
+            if hadTarget { try fileManager.moveItem(atPath: targetPath, toPath: asidePath) }
+            do {
+                try fileManager.moveItem(atPath: tempPath, toPath: targetPath)
+            } catch {
+                if hadTarget {
+                    try? fileManager.moveItem(atPath: asidePath, toPath: targetPath)
+                }
+                throw error
+            }
+            if hadTarget { try? fileManager.removeItem(atPath: asidePath) }
+        } catch {
+            try? fileManager.removeItem(atPath: tempPath)
+            AuditLog.append("恢复备份失败 \(app.bundleName)：\(error.localizedDescription)")
+            return MigrationResult(success: false,
+                  error: l10n("替换应用失败（可能权限不足）：%@", error.localizedDescription),
+                  spaceSaved: 0)
+        }
+
+        _ = OperationJournal.shared.record(
+            op: .backupRestore, appName: app.bundleName,
+            params: ["versionPath": version.path], result: "ok")
+        AuditLog.append("已恢复备份版本 \(app.bundleName)：\(BackupVersionStore.displayText(version.createdAt))")
+        progress(1.0, l10n("恢复完成"))
+        return MigrationResult(success: true, spaceSaved: 0)
     }
 
     /// 给刚建立的备份打上"创建时刻"。

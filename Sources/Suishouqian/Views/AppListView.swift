@@ -240,21 +240,21 @@ struct AppListView: View {
 
                 Spacer(minLength: 8)
 
-                // 分段筛选（对照效果图：米色选中药丸 + 分隔线，非原生分段样式）
+                // 分段筛选（选中药丸 + 分隔线，非原生分段样式；
+                // 选中色与侧栏/设置页签同源 = 唯一强调紫，全应用不再有米色孤儿）
                 HStack(spacing: 0) {
                     ForEach(FilterMode.allCases, id: \.self) { mode in
                         Button { filterMode = mode } label: {
                             Text(mode.rawValue)
                                 .font(.system(size: 13, weight: filterMode == mode ? .medium : .regular))
-                                .foregroundColor(filterMode == mode ? .primary : .secondary)
+                                .foregroundColor(filterMode == mode ? MockTheme.accent : .secondary)
                                 .lineLimit(1)
                                 .fixedSize()
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 6)
                                 .background(
                                     Capsule().fill(filterMode == mode
-                                        // 效果图：暖米色选中（非系统灰）
-                                        ? Color(red: 0.90, green: 0.86, blue: 0.78)
+                                        ? MockTheme.accent.opacity(0.13)
                                         : Color.clear)
                                 )
                         }
@@ -327,7 +327,7 @@ struct AppListView: View {
                         symbol: "externaldrive.fill",
                         accentSymbols: ["doc.fill", "music.note", "message.fill",
                                         "cloud.fill", "video.fill", "gearshape.fill"],
-                        gradient: [.blue, .purple],
+                        gradient: [MockTheme.accent, MockTheme.accent.opacity(0.6)],
                         title: l10n("还没有可迁移的应用"),
                         subtitle: l10n("连接外置磁盘后，这里会列出可以迁移的应用"),
                         actionTitle: l10n("重新扫描"),
@@ -339,7 +339,7 @@ struct AppListView: View {
                     EmptyStateView(
                         symbol: "magnifyingglass",
                         accentSymbols: [],
-                        gradient: [.blue, .cyan],
+                        gradient: [MockTheme.accent, MockTheme.accent.opacity(0.6)],
                         title: l10n("无匹配结果"),
                         subtitle: l10n("换个关键词试试"),
                         reduceMotion: reduceMotion,

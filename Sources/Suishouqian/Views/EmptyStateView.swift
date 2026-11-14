@@ -57,9 +57,12 @@ struct EmptyStateView: View {
 
     // MARK: - 配色
 
-    /// 空数组兜底：通用组件不能假设调用方一定传了颜色（裸 gradient[0] 会崩）
+    /// 空数组兜底：通用组件不能假设调用方一定传了颜色（裸 gradient[0] 会崩）。
+    /// 兜底取唯一强调紫（Task 5 契约：不再引入蓝→青竞争性渐变）
     private var palette: [Color] {
-        gradient.isEmpty ? [.blue, .cyan] : gradient
+        gradient.isEmpty
+            ? [MockTheme.accent, MockTheme.accent.opacity(0.6)]
+            : gradient
     }
     private var primary: Color { palette[0] }
     private var secondary: Color { palette.count > 1 ? palette[1] : palette[0] }

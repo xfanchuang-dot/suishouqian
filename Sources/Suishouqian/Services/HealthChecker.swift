@@ -252,6 +252,9 @@ class HealthChecker: @unchecked Sendable {
         for item in contents {
             // v2.3: 数据目录备份（Data-*）由数据面板负责，不参与应用孤儿审计
             if item.hasPrefix(DataMigrator.manifestPrefix) { continue }
+            // Pro 版本化备份：历史版本存放在隐藏目录 .versions，由数据页单独管理；
+            // 顶层扫描把它当孤儿备份会误报（进而误删历史版本）
+            if item == BackupVersionStore.versionsDirName { continue }
             let full = "\(backupDir)/\(item)"
             guard let attrs = try? fileManager.attributesOfItem(atPath: full),
                   let mtime = attrs[.modificationDate] as? Date else { continue }

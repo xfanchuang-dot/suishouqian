@@ -22,11 +22,24 @@ struct SettingsView: View {
     /// 升级顶掉自动重迁（opt-in，默认关）
     @AppStorage(AutoRemigrateService.enabledKey) private var autoRemigrate = false
     @State private var daemonOn = LaunchAgentManager.isInstalled
-    @State private var tab: Tab = .permissions
+    @State private var tab: Tab = SettingsView.initialTab
     /// 权限状态缓存（进设置页时检测一次，避免每次 body 重算都打文件系统）
     @State private var fdaGranted: Bool?
 
-    enum Tab: Hashable { case permissions, general, backup, watch, about }
+    /// 无人值守截图通道（与 SSQ_PANEL 同款）：SSQ_SETTINGS_TAB=0..5 直接落到指定页签，
+    /// 方便自动化验收 Pro 页；正常启动恒为「权限」。
+    private static var initialTab: Tab {
+        switch ProcessInfo.processInfo.environment["SSQ_SETTINGS_TAB"] {
+        case "1": return .general
+        case "2": return .backup
+        case "3": return .watch
+        case "4": return .pro
+        case "5": return .about
+        default: return .permissions
+        }
+    }
+
+    enum Tab: Hashable { case permissions, general, backup, watch, pro, about }
 
     /// 检查更新用（懒启动：点按钮才拉 Sparkle，无启动开销；两实例各自持有无妨）
     @State private var updateManager = UpdateManager()
@@ -35,7 +48,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 18) {
             MockCapsuleTabs(
                 tabs: [(.permissions, l10n("权限")), (.general, l10n("通用")), (.backup, l10n("备份")),
-                       (.watch, l10n("外置盘守护")), (.about, l10n("关于"))],
+                       (.watch, l10n("外置盘守护")), (.pro, l10n("Pro")), (.about, l10n("关于"))],
                 selection: $tab)
 
             ScrollView {
@@ -45,12 +58,14 @@ struct SettingsView: View {
                     case .general: generalRows
                     case .backup: backupRows
                     case .watch: watchRows
+                    case .pro: ProUpgradeContent()
                     case .about: aboutRows
                     }
                 }
             }
         }
         .padding(4)
+        .onAppear { licenseManager.refreshEntitlement() }
         // ⚠️ 不做 onAppear 自动探测（v2.3.3 红线）：读 TCC 保护目录在未授予时会弹
         // 授权框，打开设置就弹=弹窗轰炸重演。默认「未知」，用户点「刷新状态」
         // 才真正探测一次——那一刻弹框是用户预期的、可点掉的
@@ -334,64 +349,30 @@ struct SettingsView: View {
                   isOn: $menuBarExtra)
     }
 
-    // MARK: - 支持开发者
+    // MARK: - 支持开发者（已迁入「Pro」页签，这里保留状态入口）
 
     @StateObject private var licenseManager = LicenseManager.shared
-    @State private var licenseInput = ""
-    @State private var licenseMessage: String?
-    @State private var showLicenseField = false
 
     @ViewBuilder
-    private var supportDeveloperRow: some View {
+    private var proStatusRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "heart.fill")
-                    .foregroundColor(.red)
+                Image(systemName: licenseManager.isPro
+                      ? "checkmark.seal.fill" : "heart.fill")
+                    .foregroundColor(licenseManager.isPro ? MockTheme.healthGreen : .red)
                     .font(.system(size: 16))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(l10n("支持开发者"))
+                    Text(l10n("Pro 与许可证"))
                         .font(.system(size: 15, weight: .semibold))
                     Text(licenseManager.isPro
-                         ? l10n("Pro 已激活（%@)，感谢支持！", licenseManager.licensedEmail ?? "")
-                         : l10n("随手迁是个人独立开发。¥29 解锁 Pro，支持持续更新。"))
+                         ? l10n("Pro 已激活（%@），感谢支持！", licenseManager.licensedEmail ?? "")
+                         : l10n("¥29 买断：解锁版本化备份与智能迁移建议。"))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                if !licenseManager.isPro {
-                    Button(l10n("购买 Pro ¥29")) {
-                        if let url = URL(string: "https://afdian.com/a/suishouqian") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
+                Button(l10n("管理")) { tab = .pro }
                     .controlSize(.small)
-                    Button(showLicenseField ? l10n("收起") : l10n("输入许可证")) {
-                        showLicenseField.toggle()
-                    }
-                    .controlSize(.small)
-                }
-            }
-            if showLicenseField && !licenseManager.isPro {
-                HStack(spacing: 8) {
-                    TextField(l10n("粘贴许可证"), text: $licenseInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                    Button(l10n("激活")) {
-                        let result = licenseManager.activate(license: licenseInput)
-                        licenseMessage = result.message
-                        if result.ok {
-                            licenseInput = ""
-                            showLicenseField = false
-                        }
-                    }
-                    .controlSize(.small)
-                }
-                if let msg = licenseMessage {
-                    Text(msg)
-                        .font(.system(size: 11))
-                        .foregroundColor(licenseManager.isPro ? .green : .red)
-                }
             }
         }
         .padding(.vertical, 14)
@@ -438,8 +419,8 @@ struct SettingsView: View {
                 .buttonStyle(.bordered)
         }
         rowDivider
-        // 支持开发者：Pro 激活 + 打赏入口
-        supportDeveloperRow
+        // Pro 状态入口（购买/激活/管理已迁入「Pro」页签，避免同一功能两套 UI）
+        proStatusRow
         rowDivider
         Text(l10n("© 2026 随手迁 · 为个人 Mac 打造的应用迁移工具"))
             .font(.system(size: 11))

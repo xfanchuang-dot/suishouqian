@@ -329,7 +329,7 @@ struct MigrationPlanReviewSheet: View {
                 Button(l10n("取消")) { dismiss() }
                     .buttonStyle(.plain)
                     .foregroundColor(.secondary)
-                MockGradientButton(title: l10n("确认并开始"), systemImage: "checkmark.seal.fill") {
+                PrimaryActionButton(title: l10n("确认并开始"), systemImage: "checkmark.seal.fill") {
                     guard let plan = state.summary else { return }
                     onConfirm(plan)
                     dismiss()

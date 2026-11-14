@@ -15,6 +15,11 @@ struct DataPanelView: View {
     /// 备份问题项（孤儿/超期，来自体检引擎 overview 口径）
     @State private var backupIssues: [BackupIssue] = []
 
+    // 版本化备份（Pro）
+    @StateObject private var licenseManager = LicenseManager.shared
+    @State private var versions: [BackupVersion] = []
+    @State private var restoringVersionID: String?
+
     private let dataMigrator = DataMigrator()
 
     /// 清单条目 + 已迁移的自选文件夹（排在后面）
@@ -30,6 +35,9 @@ struct DataPanelView: View {
 
                     // —— 效果图：备份记录（真实问题项；清理入口在体检页，单一破坏性入口原则）——
                     backupSection
+
+                    // Pro：历史备份版本（列表/恢复/删除；未解锁显示锁定卡）
+                    versionsSection
 
                     header
                     hint
@@ -52,11 +60,18 @@ struct DataPanelView: View {
                 }
                 .padding(.vertical, 4)
             }
-            .onAppear { rescan() }
+            .onAppear {
+                licenseManager.refreshEntitlement()
+                rescan()
+            }
 
             Divider().padding(.horizontal, 4)
             // 效果图底栏摘要（真实口径）
             MockBottomBar(items: bottomItems)
+        }
+        // 试用/激活状态变化后重扫：历史版本要从"只数条数"切到带体积的完整列表
+        .onChange(of: licenseManager.entitlement) { _, status in
+            if status.isActive { rescan() }
         }
     }
 
@@ -94,9 +109,10 @@ struct DataPanelView: View {
 
     private var backupSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // 小节标题与「应用数据」「数据分叉」同款（此前是 20pt 孤儿字号，
+            // 游离在 26pt 页标题与 11pt 小节标题的层级体系之外）
             HStack {
-                Text(l10n("备份记录"))
-                    .font(.system(size: 20, weight: .bold))
+                SectionHeader(title: l10n("备份记录"), systemImage: "externaldrive.badge.timemachine")
                 Spacer()
                 if !backupIssues.isEmpty {
                     Button(l10n("清理残留")) { appState.activePanel = .health }
@@ -151,6 +167,170 @@ struct DataPanelView: View {
                     .mockCard(padding: 14)
                     .contentShape(Rectangle())
                     .onTapGesture { appState.activePanel = .health }
+                }
+            }
+        }
+    }
+
+    // MARK: - 备份版本（Pro）
+
+    private struct VersionGroup: Identifiable {
+        let appName: String
+        let items: [BackupVersion]
+        var id: String { appName }
+    }
+
+    private var versionGroups: [VersionGroup] {
+        let grouped = Dictionary(grouping: versions, by: \.appName)
+        return grouped.keys.sorted().map { name in
+            VersionGroup(appName: name,
+                         items: grouped[name]!.sorted { $0.createdAt > $1.createdAt })
+        }
+    }
+
+    private var versionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                SectionHeader(title: l10n("备份版本"), systemImage: "clock.arrow.circlepath")
+                Spacer()
+                if licenseManager.entitlement.isActive && !versions.isEmpty {
+                    Text(l10n("每个应用保留最近 %lld 个", BackupVersionStore.maxVersionsPerApp))
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if licenseManager.entitlement.isActive {
+                if isScanning {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(l10n("正在读取历史版本…"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                } else if versions.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundColor(.secondary)
+                        Text(l10n("还没有历史版本。下次迁移时，上一份备份会自动归档到这里。"))
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .mockCard()
+                } else {
+                    ForEach(versionGroups) { group in
+                        versionGroupCard(group)
+                    }
+                }
+            } else {
+                ProLockedCard(
+                    icon: "clock.arrow.circlepath",
+                    title: l10n("版本化备份（Pro）"),
+                    detail: l10n("每次迁移保留最近 5 个历史版本；更新翻车或应用装坏时，一键恢复到任意旧版。"),
+                    note: versions.isEmpty
+                        ? nil
+                        : l10n("已为你保留 %lld 份历史版本，升级或试用后即可恢复。", versions.count))
+            }
+        }
+    }
+
+    private func versionGroupCard(_ group: VersionGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "app.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(group.appName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text(l10n("%lld 个版本", group.items.count))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+            }
+            ForEach(group.items) { version in
+                HStack(spacing: 10) {
+                    Text(BackupVersionStore.displayText(version.createdAt))
+                        .font(.system(size: 12))
+                        .monospacedDigit()
+                    Text(version.sizeFormatted)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                    Spacer()
+                    Button(l10n("恢复")) { confirmRestore(version) }
+                        .controlSize(.small)
+                        .disabled(restoringVersionID != nil || appState.isMigrationActive)
+                    Button {
+                        deleteVersion(version)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                    .disabled(restoringVersionID != nil)
+                    .help(l10n("删除这个历史版本（不影响当前应用）"))
+                }
+                .padding(.vertical, 3)
+            }
+        }
+        .mockCard(padding: 14)
+    }
+
+    private func confirmRestore(_ version: BackupVersion) {
+        guard let app = appState.apps.first(where: { $0.bundleName == version.appName }) else {
+            let alert = NSAlert()
+            alert.messageText = l10n("找不到对应的应用")
+            alert.informativeText = l10n("「%@」不在当前应用列表里，无法从版本恢复。", version.appName)
+            alert.runModal()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = l10n("把「%@」恢复到 %@ 的版本？",
+                                 version.appName,
+                                 BackupVersionStore.displayText(version.createdAt))
+        alert.informativeText = l10n("\n        当前版本会先存进版本库作为「恢复前快照」，再用这个历史版本替换应用。\n        应用正在运行时会被拒绝，请先退出应用。\n        ")
+        alert.addButton(withTitle: l10n("恢复"))
+        alert.addButton(withTitle: l10n("取消"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        restoringVersionID = version.id
+        Task { @MainActor in
+            let result = await appState.migrator.restoreVersion(version, for: app)
+            restoringVersionID = nil
+            if result.success {
+                await appState.scanApps()
+                rescan()
+            } else {
+                let fail = NSAlert()
+                fail.messageText = l10n("恢复失败")
+                fail.informativeText = result.error ?? l10n("未知错误")
+                fail.runModal()
+            }
+        }
+    }
+
+    private func deleteVersion(_ version: BackupVersion) {
+        let alert = NSAlert()
+        alert.messageText = l10n("删除这个历史版本？")
+        alert.informativeText = l10n("%@ · %@\n\n只删除这一份历史副本，当前应用与当前备份不受影响。",
+                                     version.appName,
+                                     BackupVersionStore.displayText(version.createdAt))
+        alert.addButton(withTitle: l10n("删除"))
+        alert.addButton(withTitle: l10n("取消"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            let ok = await OffPool.run { BackupVersionStore.delete(version) }
+            await MainActor.run {
+                if ok {
+                    versions.removeAll { $0.id == version.id }
+                } else {
+                    lastError = l10n("删除历史版本失败（目录可能被占用）")
                 }
             }
         }
@@ -341,6 +521,7 @@ struct DataPanelView: View {
         let drive = appState.externalDrive?.mountPoint
         let apps = appState.apps
         let mounts = appState.volumeStore.onlineVolumes.map { $0.info.mountPoint }
+        let versionsEntitled = ProEntitlement.isEntitled(.versionedBackup)
         Task {
             // 6.6（Muse 审查）：heal 是同步 IO，OffPool 包一层，不占协作线程池
             _ = await OffPool.run { dataMigrator.healDataLinks() }
@@ -354,6 +535,15 @@ struct DataPanelView: View {
             }
             // 备份问题项：与总览同一引擎口径（overview scope 含备份检查，跳过最慢的两项）
             let report = await appState.checkEngine.run(drivePath: drive, apps: apps, scope: .overview)
+            // Pro 历史版本：免费用户只数条数（不算大小），解锁后连体积一起读
+            let loadedVersions = await OffPool.run { () -> [BackupVersion] in
+                var roots: [String] = []
+                for mount in mounts {
+                    roots.append(contentsOf: BackupLocations.backupRoots(for: mount))
+                }
+                return BackupVersionStore.listAllVersions(roots: roots,
+                                                          computeSize: versionsEntitled)
+            }
             // @State 必须主线程写：Task 里的 await 会把续体切到协作池，
             // 原 MainActor.run 不是多余的（自审：替换 rescan 时曾被误删）
             await MainActor.run {
@@ -362,6 +552,7 @@ struct DataPanelView: View {
                 divergences = diverged
                 backupBytes = backupTotal
                 backupIssues = report.backups
+                versions = loadedVersions
                 isScanning = false
             }
         }

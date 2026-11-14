@@ -187,6 +187,7 @@ struct MigrationHistoryView: View {
         case .remigrate: return "arrow.clockwise"
         case .relocate: return "arrow.left.arrow.right"
         case .undo: return "arrow.uturn.backward"
+        case .backupRestore: return "clock.arrow.circlepath"
         }
     }
 
@@ -199,6 +200,7 @@ struct MigrationHistoryView: View {
         case .remigrate: return .orange
         case .relocate: return .purple
         case .undo: return .gray
+        case .backupRestore: return .indigo
         }
     }
 
@@ -211,6 +213,7 @@ struct MigrationHistoryView: View {
         case .remigrate: return l10n("重新迁移")
         case .relocate: return l10n("盘间迁移")
         case .undo: return l10n("撤销操作")
+        case .backupRestore: return l10n("恢复备份版本")
         }
     }
 }

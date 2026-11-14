@@ -9,6 +9,12 @@ struct MigrationPanel: View {
     @State private var showPlanSheet = false
     @State private var showHistory = false
     private let dataMigrator = DataMigrator()
+
+    // 智能迁移建议（Pro）
+    @StateObject private var licenseManager = LicenseManager.shared
+    @State private var recommendations: [SmartRecommendation] = []
+    @State private var adviceScanning = false
+    @State private var adviceLoaded = false
     
     var body: some View {
         // 冷静控制台版：唯一主操作（实色 accent 胶囊）+ 状态卡 + 底部任务统计条
@@ -54,6 +60,9 @@ struct MigrationPanel: View {
                     } else if appState.apps.isEmpty || appState.externalDrive == nil {
                         emptyState
                     }
+
+                    // 智能迁移建议（Pro）：排序 + 理由 + 一键计划；未解锁显示锁定卡
+                    smartAdviceSection
 
                     if let summary = batchSummary {
                         Text(summary)
@@ -110,6 +119,166 @@ struct MigrationPanel: View {
         // 一份计划恰好执行一次。
         .onAppear { consumeApprovedPlan() }
         .onChange(of: appState.approvedMigrationPlan?.id) { _, _ in consumeApprovedPlan() }
+    }
+
+    // MARK: - 智能迁移建议（Pro）
+
+    @ViewBuilder
+    private var smartAdviceSection: some View {
+        if licenseManager.entitlement.isActive {
+            unlockedAdviceCard
+        } else {
+            ProLockedCard(
+                icon: "wand.and.stars",
+                title: l10n("智能迁移建议（Pro）"),
+                detail: l10n("按占用空间 × 闲置时长排序，附上理由，一键生成迁移计划；最近 14 天用过的不会被推荐。"),
+                note: adviceTeaser)
+                .onAppear { loadAdvice() }
+        }
+    }
+
+    /// 免费态钩子：不跑 mdls，只用体积算一句"值多少"
+    private var adviceTeaser: String? {
+        let candidates = SmartAdvice.candidates(appState.apps)
+        guard !candidates.isEmpty else { return nil }
+        let bytes = candidates.reduce(Int64(0)) { $0 + $1.size }
+        return l10n("内置盘还有 %lld 个应用（共 %@）适合迁出。", candidates.count,
+                    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+    }
+
+    private var unlockedAdviceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(MockTheme.accent)
+                Text(l10n("智能迁移建议"))
+                    .font(.system(size: 14, weight: .semibold))
+                if let days = licenseManager.trialDaysLeft {
+                    StatusPill(l10n("试用剩 %lld 天", days), color: MockTheme.statOrange)
+                }
+                Spacer()
+                Button { loadAdvice(force: true) } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(adviceScanning)
+                .help(l10n("重新分析使用记录"))
+            }
+
+            if adviceScanning {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(l10n("正在分析使用记录…"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 6)
+            } else if recommendations.isEmpty {
+                Text(adviceLoaded
+                     ? l10n("没有值得优先搬走的应用：要么都不大，要么最近 14 天都用过。")
+                     : l10n("应用列表还在扫描中…"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(Array(recommendations.prefix(SmartAdvice.displayLimit))) { rec in
+                    adviceRow(rec)
+                }
+                HStack(spacing: 8) {
+                    Text(l10n("共 %lld 个 · 可腾出 %@", recommendations.count,
+                              ByteCountFormatter.string(
+                                fromByteCount: SmartAdvice.totalSavings(recommendations),
+                                countStyle: .file)))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                    Spacer()
+                    Button(l10n("按建议生成计划")) {
+                        appState.migrationPlanRequest =
+                            MigrationPlanRequest(apps: recommendations.map(\.app))
+                    }
+                    .controlSize(.small)
+                    .disabled(appState.isMigrationActive)
+                }
+                .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .mockCard()
+        .onAppear { loadAdvice() }
+        .onChange(of: licenseManager.entitlement) { _, status in
+            if status.isActive { loadAdvice(force: true) }
+        }
+    }
+
+    private func adviceRow(_ rec: SmartRecommendation) -> some View {
+        HStack(spacing: 10) {
+            if let icon = rec.app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 22, height: 22)
+                    .cornerRadius(5)
+            } else {
+                Image(systemName: "app.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .frame(width: 22)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(rec.app.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text(rec.reasons.joined(separator: " · "))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(rec.sizeText)
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func loadAdvice(force: Bool = false) {
+        guard licenseManager.entitlement.isActive else {
+            recommendations = []
+            return
+        }
+        guard !adviceScanning else { return }
+        guard force || !adviceLoaded else { return }
+        let apps = appState.apps
+        let candidates = SmartAdvice.candidates(apps)
+        guard !candidates.isEmpty else {
+            recommendations = []
+            adviceLoaded = true
+            return
+        }
+        adviceScanning = true
+        // 只把 Sendable 的键值对交给 OffPool（AppItem 含 NSImage，不跨线程捕获）
+        let scanItems: [(id: String, path: String)] = candidates.map {
+            ($0.bundleID ?? $0.path, $0.path)
+        }
+        Task {
+            let lastUsed = await OffPool.run { () -> [String: Date] in
+                var result: [String: Date] = [:]
+                for item in scanItems {
+                    if let date = UnusedAppsCheck.lastUsedDate(atPath: item.path) {
+                        result[item.id] = date
+                    }
+                }
+                return result
+            }
+            await MainActor.run {
+                recommendations = SmartAdvice.rank(apps: apps, lastUsed: lastUsed)
+                adviceScanning = false
+                adviceLoaded = true
+            }
+        }
     }
 
     // 旧 taskCard 已移除（Task 3 Step 4）：无法完全委托给 MigrationExecutionView

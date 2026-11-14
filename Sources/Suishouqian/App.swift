@@ -165,6 +165,9 @@ class AppState: ObservableObject {
     /// 取走即置 nil（consumeApprovedPlan），保证一份计划恰好执行一次。
     @Published var approvedMigrationPlan: MigrationPlanSummary?
 
+    /// 全局 Pro 升级 Sheet（锁定卡/各页面入口共用一扇门）
+    @Published var showProUpgrade = false
+
     // MARK: - 更新助手
     /// 未完成的更新会话（持久化在 UserDefaults `updateSessions.v1`）
     @Published var updateSessions: [UpdateSession] = []
